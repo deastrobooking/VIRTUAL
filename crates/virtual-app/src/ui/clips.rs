@@ -49,7 +49,11 @@ pub(super) fn draw_clip_grid(
         .num_columns(CLIPS_PER_DECK + 1)
         .spacing([5.0, 5.0])
         .show(ui, |ui| {
-            ui.strong("SCENE");
+            ui.label(
+                egui::RichText::new("SCENE")
+                    .strong()
+                    .color(palette.grid_text),
+            );
             for slot in 0..CLIPS_PER_DECK {
                 let scene = fixed_cell(ui, SCENE_CELL, |ui| {
                     mappable(
@@ -61,7 +65,9 @@ pub(super) fn draw_clip_grid(
                             ui.add_sized(
                                 SCENE_CELL,
                                 egui::Button::new(
-                                    egui::RichText::new(format!("SCENE {}", slot + 1)).strong(),
+                                    egui::RichText::new(format!("SCENE {}", slot + 1))
+                                        .strong()
+                                        .color(palette.grid_text),
                                 )
                                 .fill(palette.control_tint(palette.secondary, 0.22)),
                             )
@@ -84,7 +90,9 @@ pub(super) fn draw_clip_grid(
                 if ui
                     .selectable_label(
                         mixer.selected() == deck,
-                        egui::RichText::new(format!("DECK {}", deck.label())).strong(),
+                        egui::RichText::new(format!("DECK {}", deck.label()))
+                            .strong()
+                            .color(palette.grid_text),
                     )
                     .on_hover_text("Select this deck's performance controls")
                     .clicked()
@@ -131,6 +139,7 @@ pub(super) fn draw_clip_grid(
                     } else {
                         format!("{}{}", deck.label(), slot + 1)
                     };
+                    let label = egui::RichText::new(label).color(palette.grid_text);
                     let button =
                         if let Some(thumbnail) = state.thumbnail(address, clips.path(address)) {
                             egui::Button::image_and_text(
@@ -142,7 +151,8 @@ pub(super) fn draw_clip_grid(
                                 .thumbnail_failure(address, clips.path(address))
                                 .is_some()
                             {
-                                format!("□ {label}")
+                                egui::RichText::new(format!("□ {}", label.text()))
+                                    .color(palette.grid_text)
                             } else {
                                 label
                             };

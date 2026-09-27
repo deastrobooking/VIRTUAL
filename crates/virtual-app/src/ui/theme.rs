@@ -19,6 +19,12 @@ pub use text_outline::outline_text;
 pub struct ThemePalette {
     pub text: egui::Color32,
     pub muted_text: egui::Color32,
+    /// Headings and emphasised labels (egui's "strong" text).
+    pub strong_text: egui::Color32,
+    /// Text on selected and toggled-on controls.
+    pub selected_text: egui::Color32,
+    /// Scene, deck and clip labels in the clip grid.
+    pub grid_text: egui::Color32,
     pub text_outline: egui::Color32,
     pub outline_width: f32,
     pub background: egui::Color32,
@@ -127,6 +133,9 @@ impl ThemePreset {
             Self::Nocturne => ThemePalette {
                 text: rgb(236, 240, 248),
                 muted_text: rgb(165, 174, 192),
+                strong_text: rgb(255, 255, 255),
+                selected_text: rgb(255, 255, 255),
+                grid_text: rgb(236, 240, 248),
                 text_outline: rgb(0, 0, 0),
                 outline_width: 1.25,
                 background: rgb(12, 13, 20),
@@ -153,6 +162,9 @@ impl ThemePreset {
             Self::Ultraviolet => ThemePalette {
                 text: rgb(236, 240, 248),
                 muted_text: rgb(165, 174, 192),
+                strong_text: rgb(255, 255, 255),
+                selected_text: rgb(255, 255, 255),
+                grid_text: rgb(236, 240, 248),
                 text_outline: rgb(0, 0, 0),
                 outline_width: 1.25,
                 background: rgb(14, 10, 22),
@@ -179,6 +191,9 @@ impl ThemePreset {
             Self::Ember => ThemePalette {
                 text: rgb(236, 240, 248),
                 muted_text: rgb(165, 174, 192),
+                strong_text: rgb(255, 255, 255),
+                selected_text: rgb(255, 255, 255),
+                grid_text: rgb(236, 240, 248),
                 text_outline: rgb(0, 0, 0),
                 outline_width: 1.25,
                 background: rgb(18, 12, 10),
@@ -205,6 +220,9 @@ impl ThemePreset {
             Self::Cathode => ThemePalette {
                 text: rgb(236, 240, 248),
                 muted_text: rgb(165, 174, 192),
+                strong_text: rgb(255, 255, 255),
+                selected_text: rgb(255, 255, 255),
+                grid_text: rgb(236, 240, 248),
                 text_outline: rgb(0, 0, 0),
                 outline_width: 1.25,
                 background: rgb(8, 14, 10),
@@ -231,6 +249,9 @@ impl ThemePreset {
             Self::Daylight => ThemePalette {
                 text: rgb(25, 31, 43),
                 muted_text: rgb(85, 93, 111),
+                strong_text: rgb(0, 0, 0),
+                selected_text: rgb(0, 0, 0),
+                grid_text: rgb(25, 31, 43),
                 text_outline: rgb(255, 255, 255),
                 outline_width: 1.25,
                 background: rgb(236, 238, 244),
@@ -620,7 +641,7 @@ impl ThemeState {
     }
 }
 
-fn palette_fields(p: &mut ThemePalette) -> [(&'static str, &mut egui::Color32); 20] {
+fn palette_fields(p: &mut ThemePalette) -> [(&'static str, &mut egui::Color32); 23] {
     let [a, b, c, d] = &mut p.deck;
     [
         ("background", &mut p.background),
@@ -631,6 +652,9 @@ fn palette_fields(p: &mut ThemePalette) -> [(&'static str, &mut egui::Color32); 
         ("code", &mut p.code),
         ("text", &mut p.text),
         ("muted_text", &mut p.muted_text),
+        ("strong_text", &mut p.strong_text),
+        ("selected_text", &mut p.selected_text),
+        ("grid_text", &mut p.grid_text),
         ("stroke", &mut p.stroke),
         ("text_outline", &mut p.text_outline),
         ("accent", &mut p.accent),
@@ -656,6 +680,9 @@ fn color_label(key: &str) -> &str {
         "code" => "Code fields",
         "text" => "Text",
         "muted_text" => "Secondary text",
+        "strong_text" => "Headings & emphasis",
+        "selected_text" => "Selected / active text",
+        "grid_text" => "Clip grid labels",
         "stroke" => "Element outlines",
         "text_outline" => "Text outlines",
         "accent" => "Accent",
@@ -698,6 +725,14 @@ fn apply(
     };
     style.visuals.override_text_color = Some(palette.text);
     style.visuals.weak_text_color = Some(palette.muted_text);
+    // egui keeps its own greys in the widget foreground strokes (check marks,
+    // arrows, icons) and takes strong text from the active state, so route
+    // every one of them through the palette.
+    style.visuals.widgets.noninteractive.fg_stroke.color = palette.text;
+    style.visuals.widgets.inactive.fg_stroke.color = palette.text;
+    style.visuals.widgets.hovered.fg_stroke.color = palette.strong_text;
+    style.visuals.widgets.active.fg_stroke.color = palette.strong_text;
+    style.visuals.widgets.open.fg_stroke.color = palette.text;
     style.visuals.widgets.noninteractive.bg_stroke =
         egui::Stroke::new(palette.outline_width, palette.stroke);
     style.visuals.widgets.inactive.bg_stroke =
@@ -711,14 +746,7 @@ fn apply(
     style.visuals.error_fg_color = palette.danger;
     style.visuals.hyperlink_color = palette.accent;
     style.visuals.selection.bg_fill = palette.selection_fill();
-    style.visuals.selection.stroke = egui::Stroke::new(
-        1.0,
-        if palette.dark {
-            egui::Color32::WHITE
-        } else {
-            egui::Color32::BLACK
-        },
-    );
+    style.visuals.selection.stroke = egui::Stroke::new(1.0, palette.selected_text);
     style.visuals.widgets.inactive.weak_bg_fill = palette.control;
     style.visuals.widgets.inactive.bg_fill = palette.control;
     let hovered = blend(palette.control, palette.accent, 0.18);
@@ -792,5 +820,50 @@ mod tests {
         assert_eq!(overridden.accent, egui::Color32::from_rgb(255, 0, 0));
         assert_eq!(overridden.surface, stock.surface);
         assert_eq!(overridden.deck, stock.deck);
+    }
+
+    #[test]
+    fn every_egui_text_color_follows_the_palette() {
+        let mut theme = ThemeState::default();
+        let strong = egui::Color32::from_rgb(250, 10, 10);
+        let selected = egui::Color32::from_rgb(10, 250, 10);
+        let grid = egui::Color32::from_rgb(10, 10, 250);
+        theme.appearance.colors.extend([
+            ("strong_text".to_owned(), [250, 10, 10]),
+            ("selected_text".to_owned(), [10, 250, 10]),
+            ("grid_text".to_owned(), [10, 10, 250]),
+        ]);
+        let palette = theme.palette();
+        assert_eq!(palette.grid_text, grid);
+
+        let ctx = egui::Context::default();
+        theme.ensure_applied(&ctx);
+        let visuals = ctx.style_of(ctx.theme()).visuals.clone();
+        assert_eq!(visuals.strong_text_color(), strong);
+        assert_eq!(visuals.selection.stroke.color, selected);
+        assert_eq!(visuals.text_color(), palette.text);
+        assert_eq!(visuals.weak_text_color(), palette.muted_text);
+        for widget in [
+            visuals.widgets.noninteractive,
+            visuals.widgets.inactive,
+            visuals.widgets.open,
+        ] {
+            assert_eq!(widget.fg_stroke.color, palette.text);
+        }
+    }
+
+    #[test]
+    fn stock_presets_keep_their_previous_emphasis_colors() {
+        for preset in ThemePreset::ALL {
+            let palette = preset.palette();
+            let expected = if palette.dark {
+                egui::Color32::WHITE
+            } else {
+                egui::Color32::BLACK
+            };
+            assert_eq!(palette.strong_text, expected, "{}", preset.name());
+            assert_eq!(palette.selected_text, expected, "{}", preset.name());
+            assert_eq!(palette.grid_text, palette.text, "{}", preset.name());
+        }
     }
 }
