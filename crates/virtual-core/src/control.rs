@@ -302,6 +302,29 @@ impl MidiMapper {
         self.learning
     }
 
+    /// For each binding, whether another binding listens to the same
+    /// physical control. One knob may deliberately drive several targets,
+    /// but after a re-learn it is usually a leftover worth surfacing.
+    pub fn shared_sources(&self) -> Vec<bool> {
+        fn source(binding: &MidiBinding) -> (&str, u8, MidiMessageKind, u8) {
+            (
+                binding.device.as_str(),
+                binding.channel,
+                binding.kind,
+                binding.number,
+            )
+        }
+        self.bindings
+            .iter()
+            .enumerate()
+            .map(|(index, binding)| {
+                self.bindings.iter().enumerate().any(|(other, candidate)| {
+                    other != index && source(candidate) == source(binding)
+                })
+            })
+            .collect()
+    }
+
     pub fn clear_target(&mut self, target: ControlTarget) {
         self.bindings.retain(|binding| binding.target != target);
         if self.learning == Some(target) {
@@ -651,6 +674,18 @@ mod tests {
         assert_eq!(binding.apply(cc(20), 0.5), None);
         // One message jumps from below to above 0.5 without landing near it.
         assert!(binding.apply(cc(110), 0.5).is_some());
+    }
+
+    #[test]
+    fn shared_sources_flags_one_control_driving_two_targets() {
+        let mut mapper = MidiMapper::default();
+        mapper.learn(ControlTarget::Crossfader);
+        mapper.ingest("knobs", cc(0), |_| 0.0);
+        mapper.learn(ControlTarget::MasterOpacity);
+        mapper.ingest("knobs", cc(0), |_| 0.0);
+        mapper.learn(ControlTarget::DeckLevel(0));
+        mapper.ingest("other", cc(0), |_| 0.0);
+        assert_eq!(mapper.shared_sources(), vec![true, true, false]);
     }
 
     #[test]

@@ -80,6 +80,12 @@ stuck deck selection or stale frame after seek/source replacement.
 - Deny then grant camera/microphone permission on a clean test account.
 - Disconnect/reconnect the selected audio input and each requested MIDI device.
 - Verify MIDI soft takeover, multiple-controller input and emergency controls.
+  Learn a velocity-sensitive pad onto a clip launch and fire it softly; flag a
+  control shared between two targets.
+- Copy the show folder to another drive, open it there and confirm every clip
+  resolves. Confirm `Cmd+O` is refused in Show Mode.
+- Build with `sh scripts/build-macos.sh --portable` and launch it on a Mac
+  without Homebrew.
 - Start/stop OSC input and feedback; send malformed and future-timetag packets
   and confirm bounded error/drop counters.
 - Make the session-journal destination temporarily unavailable or unwritable;

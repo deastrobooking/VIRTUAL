@@ -45,7 +45,7 @@ target-specific `deck-v1` GPU contract.
 
 ## Not implemented
 
-- Recent-project list and graphical Save As browser
+- Recent-project list
 - OSC route expansion/discovery, Ableton Link, NDI, Syphon/Spout and projection mapping
-- Application packaging, signing and FFmpeg distribution
+- Developer ID signing, notarization and a pre-macOS-26 FFmpeg build (`--portable` bundles Homebrew FFmpeg)
 - Graph editor, Score view, Spatial view and compiled GPU node execution

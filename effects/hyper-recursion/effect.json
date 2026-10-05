@@ -1,5 +1,5 @@
 {
-  "format":"oneiroi-effect","version":2,"id":"hyper-recursion","name":"Hyper Recursion 4D+",
+  "format": "virtual-effect","version":2,"id":"hyper-recursion","name":"Hyper Recursion 4D+",
   "description":"Projects recursive 4D, 5D and 6D transforms back through the source plane.",
   "role":"effect","targets":["master","deck"],"abi":"deck-v1","shader":"hyper_recursion.wgsl",
   "parameters":[

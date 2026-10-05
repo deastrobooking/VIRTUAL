@@ -1,5 +1,5 @@
 {
-  "format": "oneiroi-effect",
+  "format": "virtual-effect",
   "version": 2,
   "id": "thermal-contours",
   "name": "Thermal Contours",

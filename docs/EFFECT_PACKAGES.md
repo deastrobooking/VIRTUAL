@@ -80,9 +80,12 @@ cargo run -p virtual-render --example effect_preview -- kaleidoscope spiral-bloo
 
 ## Manifest
 
+`format` must be `virtual-effect`. Packages written for the earlier
+`oneiroi-effect` name still load unchanged.
+
 ```json
 {
-  "format": "oneiroi-effect",
+  "format": "virtual-effect",
   "version": 1,
   "id": "spectral-echo",
   "name": "Spectral echo",
@@ -272,7 +275,7 @@ The catalog-level v2 shape is:
 
 ```json
 {
-  "format": "oneiroi-effect",
+  "format": "virtual-effect",
   "version": 2,
   "id": "deck-effect",
   "name": "Deck effect",

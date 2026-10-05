@@ -1,5 +1,13 @@
 #!/bin/sh
-# Local event build; uses the FFmpeg libraries installed on this Mac.
+# Build target/release/VIRTUAL.app.
+#
+#   sh scripts/build-macos.sh             local event build; links this Mac's
+#                                         Homebrew FFmpeg in place
+#   sh scripts/build-macos.sh --portable  copies every non-system dylib into
+#                                         Contents/Frameworks so the bundle runs
+#                                         on a Mac without Homebrew
+#
+# Both are ad-hoc signed: valid locally, not notarized for distribution.
 set -eu
 project_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 cd "$project_root"
@@ -7,13 +15,23 @@ if [ "$(uname -s)" != Darwin ]; then
     echo "This packaging command requires macOS." >&2
     exit 1
 fi
+portable=false
+for argument in "$@"; do
+    case "$argument" in
+        --portable) portable=true ;;
+        *) echo "Unknown option: $argument" >&2; exit 2 ;;
+    esac
+done
+
 cargo build --release --locked -p virtual-app
 release_dir="$project_root/target/release"
 staging=$(mktemp -d "$release_dir/virtual-bundle.XXXXXX")
 trap 'rm -rf "$staging"' EXIT HUP INT TERM
 bundle="$staging/VIRTUAL.app"
+executable="$bundle/Contents/MacOS/virtual"
+frameworks="$bundle/Contents/Frameworks"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
-cp "$release_dir/virtual" "$bundle/Contents/MacOS/virtual"
+cp "$release_dir/virtual" "$executable"
 cp "$project_root/packaging/macos/Info.plist" "$bundle/Contents/Info.plist"
 cp -R "$project_root/effects" "$bundle/Contents/Resources/effects"
 cp "$project_root/LICENSE" "$bundle/Contents/Resources/LICENSE"
@@ -21,15 +39,85 @@ cp "$project_root/docs/EVENT_SETUP.md" "$bundle/Contents/Resources/EVENT_SETUP.m
 cp "$project_root/docs/VIDEO_INPUTS.md" "$bundle/Contents/Resources/VIDEO_INPUTS.md"
 cp "$project_root/docs/RELEASE_CHECKLIST.md" "$bundle/Contents/Resources/RELEASE_CHECKLIST.md"
 cp "$project_root/docs/SHADER_SYSTEM.md" "$bundle/Contents/Resources/SHADER_SYSTEM.md"
-plutil -lint "$bundle/Contents/Info.plist"
-# Ad-hoc signing makes a valid local bundle, not a notarized distribution.
+
+# Non-system libraries a Mach-O file links by absolute path.
+external_dylibs() {
+    otool -L "$1" | tail -n +2 | awk '{print $1}' | grep -E '^/(opt/homebrew|usr/local)/' || true
+}
+
+# Lowest macOS a Mach-O file declares it can run on.
+minimum_macos() {
+    otool -l "$1" | awk '/LC_BUILD_VERSION/ {found = 1} found && $1 == "minos" {print $2; exit}'
+}
+
+# Copy the transitive closure of external dylibs beside the executable and
+# point every reference at @rpath. Homebrew paths contain no spaces.
+bundle_dylibs() {
+    mkdir -p "$frameworks"
+    queue="$executable"
+    while [ -n "$queue" ]; do
+        set -- $queue
+        file=$1
+        shift
+        queue="$*"
+        for dependency in $(external_dylibs "$file"); do
+            name=$(basename "$dependency")
+            if [ ! -e "$frameworks/$name" ]; then
+                cp "$(realpath "$dependency")" "$frameworks/$name"
+                chmod u+w "$frameworks/$name"
+                install_name_tool -id "@rpath/$name" "$frameworks/$name" 2>/dev/null
+                queue="$queue $frameworks/$name"
+            fi
+            install_name_tool -change "$dependency" "@rpath/$name" "$file" 2>/dev/null
+        done
+    done
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$executable" 2>/dev/null
+    leftovers=""
+    for file in "$executable" "$frameworks"/*.dylib; do
+        if [ -n "$(external_dylibs "$file")" ]; then
+            leftovers="$leftovers $file"
+        fi
+    done
+    if [ -n "$leftovers" ]; then
+        echo "Unbundled Homebrew references remain in:$leftovers" >&2
+        exit 1
+    fi
+}
+
+if $portable; then
+    bundle_dylibs
+    macho_files="$executable $(ls "$frameworks"/*.dylib)"
+else
+    macho_files="$executable $(external_dylibs "$executable")"
+fi
+
+# The bundle can run no earlier than its most demanding library.
+minimum=$(for file in $macho_files; do minimum_macos "$file"; done | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1)
+version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$project_root/Cargo.toml" | head -n 1)
+build=$(git -C "$project_root" rev-list --count HEAD 2>/dev/null || echo 1)
+plist="$bundle/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$version" "$plist"
+plutil -replace CFBundleVersion -string "$build" "$plist"
+plutil -replace LSMinimumSystemVersion -string "$minimum" "$plist"
+plutil -lint "$plist"
+
+# Modified libraries lose their signatures; sign inside-out.
+if $portable; then
+    for library in "$frameworks"/*.dylib; do
+        codesign --force --sign - "$library"
+    done
+fi
 codesign --force --sign - "$bundle"
-codesign --verify --strict "$bundle"
-otool -L "$bundle/Contents/MacOS/virtual" > "$staging/dynamic-libraries.txt"
+codesign --verify --strict --deep "$bundle"
+otool -L "$executable" > "$staging/dynamic-libraries.txt"
 # Only replace our generated bundle after building and validating its successor.
 rm -rf "$release_dir/VIRTUAL.app"
 mv "$bundle" "$release_dir/VIRTUAL.app"
 mv "$staging/dynamic-libraries.txt" "$release_dir/VIRTUAL-dynamic-libraries.txt"
 (cd "$release_dir" && shasum -a 256 VIRTUAL.app/Contents/MacOS/virtual > VIRTUAL.sha256)
-echo "Built $release_dir/VIRTUAL.app"
-echo "Local build: keep this Mac's Homebrew FFmpeg installation available."
+echo "Built $release_dir/VIRTUAL.app (version $version build $build, macOS $minimum+)"
+if $portable; then
+    echo "Portable: $(ls "$release_dir/VIRTUAL.app/Contents/Frameworks" | wc -l | tr -d ' ') bundled libraries."
+else
+    echo "Local build: keep this Mac's Homebrew FFmpeg installation available."
+fi

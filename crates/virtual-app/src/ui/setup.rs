@@ -130,6 +130,12 @@ pub(super) fn draw_setup(
                 if ui.button("Save").clicked() {
                     actions.push(UiAction::SaveProject);
                 }
+                if ui.button("Open…").clicked() {
+                    actions.push(UiAction::BrowseOpenProject);
+                }
+                if ui.button("Save As…").clicked() {
+                    actions.push(UiAction::SaveProjectAs);
+                }
                 if metrics.recovery_available && ui.button("Recover autosave").clicked() {
                     actions.push(UiAction::RecoverProject);
                 }

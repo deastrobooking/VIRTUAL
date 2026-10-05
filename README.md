@@ -13,7 +13,10 @@ See [Link setup and validation](docs/ABLETON_LINK.md).
 For the local macOS event build, run `sh scripts/build-macos.sh` and open
 `target/release/VIRTUAL.app`. See [event setup](docs/EVENT_SETUP.md) for projector,
 sound-reactive modulation, tap tempo and HDMI capture. This bundle uses the
-FFmpeg libraries installed on the build Mac; it is not a portable distribution.
+FFmpeg libraries installed on the build Mac. `sh scripts/build-macos.sh --portable`
+instead copies FFmpeg and its dependencies into the bundle so it runs on Macs
+without Homebrew (macOS 26 or later, matching the Homebrew libraries). Both are
+ad-hoc signed, not notarized.
 
 ## At a glance
 
@@ -172,8 +175,11 @@ The current source tree includes:
 - Versioned `.virtual` JSON projects containing all 32 media paths, active and
   selected clips, per-clip playback settings, mixer/transport/effect state,
   tempo settings and MIDI maps.
-- Atomic Save/Save As-style path workflow, `Cmd/Ctrl+S`, bounded background
-  project writes and five-second autosave, close-time recovery snapshots and explicit crash-recovery loading.
+- Atomic saves with native Open…/Save As… dialogs, `Cmd/Ctrl+S`,
+  `Cmd/Ctrl+Shift+S` and `Cmd/Ctrl+O`, bounded background project writes,
+  five-second autosave, close-time recovery snapshots and explicit
+  crash-recovery loading. Media inside the show folder is stored relative to
+  the project, so a copied show folder opens on another drive or Mac.
 - Asynchronous 32-slot project restoration with project-epoch rejection;
   missing media remains visible with its original path and can be relinked
   through a native per-slot file browser without losing clip settings.
@@ -272,7 +278,11 @@ Safety/performance keys: `B` toggles blackout, `Space` toggles master freeze,
 `O` toggles program output, arrow keys move the crossfader, `Home` centers it,
 `1`–`8` launch scenes, and `Delete`/`Backspace` removes the selected clip when
 Show Mode is off and no text field owns the key. `Cmd/Ctrl+S` saves to the
-project path shown in the operator window.
+project path shown in the operator window, `Cmd/Ctrl+Shift+S` is Save As and
+`Cmd/Ctrl+O` opens a show (both unavailable in Show Mode).
+
+Build prerequisites, the quality gate, packaging and file-format rules are in
+[Developing VIRTUAL](docs/DEVELOPMENT.md).
 
 Release candidates should follow the automated, fixture, hardware-failure and
 packaging gates in [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md).
@@ -308,6 +318,7 @@ for setup and troubleshooting.
 - [MIDI beat-clock sync](docs/MIDI_SYNC.md)
 - [Feature status](docs/FEATURES.md)
 - [Application review](docs/REVIEW.md)
+- [Developing VIRTUAL](docs/DEVELOPMENT.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Shader system and upgrade plan](docs/SHADER_SYSTEM.md)
 - [Effect package authoring](docs/EFFECT_PACKAGES.md)

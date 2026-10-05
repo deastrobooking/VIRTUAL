@@ -391,10 +391,14 @@ impl State {
                 self.output.window.set_visible(enabled);
             }
             KeyCode::KeyS if self.modifiers.control_key() || self.modifiers.super_key() => {
-                self.save_project_from_ui();
+                if self.modifiers.shift_key() || self.path_from_ui().is_none() {
+                    self.save_project_as_dialog();
+                } else {
+                    self.save_project_from_ui();
+                }
             }
             KeyCode::KeyO if self.modifiers.control_key() || self.modifiers.super_key() => {
-                self.open_project_from_ui();
+                self.open_project_dialog();
             }
             KeyCode::Delete | KeyCode::Backspace if !self.ui.show_mode => {
                 let deck = self.mixer.selected();

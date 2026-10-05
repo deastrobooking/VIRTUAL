@@ -237,6 +237,8 @@ fn v5_golden_project_migrates_to_v6_and_round_trips() {
     assert_eq!(source.version, 5);
     source.version = PROJECT_VERSION;
     assert_eq!(source.version, PROJECT_VERSION);
+    // Loading also adopts the VIRTUAL format name.
+    source.format = virtual_io::PROJECT_FORMAT.to_owned();
 
     let project = load_project(fixture_path(V5_FIXTURE)).unwrap();
     assert_eq!(project, source);

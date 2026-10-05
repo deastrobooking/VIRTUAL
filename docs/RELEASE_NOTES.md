@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Session saving, mapping and packaging (2026-10-05)
+
+- Media inside the show folder is saved relative to the project; copied show
+  folders open on other drives and Macs. Existing projects convert on next save.
+- Native Open…/Save As… dialogs and `Cmd/Ctrl+Shift+S`. `Cmd/Ctrl+O` now opens a
+  picker and, like the toolbar, refuses to replace the show in Show Mode.
+- Saves retire the matching autosave and skip identical recovery snapshots,
+  ending false "Recover autosave" offers. Recovered shows save to a unique
+  `(recovered)` name. Validation errors name the rejected field, and the
+  project directory is synced after the atomic rename.
+- The unsaved-changes indicator is computed four times a second instead of
+  every frame.
+- MIDI learn picks target-appropriate defaults: Momentary or Toggle for pads,
+  and each target's natural output range. Toggle follows the live value; soft
+  takeover re-arms after external changes and picks up on fast sweeps. Shared
+  physical controls are flagged in both mapping lists.
+- `sh scripts/build-macos.sh --portable` bundles FFmpeg and its dependencies,
+  and both modes stamp version, build number and minimum macOS into the bundle.
+- Saved files now use VIRTUAL format names: `virtual-project`,
+  `virtual-effect` and `virtual-session-journal`. Files using the earlier
+  `oneiroi-*` names still load, and are rewritten under the new name on save.
+  Builds from before this change can't open re-saved projects.
+- Added a [developer guide](DEVELOPMENT.md) covering setup, the quality gate,
+  packaging, format compatibility and the save and mapping internals.
+
 ### Event preparation (2026-09-25)
 
 - Added always-visible BPM/tap tempo and connected-input audio meters, including

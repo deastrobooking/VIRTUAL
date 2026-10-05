@@ -529,7 +529,9 @@ Stage-safety shortcuts:
 | `Left` / `Right` | Move the crossfader |
 | `Home` | Center the crossfader |
 | `1`–`8` | Launch a scene |
-| `Cmd/Ctrl+S` | Save the current project |
+| `Cmd/Ctrl+S` | Save the current project (asks for a location when none is set) |
+| `Cmd/Ctrl+Shift+S` | Save As… (not in Show Mode) |
+| `Cmd/Ctrl+O` | Open a show (not in Show Mode) |
 
 ## Program output
 
@@ -582,6 +584,15 @@ Each row supports:
 - **Relative 2's comp** for encoders sending `1`/`127` increments.
 - Editable output minimum/maximum, inversion and pickup/soft takeover.
 
+Learning picks sensible defaults. Pads and keys become **Momentary** on clip,
+scene, restart, select and tap targets, so a soft velocity-sensitive hit still
+fires, and **Toggle** on blackout, freeze, play and enable switches. Knobs get
+the target's natural range, for example 0.5–2× for deck speed. Toggle always
+flips the control's current state, even after it was changed on screen. With
+pickup enabled, a control re-arms whenever its value moves from another source,
+and catches up as soon as the hardware reaches or sweeps past it. A **shared**
+tag marks a physical control that drives more than one target.
+
 Mappings cover crossfader/master controls, all four deck transports and
 levels, clip and scene launches, effects, LFO parameters and modulation-matrix
 routes. Blackout and master freeze act immediately; clip and scene launches
@@ -601,7 +612,10 @@ from a previous project do not remain live after another rig is opened.
 
 ## Projects and recovery
 
-The project toolbar can open and save `.virtual` files. Version-six projects store all 32
+The project toolbar can open and save `.virtual` files by path or through the
+native **Open…** and **Save As…** dialogs. Opening another show is blocked in
+Show Mode. Clips inside the project's folder are stored relative to it, so
+copy the whole show folder to move a show between drives or machines. Version-six projects store all 32
 clip paths, per-slot trim/launch/beat settings, deck state, camera reconnect
 settings, mixer values, transport, effects, per-deck algorithmic packages,
 LFOs, modulation routes, tempo,
@@ -610,7 +624,10 @@ devices.
 Version-one projects are upgraded when loaded.
 
 VIRTUAL writes a recovery autosave after changes and on close. Use **Recover
-autosave** when the recovery copy is newer. Missing files remain represented in
+autosave** when the recovery copy is newer. A successful save retires the
+show's autosave, so the offer only appears when unsaved work exists. A
+recovered show saves to a new `<show> (recovered).virtual` beside the original
+and never overwrites an existing file. Missing files remain represented in
 their original slots. Select a missing slot and press **Browse and relink…**,
 or right-click any path-bearing slot and choose **Relink media…**. The native
 picker starts beside the previous file when that directory still exists.

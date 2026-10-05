@@ -1,10 +1,13 @@
 //! Serialized project writes. Submission and completion polling never wait on disk.
 
-use std::path::PathBuf;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 
-use virtual_io::{ProjectFile, save_project_portable};
+use virtual_io::{ProjectFile, autosave_path, save_project_portable};
+
+use crate::project;
 
 const SAVE_QUEUE_CAPACITY: usize = 4;
 
@@ -19,6 +22,10 @@ pub(crate) struct SaveRequest {
     pub path: PathBuf,
     pub snapshot: ProjectFile,
     pub kind: SaveKind,
+    /// Recovery files a successful project save makes obsolete. The
+    /// destination's own autosave is always removed; any other path only if
+    /// this session wrote it, so an unrecovered crash snapshot survives.
+    pub supersedes: Vec<PathBuf>,
 }
 
 pub(crate) struct SaveCompletion {
@@ -40,9 +47,18 @@ pub(crate) struct ProjectSaver {
 
 impl ProjectSaver {
     pub fn new() -> std::io::Result<Self> {
-        Self::spawn(|request| {
+        let mut recovery = RecoveryLedger::default();
+        Self::spawn(move |request| {
+            if request.kind == SaveKind::Recovery && recovery.is_redundant(request) {
+                // Identical to the project just saved: an equal-but-newer
+                // autosave would only raise a false recovery offer later.
+                remove_recovery(&request.path);
+                return Ok(());
+            }
             save_project_portable(&request.path, &request.snapshot)
-                .map_err(|error| error.to_string())
+                .map_err(|error| error.to_string())?;
+            recovery.record(request);
+            Ok(())
         })
     }
 
@@ -102,6 +118,50 @@ impl ProjectSaver {
     }
 }
 
+/// Worker-side memory of what was saved, so recovery files never outlive the
+/// state they protect.
+#[derive(Default)]
+struct RecoveryLedger {
+    saved: Option<(PathBuf, ProjectFile)>,
+    written: BTreeSet<PathBuf>,
+}
+
+impl RecoveryLedger {
+    fn is_redundant(&self, request: &SaveRequest) -> bool {
+        self.saved.as_ref().is_some_and(|(path, saved)| {
+            autosave_path(Some(path), Path::new("")) == request.path
+                && !project::is_dirty(&request.snapshot, Some(saved))
+        })
+    }
+
+    fn record(&mut self, request: &SaveRequest) {
+        match request.kind {
+            SaveKind::Recovery => {
+                self.written.insert(request.path.clone());
+            }
+            SaveKind::Project => {
+                let own = autosave_path(Some(&request.path), Path::new(""));
+                for path in &request.supersedes {
+                    if *path == own || self.written.remove(path) {
+                        remove_recovery(path);
+                    }
+                }
+                remove_recovery(&own);
+                self.written.remove(&own);
+                self.saved = Some((request.path.clone(), request.snapshot.clone()));
+            }
+        }
+    }
+}
+
+fn remove_recovery(path: &Path) {
+    if let Err(error) = std::fs::remove_file(path)
+        && error.kind() != std::io::ErrorKind::NotFound
+    {
+        log::warn!("remove superseded recovery {}: {error}", path.display());
+    }
+}
+
 impl Drop for ProjectSaver {
     fn drop(&mut self) {
         self.finish();
@@ -120,6 +180,7 @@ mod tests {
             path: "unused.virtual".into(),
             snapshot: ProjectFile::default(),
             kind: SaveKind::Recovery,
+            supersedes: Vec::new(),
         }
     }
 
@@ -166,6 +227,68 @@ mod tests {
         assert_eq!(completion.result, Err("disk unavailable".to_owned()));
     }
 
+    fn temp_show(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("virtual-{name}-{stamp}"));
+        std::fs::create_dir_all(&directory).unwrap();
+        directory
+    }
+
+    fn save(saver: &ProjectSaver, path: &Path, snapshot: &ProjectFile, kind: SaveKind) {
+        saver
+            .submit(SaveRequest {
+                epoch: 1,
+                path: path.to_owned(),
+                snapshot: snapshot.clone(),
+                kind,
+                supersedes: Vec::new(),
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn project_save_retires_its_recovery_and_skips_identical_autosaves() {
+        let directory = temp_show("ledger");
+        let path = directory.join("show.virtual");
+        let recovery = autosave_path(Some(&path), &directory);
+        let mut edited = ProjectFile::default();
+        edited.settings.bpm = 128.0;
+
+        let saver = ProjectSaver::new().unwrap();
+        save(&saver, &recovery, &edited, SaveKind::Recovery);
+        save(&saver, &path, &edited, SaveKind::Project);
+        // Queued before the save completed, but carries nothing new.
+        save(&saver, &recovery, &edited, SaveKind::Recovery);
+        drop(saver);
+        assert!(path.is_file());
+        assert!(!recovery.exists());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn saving_keeps_a_crash_snapshot_this_session_did_not_write() {
+        let directory = temp_show("crash");
+        let untitled = autosave_path(None, &directory);
+        virtual_io::save_project_atomic(&untitled, &ProjectFile::default()).unwrap();
+
+        let saver = ProjectSaver::new().unwrap();
+        saver
+            .submit(SaveRequest {
+                epoch: 1,
+                path: directory.join("new.virtual"),
+                snapshot: ProjectFile::default(),
+                kind: SaveKind::Project,
+                supersedes: vec![untitled.clone()],
+            })
+            .unwrap();
+        drop(saver);
+        assert!(untitled.is_file());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
     #[test]
     fn shutdown_flushes_accepted_snapshots_in_order() {
         let stamp = SystemTime::now()
@@ -184,6 +307,7 @@ mod tests {
                     path: path.clone(),
                     snapshot: last.clone(),
                     kind: SaveKind::Project,
+                    supersedes: Vec::new(),
                 })
                 .unwrap();
         }

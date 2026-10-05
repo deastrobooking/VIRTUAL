@@ -1,6 +1,6 @@
 //! Project snapshot, save/open, restore polling and autosave.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use virtual_core::MediaTime;
@@ -12,7 +12,7 @@ use virtual_media::{ClipAddress, ClipBank, ClipRestoreRequest, DeckId, LaunchQue
 use virtual_session::{CommandOperation, CommandOrigin};
 
 use super::project_save::{SaveCompletion, SaveKind, SaveRequest};
-use super::{State, display_path, project};
+use super::{State, display_path, paths, project};
 
 const DIRTY_CHECK_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -89,6 +89,7 @@ impl State {
         };
         let request = SaveRequest {
             epoch: self.project_epoch,
+            supersedes: vec![autosave_path(self.project_path.as_deref(), &self.workspace)],
             path,
             snapshot: self.project_snapshot(),
             kind: SaveKind::Project,
@@ -125,6 +126,8 @@ impl State {
                 self.recovery_path = None;
                 self.project_status = format!("Saved {}", display_path(&request.path));
             }
+            // The worker discards a snapshot equal to the saved project.
+            Ok(()) if !project::is_dirty(&request.snapshot, self.last_saved_project.as_ref()) => {}
             Ok(()) => {
                 self.recovery_path = Some(request.path);
                 self.project_status = "Autosaved recovery snapshot.".to_owned();
@@ -148,7 +151,59 @@ impl State {
         }
     }
 
+    /// Native Save As. Like media relink, the modal dialog runs on this
+    /// thread, so it is refused in Show Mode where output must keep moving.
+    pub(crate) fn save_project_as_dialog(&mut self) {
+        if self.ui.show_mode {
+            self.project_status = "Save As is unavailable in Show Mode.".to_owned();
+            return;
+        }
+        let current = self.path_from_ui();
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Save Show As")
+            .add_filter("VIRTUAL project", &["virtual"]);
+        if let Some(parent) = current.as_deref().and_then(Path::parent)
+            && parent.is_dir()
+        {
+            dialog = dialog.set_directory(parent);
+        }
+        let name = current
+            .as_deref()
+            .and_then(Path::file_name)
+            .and_then(|name| name.to_str())
+            .unwrap_or("show.virtual");
+        let Some(path) = dialog.set_file_name(name).save_file() else {
+            self.project_status = "Save As cancelled".to_owned();
+            return;
+        };
+        self.ui.project_path = with_project_extension(path).to_string_lossy().into_owned();
+        self.save_project_from_ui();
+    }
+
+    pub(crate) fn open_project_dialog(&mut self) {
+        if self.ui.show_mode {
+            self.project_status = "Leave Show Mode to open another show.".to_owned();
+            return;
+        }
+        let mut dialog = rfd::FileDialog::new()
+            .set_title("Open Show")
+            .add_filter("VIRTUAL project", &["virtual", "oneiroi"]);
+        if let Some(parent) = self.path_from_ui().as_deref().and_then(Path::parent)
+            && parent.is_dir()
+        {
+            dialog = dialog.set_directory(parent);
+        }
+        match dialog.pick_file() {
+            Some(path) => self.open_project(path, false),
+            None => self.project_status = "Open cancelled".to_owned(),
+        }
+    }
+
     pub(crate) fn open_project_from_ui(&mut self) {
+        if self.ui.show_mode {
+            self.project_status = "Leave Show Mode to open another show.".to_owned();
+            return;
+        }
         let Some(path) = self.path_from_ui() else {
             self.project_status = "Enter a project path first.".to_owned();
             return;
@@ -176,9 +231,13 @@ impl State {
                 if recovered {
                     self.project_path = None;
                     self.recovery_path = None;
-                    self.ui.project_path = "recovered-show.virtual".to_owned();
-                    self.project_status =
-                        format!("Recovered autosave from {}", display_path(&path));
+                    let destination = paths::recovered_save_path(&path, &self.workspace);
+                    self.project_status = format!(
+                        "Recovered autosave from {} · Save writes {}",
+                        display_path(&path),
+                        display_path(&destination)
+                    );
+                    self.ui.project_path = destination.to_string_lossy().into_owned();
                 } else {
                     self.project_path = Some(path.clone());
                     self.ui.project_path = path.to_string_lossy().into_owned();
@@ -405,9 +464,42 @@ impl State {
             path,
             snapshot: self.project_snapshot(),
             kind: SaveKind::Recovery,
+            supersedes: Vec::new(),
         };
         if let Err(error) = self.project_saver.submit(request) {
             self.project_status = format!("Autosave deferred: {error}");
         }
+    }
+}
+
+/// Keep saves recognizable as shows: `set` and `set.show` both become
+/// `….virtual`, while an existing project extension is left alone.
+fn with_project_extension(path: PathBuf) -> PathBuf {
+    if paths::is_project_path(&path) {
+        return path;
+    }
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(".virtual");
+    path.with_file_name(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_as_appends_the_project_extension_only_when_missing() {
+        assert_eq!(
+            with_project_extension("/shows/set".into()),
+            PathBuf::from("/shows/set.virtual")
+        );
+        assert_eq!(
+            with_project_extension("/shows/set.v2".into()),
+            PathBuf::from("/shows/set.v2.virtual")
+        );
+        assert_eq!(
+            with_project_extension("/shows/set.virtual".into()),
+            PathBuf::from("/shows/set.virtual")
+        );
     }
 }

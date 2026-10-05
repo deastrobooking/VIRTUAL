@@ -8,7 +8,9 @@ use std::path::{Component, Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-pub const EFFECT_MANIFEST_FORMAT: &str = "oneiroi-effect";
+pub const EFFECT_MANIFEST_FORMAT: &str = "virtual-effect";
+/// Pre-rename identity. Third-party packages using it still load.
+pub const LEGACY_EFFECT_MANIFEST_FORMAT: &str = "oneiroi-effect";
 pub const EFFECT_MANIFEST_VERSION: u32 = 2;
 const MIN_EFFECT_MANIFEST_VERSION: u32 = 1;
 const MAX_PARAMETERS: usize = 32;
@@ -329,7 +331,8 @@ pub fn discover_effect_packages(root: impl AsRef<Path>) -> EffectRegistry {
 }
 
 fn validate_manifest(manifest: &EffectManifest) -> Result<(), EffectManifestError> {
-    if manifest.format != EFFECT_MANIFEST_FORMAT {
+    if manifest.format != EFFECT_MANIFEST_FORMAT && manifest.format != LEGACY_EFFECT_MANIFEST_FORMAT
+    {
         return Err(EffectManifestError::Invalid(format!(
             "format must be {EFFECT_MANIFEST_FORMAT:?}"
         )));

@@ -414,12 +414,17 @@ Operator-window resizing does not change composition resolution.
 
 ## Persistence
 
-`.virtual` files are versioned JSON. The current schema is version 6 and
-version-one through version-five files are migrated on load. Version 3 adds
-stable custom-effect package IDs and named parameter values. Saves write a
-temporary sibling and rename it atomically. Newly introduced fields use
-explicit Serde defaults so existing projects remain readable. Autosave/recovery
-state is intentionally separate from the user's saved project.
+`.virtual` files are versioned JSON with the format name `virtual-project`;
+the pre-rename `oneiroi-project` is still read and rewritten on the next save.
+The current schema is version 6 and version-one through version-five files are
+migrated on load. Version 3 adds stable custom-effect package IDs and named
+parameter values. Saves write a temporary sibling and rename it atomically on
+a dedicated worker thread. Clip paths inside the project's folder are stored
+relative to it. Newly introduced fields use explicit Serde defaults so existing
+projects remain readable. Autosave/recovery state is intentionally separate
+from the user's saved project, and a successful save retires the matching
+autosave. See [Developing VIRTUAL](DEVELOPMENT.md#save-pipeline) for the save
+pipeline and format-change rules.
 
 ## Audio analysis
 
@@ -454,7 +459,9 @@ and records the loss.
 The main thread drains available events once per frame and passes them to the
 device-neutral `MidiMapper`. Learn state, absolute and relative decoding,
 toggle/momentary behavior, inversion, output scaling and pickup live in
-`virtual-core`. Resolved updates then reach mixer, transport, clip/scene,
+`virtual-core`. Learning chooses a mode and output range from the target,
+toggles flip from the live value, and pickup re-arms whenever another source
+moves the target. Resolved updates then reach mixer, transport, clip/scene,
 effect, LFO or matrix state. Blackout and master freeze are applied directly,
 while clip and scene launches retain musical quantization. Device topology is
 polled every two seconds; a missing selected controller is dropped safely and

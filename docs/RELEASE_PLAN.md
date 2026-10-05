@@ -58,7 +58,8 @@ artifact hash and clean-machine installation checks below remain required.
 ## 2. Produce a self-contained macOS application bundle
 
 - [x] Add a repeatable local `.app` packaging command: `sh scripts/build-macos.sh`.
-- [ ] Add bundle identity, version and icon metadata.
+- [x] Add bundle identity and version metadata (stamped by the build script).
+- [ ] Add an application icon.
 - [x] Add camera, microphone and local-network usage descriptions to `Info.plist`.
 - [x] Install the executable under `Contents/MacOS` and bundled effects under
   `Contents/Resources/effects`.
@@ -67,10 +68,15 @@ artifact hash and clean-machine installation checks below remain required.
 
 ## 3. Resolve FFmpeg distribution
 
-- [ ] Choose and document the dynamic/static FFmpeg distribution strategy.
-- [ ] Remove the release binary's dependency on `/opt/homebrew/opt/ffmpeg`.
-- [ ] Bundle and relocate every required non-system dynamic library when using
+- [x] Choose and document the dynamic/static FFmpeg distribution strategy:
+  dynamic, bundled by `build-macos.sh --portable` (see
+  [Developing VIRTUAL](DEVELOPMENT.md#packaging)).
+- [x] Remove the release binary's dependency on `/opt/homebrew/opt/ffmpeg`
+  (portable mode).
+- [x] Bundle and relocate every required non-system dynamic library when using
   dynamic distribution.
+- [ ] Decide the supported macOS floor. Homebrew libraries currently force
+  macOS 26.0; older targets need a custom FFmpeg build.
 - [ ] Complete the FFmpeg licensing review and ship all required notices.
 
 ## 4. Certify a release candidate on the target show machine

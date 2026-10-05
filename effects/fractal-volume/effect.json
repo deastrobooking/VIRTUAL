@@ -1,5 +1,5 @@
 {
-  "format":"oneiroi-effect","version":2,"id":"fractal-volume","name":"Fractal Volume 3D",
+  "format":"virtual-effect","version":2,"id":"fractal-volume","name":"Fractal Volume 3D",
   "description":"A volumetric ray camera through recursive box, tunnel and bulb-like fields.",
   "role":"effect","targets":["master","deck"],"abi":"deck-v1","shader":"fractal_volume.wgsl",
   "parameters":[

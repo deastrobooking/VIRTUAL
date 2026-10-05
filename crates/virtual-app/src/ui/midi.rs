@@ -101,6 +101,7 @@ pub(super) fn draw_midi(
             draw_clock_sync(ui, state, inputs, &clock, actions);
 
             let mut remove = None;
+            let shared = midi.shared_sources();
             egui::Grid::new("midi-mappings")
                 .striped(true)
                 .num_columns(8)
@@ -114,13 +115,19 @@ pub(super) fn draw_midi(
                     ui.strong("");
                     ui.end_row();
                     for (index, binding) in midi.bindings.iter_mut().enumerate() {
-                        ui.label(format!(
-                            "{} · ch {} · {:?} {}",
-                            binding.device,
-                            binding.channel + 1,
-                            binding.kind,
-                            binding.number
-                        ));
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "{} · ch {} · {:?} {}",
+                                binding.device,
+                                binding.channel + 1,
+                                binding.kind,
+                                binding.number
+                            ));
+                            if shared[index] {
+                                ui.colored_label(ui.visuals().warn_fg_color, "shared")
+                                    .on_hover_text("This control also drives another target.");
+                            }
+                        });
                         ui.label(midi_target_label_for_state(binding.target, state));
                         egui::ComboBox::from_id_salt(("midi-mode", index))
                             .selected_text(mapping_mode_label(binding.mode))

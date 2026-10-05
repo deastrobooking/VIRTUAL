@@ -83,7 +83,9 @@ impl State {
                     self.reset_playback(deck, generation);
                 }
                 ui::UiAction::SaveProject => self.save_project_from_ui(),
+                ui::UiAction::SaveProjectAs => self.save_project_as_dialog(),
                 ui::UiAction::OpenProject => self.open_project_from_ui(),
+                ui::UiAction::BrowseOpenProject => self.open_project_dialog(),
                 ui::UiAction::TapTempo => {
                     let elapsed = now
                         .saturating_duration_since(self.performance_started)

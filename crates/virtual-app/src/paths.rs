@@ -55,6 +55,43 @@ pub(crate) fn untitled_recovery(workspace: &Path) -> Option<PathBuf> {
     })
 }
 
+/// Where to save a recovered autosave without overwriting any existing show:
+/// `<show> (recovered).virtual` beside the original project, or
+/// `untitled (recovered).virtual` in the workspace for untitled work.
+pub(crate) fn recovered_save_path(recovery: &Path, workspace: &Path) -> PathBuf {
+    let original = recovery
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| name.strip_prefix('.')?.strip_suffix(".autosave"))
+        .map(Path::new)
+        .filter(|original| is_project_path(original));
+    let (directory, stem) = match original {
+        Some(original) => (
+            recovery.parent().unwrap_or(workspace),
+            original
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("show"),
+        ),
+        None => (workspace, "untitled"),
+    };
+    (1..=999)
+        .map(|attempt| {
+            directory.join(if attempt == 1 {
+                format!("{stem} (recovered).virtual")
+            } else {
+                format!("{stem} (recovered {attempt}).virtual")
+            })
+        })
+        .find(|path| !path.exists())
+        .unwrap_or_else(|| {
+            directory.join(format!(
+                "{stem} (recovered {}).virtual",
+                virtual_io::new_project_id()
+            ))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +109,28 @@ mod tests {
         for name in ["show.mov", "virtual", "show.virtual.mov"] {
             assert!(!is_project_path(Path::new(name)), "{name}");
         }
+    }
+
+    #[test]
+    fn recovered_shows_never_overwrite_an_existing_file() {
+        let directory = std::env::temp_dir().join(format!(
+            "virtual-recovered-{}",
+            virtual_io::new_project_id()
+        ));
+        std::fs::create_dir_all(&directory).unwrap();
+        let recovery = directory.join(".set.virtual.autosave");
+        let first = recovered_save_path(&recovery, Path::new("/workspace"));
+        assert_eq!(first, directory.join("set (recovered).virtual"));
+        std::fs::write(&first, b"earlier recovery").unwrap();
+        assert_eq!(
+            recovered_save_path(&recovery, Path::new("/workspace")),
+            directory.join("set (recovered 2).virtual")
+        );
+        assert_eq!(
+            recovered_save_path(&directory.join(".virtual-untitled.autosave"), &directory),
+            directory.join("untitled (recovered).virtual")
+        );
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]

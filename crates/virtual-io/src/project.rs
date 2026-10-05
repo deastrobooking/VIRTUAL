@@ -11,7 +11,9 @@ use virtual_core::{
 };
 use virtual_graph::ProjectGraph;
 
-pub const PROJECT_FORMAT: &str = "oneiroi-project";
+pub const PROJECT_FORMAT: &str = "virtual-project";
+/// Pre-rename identity. Still read; never written.
+pub const LEGACY_PROJECT_FORMAT: &str = "oneiroi-project";
 pub const PROJECT_VERSION: u32 = 6;
 /// Three LFOs, five audio sources, beat, bar, then eight spectrum bands.
 pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
@@ -69,7 +71,7 @@ impl Default for ProjectFile {
 
 impl ProjectFile {
     pub fn validate(&self) -> Result<(), ProjectError> {
-        if self.format != PROJECT_FORMAT {
+        if self.format != PROJECT_FORMAT && self.format != LEGACY_PROJECT_FORMAT {
             return Err(ProjectError::WrongFormat(self.format.clone()));
         }
         if !(MINIMUM_PROJECT_VERSION..=PROJECT_VERSION).contains(&self.version) {
@@ -110,33 +112,68 @@ impl ProjectFile {
                 self.decks.len()
             )));
         }
-        if !self.settings.bpm.is_finite()
-            || !(20.0..=400.0).contains(&self.settings.bpm)
-            || !unit(self.settings.crossfader)
-            || !unit(self.settings.master_opacity)
-            || !(320..=7680).contains(&self.settings.output.composition_extent[0])
-            || !(180..=4320).contains(&self.settings.output.composition_extent[1])
-            || !effect_value(self.settings.audio_analysis.gain, 0.0, 16.0)
-            || !effect_value(self.settings.audio_analysis.noise_floor, 0.0, 0.5)
-            || !effect_value(self.settings.audio_analysis.attack_ms, 1.0, 2_000.0)
-            || !effect_value(self.settings.audio_analysis.release_ms, 1.0, 5_000.0)
-            || !effect_value(
-                self.settings.audio_analysis.transient_sensitivity,
-                0.0,
-                16.0,
-            )
-            || !effect_value(self.settings.audio_analysis.normalization_target, 0.05, 1.0)
-            || !effect_value(
-                self.settings.audio_analysis.normalization_speed_ms,
-                10.0,
-                10_000.0,
-            )
-            || !valid_master_effects(&self.settings.master_effects)
-            || !valid_master_modulation(&self.settings.master_modulation)
-        {
-            return Err(ProjectError::InvalidValue(
-                "master settings are outside supported ranges".to_owned(),
-            ));
+        let invalid = [
+            ("bpm", !self.settings.bpm.is_finite()),
+            ("bpm", !(20.0..=400.0).contains(&self.settings.bpm)),
+            ("crossfader", !unit(self.settings.crossfader)),
+            ("master_opacity", !unit(self.settings.master_opacity)),
+            (
+                "output.composition_extent (width)",
+                !(320..=7680).contains(&self.settings.output.composition_extent[0]),
+            ),
+            (
+                "output.composition_extent (height)",
+                !(180..=4320).contains(&self.settings.output.composition_extent[1]),
+            ),
+            (
+                "audio_analysis.gain",
+                !effect_value(self.settings.audio_analysis.gain, 0.0, 16.0),
+            ),
+            (
+                "audio_analysis.noise_floor",
+                !effect_value(self.settings.audio_analysis.noise_floor, 0.0, 0.5),
+            ),
+            (
+                "audio_analysis.attack_ms",
+                !effect_value(self.settings.audio_analysis.attack_ms, 1.0, 2_000.0),
+            ),
+            (
+                "audio_analysis.release_ms",
+                !effect_value(self.settings.audio_analysis.release_ms, 1.0, 5_000.0),
+            ),
+            (
+                "audio_analysis.transient_sensitivity",
+                !effect_value(
+                    self.settings.audio_analysis.transient_sensitivity,
+                    0.0,
+                    16.0,
+                ),
+            ),
+            (
+                "audio_analysis.normalization_target",
+                !effect_value(self.settings.audio_analysis.normalization_target, 0.05, 1.0),
+            ),
+            (
+                "audio_analysis.normalization_speed_ms",
+                !effect_value(
+                    self.settings.audio_analysis.normalization_speed_ms,
+                    10.0,
+                    10_000.0,
+                ),
+            ),
+            (
+                "master_effects",
+                !valid_master_effects(&self.settings.master_effects),
+            ),
+            (
+                "master_modulation",
+                !valid_master_modulation(&self.settings.master_modulation),
+            ),
+        ];
+        if let Some((field, _)) = invalid.iter().find(|(_, invalid)| *invalid) {
+            return Err(ProjectError::InvalidValue(format!(
+                "master setting `{field}` is outside its supported range"
+            )));
         }
         for (index, deck) in self.decks.iter().enumerate() {
             if deck.clips.len() != CLIPS_PER_DECK {
@@ -151,84 +188,144 @@ impl ProjectFile {
                     deck.clip_playback.len()
                 )));
             }
-            if deck.selected_slot >= CLIPS_PER_DECK
-                || deck.active_slot.is_some_and(|slot| slot >= CLIPS_PER_DECK)
-                || !unit(deck.level)
-                || !deck.transport.speed.is_finite()
-                || !(0.25..=4.0).contains(&deck.transport.speed)
-                || !deck.transport.position.is_finite()
-                || deck.transport.position < 0.0
-                || deck
-                    .transform
-                    .position
-                    .iter()
-                    .any(|value| !effect_value(*value, -2.0, 2.0))
-                || !effect_value(deck.transform.scale, 0.05, 4.0)
-                || !effect_value(deck.transform.rotation, -1.0, 1.0)
-                || deck
-                    .transform
-                    .crop
-                    .iter()
-                    .any(|value| !effect_value(*value, 0.0, 0.95))
-                || deck.transform.crop[0] + deck.transform.crop[1] > 0.98
-                || deck.transform.crop[2] + deck.transform.crop[3] > 0.98
-                || !effect_value(deck.effects.contrast, 0.0, 4.0)
-                || !effect_value(deck.effects.saturation, 0.0, 4.0)
-                || !effect_value(deck.effects.hue, -1.0, 1.0)
-                || !effect_value(deck.effects.black_level, 0.0, 0.95)
-                || !effect_value(deck.effects.white_level, 0.01, 1.0)
-                || deck.effects.white_level <= deck.effects.black_level
-                || !effect_value(deck.effects.gamma, 0.1, 4.0)
-                || !effect_value(deck.effects.pixelate, 0.0, 0.5)
-                || !effect_value(deck.effects.luma_key, 0.0, 1.0)
-                || !unit(deck.effects.neon)
-                || !unit(deck.effects.fractal)
-                || !unit(deck.effects.jitter)
-                || !unit(deck.effects.find_edges)
-                || !unit(deck.effects.bit_reduction)
-                || !unit(deck.effects.blacklight)
-                || !valid_effect_slots(&deck.effects.slots)
-                || !valid_deck_package(&deck.package)
-                || deck.lfos.len() > 3
-                || deck.lfos.iter().any(|lfo| {
-                    !effect_value(lfo.rate_hz, 0.01, 20.0)
-                        || !effect_value(lfo.beats_per_cycle, 0.0625, 8.0)
-                        || !unit(lfo.depth)
-                        || !unit(lfo.phase)
-                        || !effect_value(lfo.offset, -1.0, 1.0)
-                })
-                || deck.mod_routes.len() > 8
-                || deck.mod_routes.iter().any(|route| {
-                    usize::from(route.source) >= MODULATION_SOURCES
-                        || !effect_value(route.amount, -1.0, 1.0)
-                })
-                || deck.camera.as_ref().is_some_and(|camera| {
-                    camera.device_id.is_empty()
-                        || camera.fps_denominator == 0
-                        || camera.fps_denominator > 1001
-                        || camera
-                            .requested_fps
-                            .is_some_and(|fps| fps == 0 || fps > 240 * camera.fps_denominator)
-                        || !["auto", "nv12", "uyvy422", "yuyv422", "bgra"]
-                            .contains(&camera.pixel_format.as_str())
-                        || camera
-                            .requested_extent
-                            .is_some_and(|[width, height]| width == 0 || height == 0)
-                })
-                || (deck.camera.is_some() && deck.active_slot.is_some())
-                || deck.clip_playback.iter().any(|playback| {
-                    !playback.in_point.is_finite()
-                        || playback.in_point < 0.0
-                        || playback
-                            .out_point
-                            .is_some_and(|out| !out.is_finite() || out <= playback.in_point)
-                        || playback.beat_duration.is_some_and(|beats| {
-                            !beats.is_finite() || !(0.0625..=256.0).contains(&beats)
-                        })
-                })
-            {
+            let invalid = [
+                ("selected_slot", deck.selected_slot >= CLIPS_PER_DECK),
+                (
+                    "active_slot",
+                    deck.active_slot.is_some_and(|slot| slot >= CLIPS_PER_DECK),
+                ),
+                ("level", !unit(deck.level)),
+                ("transport.speed", !deck.transport.speed.is_finite()),
+                (
+                    "transport.speed",
+                    !(0.25..=4.0).contains(&deck.transport.speed),
+                ),
+                ("transport.position", !deck.transport.position.is_finite()),
+                ("transport.position", deck.transport.position < 0.0),
+                (
+                    "transform.position",
+                    deck.transform
+                        .position
+                        .iter()
+                        .any(|value| !effect_value(*value, -2.0, 2.0)),
+                ),
+                (
+                    "transform.scale",
+                    !effect_value(deck.transform.scale, 0.05, 4.0),
+                ),
+                (
+                    "transform.rotation",
+                    !effect_value(deck.transform.rotation, -1.0, 1.0),
+                ),
+                (
+                    "transform.crop",
+                    deck.transform
+                        .crop
+                        .iter()
+                        .any(|value| !effect_value(*value, 0.0, 0.95)),
+                ),
+                (
+                    "transform.crop (horizontal edges overlap)",
+                    deck.transform.crop[0] + deck.transform.crop[1] > 0.98,
+                ),
+                (
+                    "transform.crop (vertical edges overlap)",
+                    deck.transform.crop[2] + deck.transform.crop[3] > 0.98,
+                ),
+                (
+                    "effects.contrast",
+                    !effect_value(deck.effects.contrast, 0.0, 4.0),
+                ),
+                (
+                    "effects.saturation",
+                    !effect_value(deck.effects.saturation, 0.0, 4.0),
+                ),
+                ("effects.hue", !effect_value(deck.effects.hue, -1.0, 1.0)),
+                (
+                    "effects.black_level",
+                    !effect_value(deck.effects.black_level, 0.0, 0.95),
+                ),
+                (
+                    "effects.white_level",
+                    !effect_value(deck.effects.white_level, 0.01, 1.0),
+                ),
+                (
+                    "effects.white_level (must exceed black_level)",
+                    deck.effects.white_level <= deck.effects.black_level,
+                ),
+                ("effects.gamma", !effect_value(deck.effects.gamma, 0.1, 4.0)),
+                (
+                    "effects.pixelate",
+                    !effect_value(deck.effects.pixelate, 0.0, 0.5),
+                ),
+                (
+                    "effects.luma_key",
+                    !effect_value(deck.effects.luma_key, 0.0, 1.0),
+                ),
+                ("effects.neon", !unit(deck.effects.neon)),
+                ("effects.fractal", !unit(deck.effects.fractal)),
+                ("effects.jitter", !unit(deck.effects.jitter)),
+                ("effects.find_edges", !unit(deck.effects.find_edges)),
+                ("effects.bit_reduction", !unit(deck.effects.bit_reduction)),
+                ("effects.blacklight", !unit(deck.effects.blacklight)),
+                ("effects.slots", !valid_effect_slots(&deck.effects.slots)),
+                ("package", !valid_deck_package(&deck.package)),
+                ("lfos (more than 3)", deck.lfos.len() > 3),
+                (
+                    "lfos",
+                    deck.lfos.iter().any(|lfo| {
+                        !effect_value(lfo.rate_hz, 0.01, 20.0)
+                            || !effect_value(lfo.beats_per_cycle, 0.0625, 8.0)
+                            || !unit(lfo.depth)
+                            || !unit(lfo.phase)
+                            || !effect_value(lfo.offset, -1.0, 1.0)
+                    }),
+                ),
+                ("mod_routes (more than 8)", deck.mod_routes.len() > 8),
+                (
+                    "mod_routes",
+                    deck.mod_routes.iter().any(|route| {
+                        usize::from(route.source) >= MODULATION_SOURCES
+                            || !effect_value(route.amount, -1.0, 1.0)
+                    }),
+                ),
+                (
+                    "camera",
+                    deck.camera.as_ref().is_some_and(|camera| {
+                        camera.device_id.is_empty()
+                            || camera.fps_denominator == 0
+                            || camera.fps_denominator > 1001
+                            || camera
+                                .requested_fps
+                                .is_some_and(|fps| fps == 0 || fps > 240 * camera.fps_denominator)
+                            || !["auto", "nv12", "uyvy422", "yuyv422", "bgra"]
+                                .contains(&camera.pixel_format.as_str())
+                            || camera
+                                .requested_extent
+                                .is_some_and(|[width, height]| width == 0 || height == 0)
+                    }),
+                ),
+                (
+                    "camera (cannot coexist with an active clip)",
+                    (deck.camera.is_some() && deck.active_slot.is_some()),
+                ),
+                (
+                    "clip_playback",
+                    deck.clip_playback.iter().any(|playback| {
+                        !playback.in_point.is_finite()
+                            || playback.in_point < 0.0
+                            || playback
+                                .out_point
+                                .is_some_and(|out| !out.is_finite() || out <= playback.in_point)
+                            || playback.beat_duration.is_some_and(|beats| {
+                                !beats.is_finite() || !(0.0625..=256.0).contains(&beats)
+                            })
+                    }),
+                ),
+            ];
+            if let Some((field, _)) = invalid.iter().find(|(_, invalid)| *invalid) {
                 return Err(ProjectError::InvalidValue(format!(
-                    "deck {index} contains an unsupported value"
+                    "deck {index} `{field}` is outside its supported range"
                 )));
             }
         }
@@ -1485,6 +1582,7 @@ pub fn load_project(path: impl AsRef<Path>) -> Result<ProjectFile, ProjectError>
     })?;
     let mut project: ProjectFile = serde_json::from_reader(BufReader::new(file))?;
     project.validate()?;
+    project.format = PROJECT_FORMAT.to_owned();
     let source_version = project.version;
     if project.project_id.is_empty() {
         project.project_id = new_project_id();
@@ -1538,7 +1636,13 @@ pub fn save_project_atomic(
         fs::rename(&temporary, path).map_err(|source| ProjectError::Write {
             path: path.to_path_buf(),
             source,
-        })
+        })?;
+        // Persist the rename itself. Best effort: the file contents are
+        // already durable, and not every filesystem syncs a directory handle.
+        if let Ok(directory) = File::open(parent) {
+            let _ = directory.sync_all();
+        }
+        Ok(())
     })();
     if result.is_err() {
         let _ = fs::remove_file(&temporary);
@@ -1665,6 +1769,35 @@ mod tests {
             Some(PathBuf::from("/elsewhere/loop.mov"))
         );
         fs::remove_dir_all(show).unwrap();
+    }
+
+    #[test]
+    fn legacy_format_loads_and_resaves_under_the_virtual_name() {
+        let path = test_path("legacy.virtual");
+        let legacy = ProjectFile {
+            format: LEGACY_PROJECT_FORMAT.to_owned(),
+            ..ProjectFile::default()
+        };
+        save_project_atomic(&path, &legacy).unwrap();
+        let loaded = load_project(&path).unwrap();
+        assert_eq!(loaded.format, PROJECT_FORMAT);
+        save_project_atomic(&path, &loaded).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        assert!(written.contains("\"virtual-project\""));
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn validation_errors_name_the_offending_field() {
+        let mut project = ProjectFile::default();
+        project.decks[2].transport.speed = 9.0;
+        let error = project.validate().unwrap_err().to_string();
+        assert!(error.contains("deck 2 `transport.speed`"), "{error}");
+
+        let mut project = ProjectFile::default();
+        project.settings.audio_analysis.gain = 40.0;
+        let error = project.validate().unwrap_err().to_string();
+        assert!(error.contains("`audio_analysis.gain`"), "{error}");
     }
 
     #[test]

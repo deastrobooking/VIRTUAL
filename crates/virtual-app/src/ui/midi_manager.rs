@@ -134,6 +134,7 @@ pub(super) fn draw_midi_manager(
             // Bindings keep their mapper index so deletion stays exact even
             // though the display is grouped. Offline devices still list their
             // assignments — that is the point of the browser.
+            let shared = midi.shared_sources();
             let mut by_device: Vec<(String, Vec<usize>)> = Vec::new();
             for (index, binding) in midi.bindings.iter().enumerate() {
                 match by_device
@@ -165,12 +166,20 @@ pub(super) fn draw_midi_manager(
                             .show(ui, |ui| {
                                 for index in &indices {
                                     let binding = &midi.bindings[*index];
-                                    ui.label(format!(
-                                        "ch{} {:?} #{}",
-                                        binding.channel + 1,
-                                        binding.kind,
-                                        binding.number
-                                    ));
+                                    ui.horizontal(|ui| {
+                                        ui.label(format!(
+                                            "ch{} {:?} #{}",
+                                            binding.channel + 1,
+                                            binding.kind,
+                                            binding.number
+                                        ));
+                                        if shared[*index] {
+                                            ui.colored_label(ui.visuals().warn_fg_color, "shared")
+                                                .on_hover_text(
+                                                    "This control also drives another target.",
+                                                );
+                                        }
+                                    });
                                     ui.label(midi_target_label(binding.target));
                                     ui.weak(mapping_mode_label(binding.mode));
                                     if ui.button("Delete").clicked() {
