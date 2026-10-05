@@ -1,5 +1,4 @@
-//! Milestone 1: wgpu + winit + egui on this machine, proving the stack works
-//! before any media code exists.
+//! Application windowing, command routing and frame orchestration.
 
 mod actions;
 mod devices;
@@ -15,6 +14,7 @@ mod project_io;
 mod project_save;
 mod recovery;
 mod runtime;
+mod shortcuts;
 mod structural;
 mod ui;
 
@@ -120,6 +120,7 @@ struct State {
     project_takes: Vec<TakeMetadataProject>,
     last_saved_project: Option<ProjectFile>,
     project_saver: project_save::ProjectSaver,
+    pending_project_open: Option<project_io::PendingProjectOpen>,
     recovery_path: Option<PathBuf>,
     workspace: PathBuf,
     project_status: String,
@@ -197,7 +198,7 @@ impl ApplicationHandler for App {
         match State::new(event_loop) {
             Ok(mut state) => {
                 if self.initial_files.len() == 1 && paths::is_project_path(&self.initial_files[0]) {
-                    state.open_project(self.initial_files.remove(0), false);
+                    state.open_initial_project(self.initial_files.remove(0));
                 } else {
                     for path in self.initial_files.drain(..) {
                         state.import_path(path);
@@ -281,7 +282,12 @@ impl ApplicationHandler for App {
                 if event.state == ElementState::Pressed && !event.repeat =>
             {
                 if let PhysicalKey::Code(code) = event.physical_key
-                    && (!matches!(code, KeyCode::Delete | KeyCode::Backspace) || !response.consumed)
+                    && shortcuts::allowed(
+                        code,
+                        state.modifiers,
+                        response.consumed
+                            || state.egui_state.egui_ctx().egui_wants_keyboard_input(),
+                    )
                 {
                     state.handle_key(code);
                 }
@@ -325,6 +331,9 @@ impl State {
     }
 
     fn handle_key(&mut self, code: KeyCode) {
+        if !shortcuts::allowed(code, self.modifiers, false) {
+            return;
+        }
         let now = Instant::now();
         match code {
             KeyCode::KeyB => self.dispatch_control_update(
@@ -468,6 +477,7 @@ impl State {
         let effect_registry = effects::discover_effect_registry(&effect_roots);
         ui.effect_registry_status =
             effects::effect_registry_status(&effect_registry, &effect_roots);
+        ui.effect_registry_errors = effect_registry.errors.len();
         (ui.effect_packages, ui.deck_effect_packages) =
             effects::partition_effect_packages(effect_registry.effects);
         let effect_registry_worker = effects::EffectRegistryWorker::spawn();
@@ -688,6 +698,7 @@ impl State {
             project_dirty_cached: false,
             last_dirty_check: None,
             project_epoch: 0,
+            pending_project_open: None,
             restorer: ClipRestorer::new(32),
             restore_active: [None; 4],
             restore_selected: [0; 4],
@@ -743,6 +754,8 @@ impl State {
             self.ui.deck_effect_reload_status =
                 self.compositor.deck_effect_reload_status().to_owned();
         }
+        self.ui.effect_reload_failed = self.master_effect_processor.has_reload_errors();
+        self.ui.deck_effect_reload_failed = self.compositor.has_deck_effect_reload_errors();
         self.poll_project_saves();
         self.poll_imports();
         self.poll_folder_scans();
@@ -838,6 +851,7 @@ impl State {
                     audio_inputs: &self.audio_inputs,
                     audio_status: &self.audio_status,
                     audio_connected: self.audio_input.is_some(),
+                    audio_required: self.audio_wanted,
                     audio_snapshot: self.audio_snapshot,
                     audio_visual: &self.audio_visual,
                     midi: ui::MidiMetrics {

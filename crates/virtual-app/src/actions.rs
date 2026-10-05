@@ -13,6 +13,11 @@ use crate::{State, ui};
 impl State {
     pub(super) fn dispatch_ui_actions(&mut self, actions: Vec<ui::UiAction>, now: Instant) {
         for action in actions {
+            if self.ui.show_mode && !action.allowed_in_show_mode() {
+                self.project_status =
+                    "Show Mode locked · Leave Show Mode to edit setup.".to_owned();
+                continue;
+            }
             match action {
                 ui::UiAction::Restart(deck) => {
                     self.dispatch_control_update(
@@ -248,6 +253,50 @@ impl State {
                     self.stop_camera_recording(deck);
                 }
             }
+        }
+    }
+}
+
+impl ui::UiAction {
+    pub(crate) fn allowed_in_show_mode(&self) -> bool {
+        matches!(
+            self,
+            Self::Restart(_) | Self::Seek(_) | Self::Launch(_) | Self::LaunchScene(_)
+            | Self::SaveProject | Self::TapTempo | Self::HalfTempo | Self::DoubleTempo
+            | Self::MidiCancelLearn | Self::MidiClockContinue
+            // Live video switching and recording are intentional performance controls.
+            | Self::RefreshCameras | Self::ConnectCamera { .. }
+            | Self::StartCameraRecording(_) | Self::StopCameraRecording(_)
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn show_lock_blocks_rig_and_mapping_edits_but_allows_live_controls() {
+        for action in [
+            ui::UiAction::RefreshAudioInputs,
+            ui::UiAction::ConnectAudioInput("input".into()),
+            ui::UiAction::DisconnectAudioInput,
+            ui::UiAction::AudioMapTarget(ControlTarget::Crossfader),
+            ui::UiAction::MidiLearn(ControlTarget::Crossfader),
+            ui::UiAction::MidiClearTarget(ControlTarget::Crossfader),
+            ui::UiAction::OpenProject,
+            ui::UiAction::RecoverProject,
+            ui::UiAction::SetCompositionExtent([1920, 1080]),
+        ] {
+            assert!(!action.allowed_in_show_mode(), "{action:?}");
+        }
+        for action in [
+            ui::UiAction::TapTempo,
+            ui::UiAction::SaveProject,
+            ui::UiAction::LaunchScene(0),
+            ui::UiAction::RefreshCameras,
+        ] {
+            assert!(action.allowed_in_show_mode(), "{action:?}");
         }
     }
 }

@@ -86,6 +86,15 @@ stuck deck selection or stale frame after seek/source replacement.
   resolves. Confirm `Cmd+O` is refused in Show Mode.
 - Build with `sh scripts/build-macos.sh --portable` and launch it on a Mac
   without Homebrew.
+- Type `b`, a space, `o` and digits into the project path and a take name
+  while media plays; nothing in the program may change.
+- With unsaved changes, open another show and exercise Save, Discard and
+  Cancel, including an unwritable destination. A failed save must keep the
+  current show open.
+- In Show Mode, make the project destination unwritable and press `Cmd+S`;
+  the failure must be visible in the toolbar without leaving Show Mode.
+- Scroll the editor to the bottom at the minimum window size and confirm
+  Blackout, Freeze, Show Mode and the preflight rail remain visible.
 - Start/stop OSC input and feedback; send malformed and future-timetag packets
   and confirm bounded error/drop counters.
 - Make the session-journal destination temporarily unavailable or unwritable;

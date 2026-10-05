@@ -44,7 +44,9 @@ pub(super) fn draw_audio_panel(
             }
         })
         .body(|ui| {
-            draw_input_row(ui, state, &context, actions);
+            ui.add_enabled_ui(!state.show_mode, |ui| {
+                draw_input_row(ui, state, &context, actions);
+            });
             ui.separator();
             draw_signal_views(ui, state, &context);
             ui.separator();
@@ -52,7 +54,12 @@ pub(super) fn draw_audio_panel(
             ui.separator();
             draw_response(ui, state, &context);
             ui.separator();
-            draw_mappings(ui, state, &context);
+            ui.add_enabled_ui(!state.show_mode, |ui| {
+                draw_mappings(ui, state, &context);
+            });
+            if state.show_mode {
+                ui.weak("Audio device and mapping edits are locked in Show Mode.");
+            }
         });
     if let Some(learn) = state.audio_learn {
         ui.horizontal(|ui| {
@@ -744,7 +751,7 @@ fn map_button(ui: &mut egui::Ui, state: &mut UiState, source: u8, palette: Theme
         palette.control
     });
     if ui
-        .add(button)
+        .add_enabled(!state.show_mode, button)
         .on_hover_text(if armed {
             "Stop mapping".to_owned()
         } else {
@@ -764,6 +771,9 @@ fn map_button(ui: &mut egui::Ui, state: &mut UiState, source: u8, palette: Theme
 }
 
 fn start_learn(state: &mut UiState, source: u8) {
+    if state.show_mode {
+        return;
+    }
     let restore_map_mode_off = match state.audio_learn {
         Some(learn) => learn.restore_map_mode_off,
         None => !state.midi_map_mode,

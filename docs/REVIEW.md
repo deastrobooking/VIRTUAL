@@ -85,8 +85,10 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for every candidate.
 ### 2. Packaging and distribution
 
 The repository now produces a locally ad-hoc-signed macOS application bundle
-with privacy usage strings and bundled effects. Portable FFmpeg distribution,
-notarization and distribution notices remain open before public release.
+with privacy usage strings and bundled effects. *Updated 2026-10-05:*
+`build-macos.sh --portable` now bundles FFmpeg and its dependencies. Developer
+ID signing, notarization, distribution notices and a pre-macOS-26 FFmpeg build
+remain open before public release.
 
 ### 3. Diagnostics depth
 

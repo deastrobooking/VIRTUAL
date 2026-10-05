@@ -14,7 +14,40 @@ const SAVE_QUEUE_CAPACITY: usize = 4;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SaveKind {
     Project,
+    ProjectThenOpen,
     Recovery,
+}
+
+/// Persistent UI feedback, separate from transient project operation messages.
+#[derive(Default)]
+pub(crate) struct SaveStatus {
+    pub pending: usize,
+    pub error: Option<(PathBuf, String)>,
+}
+
+impl SaveStatus {
+    pub fn submitted(&mut self, path: &Path, result: &Result<(), &'static str>) {
+        match result {
+            Ok(()) => self.pending += 1,
+            Err(error) => self.error = Some((path.to_owned(), (*error).to_owned())),
+        }
+    }
+
+    pub fn completed(&mut self, path: &Path, result: &Result<(), String>) {
+        self.pending = self.pending.saturating_sub(1);
+        match result {
+            Ok(()) => {
+                if self
+                    .error
+                    .as_ref()
+                    .is_some_and(|(failed, _)| failed == path)
+                {
+                    self.error = None;
+                }
+            }
+            Err(error) => self.error = Some((path.to_owned(), error.clone())),
+        }
+    }
 }
 
 pub(crate) struct SaveRequest {
@@ -139,7 +172,7 @@ impl RecoveryLedger {
             SaveKind::Recovery => {
                 self.written.insert(request.path.clone());
             }
-            SaveKind::Project => {
+            SaveKind::Project | SaveKind::ProjectThenOpen => {
                 let own = autosave_path(Some(&request.path), Path::new(""));
                 for path in &request.supersedes {
                     if *path == own || self.written.remove(path) {
@@ -173,6 +206,24 @@ mod tests {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     use super::*;
+
+    #[test]
+    fn autosave_success_does_not_hide_a_manual_save_failure() {
+        let project = Path::new("/shows/set.virtual");
+        let recovery = Path::new("/shows/.set.virtual.autosave");
+        let mut status = SaveStatus::default();
+        status.submitted(project, &Ok(()));
+        status.submitted(recovery, &Ok(()));
+        status.completed(project, &Err("Disk full".into()));
+        status.completed(recovery, &Ok(()));
+        assert_eq!(status.pending, 0);
+        assert_eq!(status.error.as_ref().unwrap().0, project);
+        status.submitted(project, &Err("Save queue is busy"));
+        assert_eq!(status.pending, 0);
+        status.submitted(project, &Ok(()));
+        status.completed(project, &Ok(()));
+        assert!(status.error.is_none());
+    }
 
     fn request(epoch: u64) -> SaveRequest {
         SaveRequest {

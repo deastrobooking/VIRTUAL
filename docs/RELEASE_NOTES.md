@@ -24,6 +24,20 @@
   `virtual-effect` and `virtual-session-journal`. Files using the earlier
   `oneiroi-*` names still load, and are rewritten under the new name on save.
   Builds from before this change can't open re-saved projects.
+- Single-key performance shortcuts no longer fire while a text field has
+  focus or a modifier is held.
+- Opening a show with unsaved changes offers Save/Discard/Cancel; the new show
+  opens only after the outgoing save succeeds.
+- Show Mode now also locks audio device selection, audio mappings, Open,
+  Recover and Save As, and the lock is enforced when actions are dispatched.
+- The toolbar and emergency controls no longer scroll away. Save progress and
+  failures stay visible there in Show Mode, including a failed save of a show
+  that has since been replaced.
+- Preflight readiness now also requires connected MIDI controllers and audio
+  input that the show requests, no deck-effect or effect-registry errors, and
+  no pending or failed saves.
+- The app bundle ships the README and full docs tree, and portable packaging
+  works from checkout paths containing spaces.
 - Added a [developer guide](DEVELOPMENT.md) covering setup, the quality gate,
   packaging, format compatibility and the save and mapping internals.
 

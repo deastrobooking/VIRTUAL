@@ -402,6 +402,10 @@ impl DeckEffectRuntime {
         &self.status
     }
 
+    pub(crate) fn has_reload_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+
     pub(crate) fn is_loaded(&self, id: &str) -> bool {
         self.pipelines.contains_key(id)
     }

@@ -37,14 +37,23 @@ pub(super) fn draw_toolbar(
     let output_ready = state.output_enabled
         && !metrics.output_displays.is_empty()
         && metrics.output_health.status == "Healthy";
-    let effect_rejected = state.effect_reload_status.contains("rejected");
-    let preflight_ready = output_ready
-        && missing_media == 0
-        && loading_media == 0
-        && !effect_rejected
-        && !metrics.project_dirty;
+    let effect_rejected = state.effect_reload_failed
+        || state.deck_effect_reload_failed
+        || state.effect_registry_errors > 0;
+    let audio_missing = metrics.audio_required && !metrics.audio_connected;
+    let preflight_ready = preflight_ready([
+        !output_ready,
+        missing_media > 0,
+        loading_media > 0,
+        midi_waiting > 0,
+        audio_missing,
+        effect_rejected,
+        metrics.project_dirty,
+        state.save_status.pending > 0,
+        state.save_status.error.is_some(),
+    ]);
 
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         ui.vertical(|ui| {
             ui.label(
                 egui::RichText::new("VIRTUAL")
@@ -71,95 +80,96 @@ pub(super) fn draw_toolbar(
         );
         status_dot(ui, &palette, "MIDI", metrics.midi.any_connected(), false);
         status_dot(ui, &palette, "OSC", metrics.osc.connected, false);
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let blackout_fill = if state.blackout {
-                palette.danger
-            } else {
-                palette.control_tint(palette.danger, 0.18)
-            };
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new("BLACKOUT")
-                            .strong()
-                            .color(egui::Color32::WHITE),
-                    )
-                    .fill(blackout_fill)
-                    .min_size(egui::vec2(104.0, 34.0)),
+    });
+    ui.horizontal_wrapped(|ui| {
+        let blackout_fill = if state.blackout {
+            palette.danger
+        } else {
+            palette.control_tint(palette.danger, 0.18)
+        };
+        if ui
+            .add(
+                egui::Button::new(
+                    egui::RichText::new("BLACKOUT")
+                        .strong()
+                        .color(egui::Color32::WHITE),
                 )
-                .on_hover_text("Emergency program blackout")
-                .clicked()
-            {
-                state.blackout = !state.blackout;
-            }
-            if ui
-                .add(
-                    egui::Button::new(if state.master_freeze {
-                        "Resume master"
+                .fill(blackout_fill)
+                .min_size(egui::vec2(104.0, 34.0)),
+            )
+            .on_hover_text("Emergency program blackout")
+            .clicked()
+        {
+            state.blackout = !state.blackout;
+        }
+        if ui
+            .add(
+                egui::Button::new(if state.master_freeze {
+                    "Resume master"
+                } else {
+                    "Freeze master"
+                })
+                .selected(state.master_freeze),
+            )
+            .clicked()
+        {
+            state.master_freeze = !state.master_freeze;
+        }
+        let show_label = if state.show_mode {
+            "EXIT SHOW MODE"
+        } else {
+            "SHOW MODE"
+        };
+        if ui
+            .add(
+                egui::Button::new(egui::RichText::new(show_label).strong()).fill(
+                    if state.show_mode {
+                        palette.control_tint(palette.success, 0.36)
                     } else {
-                        "Freeze master"
-                    })
-                    .selected(state.master_freeze),
-                )
-                .clicked()
-            {
-                state.master_freeze = !state.master_freeze;
+                        palette.control
+                    },
+                ),
+            )
+            .on_hover_text("Lock setup, media management and structural effect editors")
+            .clicked()
+        {
+            state.show_mode = !state.show_mode;
+            if state.show_mode {
+                state.audio_learn = None;
+                state.midi_map_mode = false;
+                state.midi_manager_open = false;
+                actions.push(UiAction::MidiCancelLearn);
             }
-            let show_label = if state.show_mode {
-                "EXIT SHOW MODE"
-            } else {
-                "SHOW MODE"
-            };
+        }
+        if !state.show_mode {
             if ui
-                .add(
-                    egui::Button::new(egui::RichText::new(show_label).strong()).fill(
-                        if state.show_mode {
-                            palette.control_tint(palette.success, 0.36)
-                        } else {
-                            palette.control
-                        },
-                    ),
-                )
-                .on_hover_text("Lock setup, media management and structural effect editors")
+                .selectable_label(state.theme.editor_open, "Appearance")
                 .clicked()
             {
-                state.show_mode = !state.show_mode;
-                if state.show_mode {
+                state.theme.editor_open = !state.theme.editor_open;
+            }
+            if ui
+                .selectable_label(state.midi_manager_open, "MIDI")
+                .on_hover_text("Open the MIDI Manager window")
+                .clicked()
+            {
+                state.midi_manager_open = !state.midi_manager_open;
+            }
+            if state.midi_map_mode {
+                let response = ui.selectable_label(
+                    true,
+                    egui::RichText::new("MAP").strong().color(palette.accent),
+                );
+                if response
+                    .on_hover_text("MIDI map mode armed · click to exit")
+                    .clicked()
+                {
                     state.midi_map_mode = false;
-                    state.midi_manager_open = false;
                     actions.push(UiAction::MidiCancelLearn);
                 }
             }
-            if !state.show_mode {
-                if ui
-                    .selectable_label(state.theme.editor_open, "Appearance")
-                    .clicked()
-                {
-                    state.theme.editor_open = !state.theme.editor_open;
-                }
-                if ui
-                    .selectable_label(state.midi_manager_open, "MIDI")
-                    .on_hover_text("Open the MIDI Manager window")
-                    .clicked()
-                {
-                    state.midi_manager_open = !state.midi_manager_open;
-                }
-                if state.midi_map_mode {
-                    let response = ui.selectable_label(
-                        true,
-                        egui::RichText::new("MAP").strong().color(palette.accent),
-                    );
-                    if response
-                        .on_hover_text("MIDI map mode armed · click to exit")
-                        .clicked()
-                    {
-                        state.midi_map_mode = false;
-                        actions.push(UiAction::MidiCancelLearn);
-                    }
-                }
-            }
-            ui.weak(format!("{:.0} fps", state.fps.fps()));
-        });
+        }
+        ui.weak(format!("{:.0} fps", state.fps.fps()));
     });
     ui.horizontal_wrapped(|ui| {
         let external =
@@ -207,6 +217,24 @@ pub(super) fn draw_toolbar(
         ui.weak(metrics.runtime_status);
     });
     ui.horizontal_wrapped(|ui| {
+        if state.save_status.pending > 0 {
+            ui.spinner();
+            ui.label(format!("Saving · {} pending", state.save_status.pending));
+        }
+        if let Some((path, error)) = &state.save_status.error {
+            ui.colored_label(
+                palette.danger,
+                format!("Save failed · {}: {error}", path.display()),
+            );
+            if ui.button("Dismiss save error").clicked() {
+                state.save_status.error = None;
+            }
+        }
+        if !metrics.project_status.is_empty() {
+            ui.weak(metrics.project_status);
+        }
+    });
+    ui.horizontal_wrapped(|ui| {
         let (label, color) = if preflight_ready {
             ("● PREFLIGHT READY", palette.success)
         } else {
@@ -222,19 +250,32 @@ pub(super) fn draw_toolbar(
         ui.label(format!("missing {missing_media}"));
         ui.label(format!("loading {loading_media}"));
         ui.label(format!("MIDI waiting {midi_waiting}"));
+        if audio_missing {
+            ui.colored_label(palette.warning, "requested audio disconnected");
+        }
         ui.label(if metrics.project_dirty {
             "project modified"
         } else {
             "project saved"
         });
         if effect_rejected {
-            ui.colored_label(palette.danger, "effect reload rejected");
+            ui.colored_label(palette.danger, "effect attention")
+                .on_hover_text(format!(
+                    "{}\n{}\n{}",
+                    state.effect_reload_status,
+                    state.deck_effect_reload_status,
+                    state.effect_registry_status
+                ));
         }
         if state.show_mode {
             ui.separator();
             ui.colored_label(palette.success, "SHOW LOCKED");
         }
     });
+}
+
+fn preflight_ready(blockers: [bool; 9]) -> bool {
+    !blockers.into_iter().any(|blocked| blocked)
 }
 
 fn status_dot(ui: &mut egui::Ui, palette: &ThemePalette, label: &str, active: bool, warning: bool) {
@@ -247,4 +288,19 @@ fn status_dot(ui: &mut egui::Ui, palette: &ThemePalette, label: &str, active: bo
     };
     ui.label(egui::RichText::new("●").color(color));
     ui.weak(label);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_required_show_check_blocks_readiness_independently() {
+        assert!(preflight_ready([false; 9]));
+        for index in 0..9 {
+            let mut blockers = [false; 9];
+            blockers[index] = true;
+            assert!(!preflight_ready(blockers), "blocker {index}");
+        }
+    }
 }

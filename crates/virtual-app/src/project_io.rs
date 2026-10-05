@@ -16,6 +16,12 @@ use super::{State, display_path, paths, project};
 
 const DIRTY_CHECK_INTERVAL: Duration = Duration::from_millis(250);
 
+pub(crate) struct PendingProjectOpen {
+    path: PathBuf,
+    recovered: bool,
+    project: ProjectFile,
+}
+
 impl State {
     pub(crate) fn project_snapshot(&self) -> ProjectFile {
         let mut takes = self.project_takes.clone();
@@ -83,6 +89,11 @@ impl State {
     }
 
     pub(crate) fn save_project_from_ui(&mut self) {
+        if self.pending_project_open.is_some() {
+            self.project_status =
+                "A save-before-open is pending; wait for it to finish.".to_owned();
+            return;
+        }
         let Some(path) = self.path_from_ui() else {
             self.project_status = "Enter a project path first.".to_owned();
             return;
@@ -94,10 +105,17 @@ impl State {
             snapshot: self.project_snapshot(),
             kind: SaveKind::Project,
         };
-        self.project_status = match self.project_saver.submit(request) {
+        self.project_status = match self.submit_project_save(request) {
             Ok(()) => "Saving project…".to_owned(),
             Err(error) => error.to_owned(),
         };
+    }
+
+    fn submit_project_save(&mut self, request: SaveRequest) -> Result<(), &'static str> {
+        let path = request.path.clone();
+        let result = self.project_saver.submit(request);
+        self.ui.save_status.submitted(&path, &result);
+        result
     }
 
     pub(crate) fn poll_project_saves(&mut self) {
@@ -108,9 +126,22 @@ impl State {
 
     fn apply_save_completion(&mut self, completion: SaveCompletion) {
         if !completion.belongs_to(self.project_epoch) {
+            // A replaced show's save can still fail after the switch. Surface
+            // it so nobody believes the old show was saved; the pending count
+            // already belongs to the new show and is left alone.
+            if let Err(error) = &completion.result
+                && completion.request.kind != SaveKind::Recovery
+            {
+                self.ui.save_status.error = Some((completion.request.path.clone(), error.clone()));
+            }
             return;
         }
         let request = completion.request;
+        self.ui
+            .save_status
+            .completed(&request.path, &completion.result);
+        let then_open = request.kind == SaveKind::ProjectThenOpen;
+        let succeeded = completion.result.is_ok();
         // Save As may have changed the recovery destination while this older
         // autosave was in flight. It must not advertise the old recovery file.
         if request.kind == SaveKind::Recovery
@@ -119,8 +150,9 @@ impl State {
             return;
         }
         match completion.result {
-            Ok(()) if request.kind == SaveKind::Project => {
+            Ok(()) if matches!(request.kind, SaveKind::Project | SaveKind::ProjectThenOpen) => {
                 self.project_path = Some(request.path.clone());
+                self.ui.project_path = request.path.to_string_lossy().into_owned();
                 self.last_saved_project = Some(request.snapshot);
                 self.last_dirty_check = None;
                 self.recovery_path = None;
@@ -134,9 +166,25 @@ impl State {
             }
             Err(error) => self.project_status = format!("Save failed: {error}"),
         }
+        if then_open && let Some(pending) = self.pending_project_open.take() {
+            if can_replace_after_save(
+                &self.project_snapshot(),
+                self.last_saved_project.as_ref(),
+                succeeded,
+                self.ui.show_mode,
+            ) {
+                self.finish_open_project(pending);
+            } else if succeeded {
+                self.project_status = "Saved, but opening was cancelled because the show changed or Show Mode was enabled. Open again when ready.".to_owned();
+            } else {
+                self.project_status.push_str(" · Current show kept open.");
+            }
+        }
     }
 
     pub(crate) fn finish_project_saves(&mut self) {
+        // Closing must never open a different show as a side effect of draining saves.
+        self.pending_project_open = None;
         // Closing has ended presentation: finish accepted Save/Save As requests
         // before choosing the final recovery path, then durably save the latest
         // state even when the background queue had been full.
@@ -154,6 +202,11 @@ impl State {
     /// Native Save As. Like media relink, the modal dialog runs on this
     /// thread, so it is refused in Show Mode where output must keep moving.
     pub(crate) fn save_project_as_dialog(&mut self) {
+        if self.pending_project_open.is_some() {
+            self.project_status =
+                "A save-before-open is pending; wait for it to finish.".to_owned();
+            return;
+        }
         if self.ui.show_mode {
             self.project_status = "Save As is unavailable in Show Mode.".to_owned();
             return;
@@ -212,41 +265,136 @@ impl State {
     }
 
     pub(crate) fn open_project(&mut self, path: PathBuf, recovered: bool) {
+        if self.ui.show_mode || self.pending_project_open.is_some() {
+            self.project_status =
+                "Leave Show Mode and wait for any pending project switch before opening a show."
+                    .to_owned();
+            return;
+        }
         match load_project(&path) {
             Ok(mut project_file) => {
                 let base = path.parent().unwrap_or(&self.workspace);
                 resolve_media_paths(&mut project_file, base);
-                let graph = project_file
-                    .graph
-                    .clone()
-                    .unwrap_or_else(virtual_graph::four_deck_performance_graph);
-                if let Err(error) = self
-                    .performance_runtime
-                    .set_project_graph(graph, project_file.settings.output.composition_extent)
-                {
-                    self.project_status = format!("Project graph rejected: {error:#}");
-                    return;
-                }
-                self.apply_project(project_file, recovered);
-                if recovered {
-                    self.project_path = None;
-                    self.recovery_path = None;
-                    let destination = paths::recovered_save_path(&path, &self.workspace);
-                    self.project_status = format!(
-                        "Recovered autosave from {} · Save writes {}",
-                        display_path(&path),
-                        display_path(&destination)
-                    );
-                    self.ui.project_path = destination.to_string_lossy().into_owned();
+                let pending = PendingProjectOpen {
+                    path,
+                    recovered,
+                    project: project_file,
+                };
+                if self.project_dirty() {
+                    let decision = rfd::MessageDialog::new()
+                        .set_title("Unsaved show changes")
+                        .set_description("Save the current show before opening another? Changes since the last save will be discarded if you choose Discard.")
+                        .set_buttons(rfd::MessageButtons::YesNoCancelCustom(
+                            "Save".to_owned(), "Discard".to_owned(), "Cancel".to_owned()))
+                        .show();
+                    match decision {
+                        rfd::MessageDialogResult::Yes => self.save_before_open(pending),
+                        rfd::MessageDialogResult::No => self.finish_open_project(pending),
+                        rfd::MessageDialogResult::Custom(label) if label == "Save" => {
+                            self.save_before_open(pending)
+                        }
+                        rfd::MessageDialogResult::Custom(label) if label == "Discard" => {
+                            self.finish_open_project(pending)
+                        }
+                        _ => {
+                            self.project_status =
+                                "Open cancelled · Current show kept open.".to_owned()
+                        }
+                    }
                 } else {
-                    self.project_path = Some(path.clone());
-                    self.ui.project_path = path.to_string_lossy().into_owned();
-                    let recovery = autosave_path(Some(&path), &self.workspace);
-                    self.recovery_path = recovery_is_newer(&path, &recovery).then_some(recovery);
-                    self.project_status = format!("Opened {}", display_path(&path));
+                    self.finish_open_project(pending);
                 }
             }
             Err(error) => self.project_status = format!("Open failed: {error}"),
+        }
+    }
+
+    /// At startup there is no outgoing user show to save or discard.
+    pub(crate) fn open_initial_project(&mut self, path: PathBuf) {
+        match load_project(&path) {
+            Ok(mut project) => {
+                resolve_media_paths(&mut project, path.parent().unwrap_or(&self.workspace));
+                self.finish_open_project(PendingProjectOpen {
+                    path,
+                    recovered: false,
+                    project,
+                });
+            }
+            Err(error) => self.project_status = format!("Open failed: {error}"),
+        }
+    }
+
+    fn save_before_open(&mut self, pending: PendingProjectOpen) {
+        // The editable path may already contain the incoming show's name.
+        // Always save to the outgoing show's actual path, or explicitly choose one.
+        let path = match &self.project_path {
+            Some(path) => path.clone(),
+            None => {
+                let Some(path) = rfd::FileDialog::new()
+                    .set_title("Save Current Show Before Opening")
+                    .add_filter("VIRTUAL project", &["virtual"])
+                    .set_directory(&self.workspace)
+                    .set_file_name("untitled.virtual")
+                    .save_file()
+                else {
+                    self.project_status = "Open cancelled · Current show kept open.".to_owned();
+                    return;
+                };
+                with_project_extension(path)
+            }
+        };
+        let request = SaveRequest {
+            epoch: self.project_epoch,
+            supersedes: vec![autosave_path(self.project_path.as_deref(), &self.workspace)],
+            path,
+            snapshot: self.project_snapshot(),
+            kind: SaveKind::ProjectThenOpen,
+        };
+        match self.submit_project_save(request) {
+            Ok(()) => {
+                self.pending_project_open = Some(pending);
+                self.project_status = "Saving current show before opening…".to_owned();
+            }
+            Err(error) => {
+                self.project_status = format!("Open cancelled: {error} · Current show kept open.")
+            }
+        }
+    }
+
+    fn finish_open_project(&mut self, pending: PendingProjectOpen) {
+        let PendingProjectOpen {
+            path,
+            recovered,
+            project: project_file,
+        } = pending;
+        let graph = project_file
+            .graph
+            .clone()
+            .unwrap_or_else(virtual_graph::four_deck_performance_graph);
+        if let Err(error) = self
+            .performance_runtime
+            .set_project_graph(graph, project_file.settings.output.composition_extent)
+        {
+            self.project_status = format!("Project graph rejected: {error:#}");
+            return;
+        }
+        self.apply_project(project_file, recovered);
+        if recovered {
+            self.project_path = None;
+            self.recovery_path = None;
+            let destination = paths::recovered_save_path(&path, &self.workspace);
+            self.project_status = format!(
+                "Recovered autosave from {} · Save writes {}",
+                display_path(&path),
+                display_path(&destination)
+            );
+            self.ui.project_path = destination.to_string_lossy().into_owned();
+        } else {
+            self.project_path = Some(path.clone());
+            self.ui.project_path = path.to_string_lossy().into_owned();
+            let recovery = autosave_path(Some(&path), &self.workspace);
+            self.recovery_path = recovery_is_newer(&path, &recovery).then_some(recovery);
+            self.project_status = format!("Opened {}", display_path(&path));
         }
     }
 
@@ -260,6 +408,8 @@ impl State {
         self.project_id.clone_from(&project_file.project_id);
         self.project_takes.clone_from(&project_file.takes);
         self.project_epoch = self.project_epoch.wrapping_add(1);
+        self.pending_project_open = None;
+        self.ui.save_status = Default::default();
         self.clips = ClipBank::default();
         self.ui.clear_thumbnails();
         self.thumbnail_requests.clear();
@@ -466,10 +616,19 @@ impl State {
             kind: SaveKind::Recovery,
             supersedes: Vec::new(),
         };
-        if let Err(error) = self.project_saver.submit(request) {
+        if let Err(error) = self.submit_project_save(request) {
             self.project_status = format!("Autosave deferred: {error}");
         }
     }
+}
+
+fn can_replace_after_save(
+    current: &ProjectFile,
+    saved: Option<&ProjectFile>,
+    succeeded: bool,
+    locked: bool,
+) -> bool {
+    succeeded && !locked && saved.is_some() && !project::is_dirty(current, saved)
 }
 
 /// Keep saves recognizable as shows: `set` and `set.show` both become
@@ -486,6 +645,19 @@ fn with_project_extension(path: PathBuf) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_waits_for_success_and_preserves_edits_made_during_save() {
+        let saved = ProjectFile::default();
+        let mut live = saved.clone();
+        assert!(!can_replace_after_save(&live, None, true, false));
+        assert!(!can_replace_after_save(&live, Some(&saved), false, false));
+        assert!(!can_replace_after_save(&live, Some(&saved), true, true));
+        live.decks[0].transport.position = 20.0;
+        assert!(can_replace_after_save(&live, Some(&saved), true, false));
+        live.settings.bpm = 135.0;
+        assert!(!can_replace_after_save(&live, Some(&saved), true, false));
+    }
 
     #[test]
     fn save_as_appends_the_project_extension_only_when_missing() {

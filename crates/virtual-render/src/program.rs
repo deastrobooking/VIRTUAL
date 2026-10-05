@@ -781,6 +781,10 @@ impl MasterEffectProcessor {
         &self.reload_status
     }
 
+    pub fn has_reload_errors(&self) -> bool {
+        !self.reload_errors.is_empty()
+    }
+
     pub fn custom_effect_loaded(&self, id: &str) -> bool {
         self.custom_pipelines.contains_key(id)
     }

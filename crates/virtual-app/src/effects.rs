@@ -405,6 +405,7 @@ impl State {
             return;
         };
         self.ui.effect_registry_status = effect_registry_status(&registry, &roots);
+        self.ui.effect_registry_errors = registry.errors.len();
         (self.ui.effect_packages, self.ui.deck_effect_packages) =
             partition_effect_packages(registry.effects);
         self.watch_effect_manifest();

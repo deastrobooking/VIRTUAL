@@ -1507,6 +1507,10 @@ impl FourDeckCompositor {
         self.deck_effects.status()
     }
 
+    pub fn has_deck_effect_reload_errors(&self) -> bool {
+        self.deck_effects.has_reload_errors()
+    }
+
     pub fn deck_effect_loaded(&self, id: &str) -> bool {
         self.deck_effects.is_loaded(id)
     }

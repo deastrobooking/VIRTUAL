@@ -76,6 +76,9 @@ pub struct UiState {
     pub deck_packages: [DeckPackageSlot; 4],
     pub deck_effect_reload_status: String,
     pub effect_registry_status: String,
+    pub effect_registry_errors: usize,
+    pub effect_reload_failed: bool,
+    pub deck_effect_reload_failed: bool,
     pub master_modulation: MasterModulation,
     pub effects: [DeckEffects; 4],
     pub transforms: [DeckTransform; 4],
@@ -89,6 +92,7 @@ pub struct UiState {
     pub bpm: f64,
     pub quantization: Quantization,
     pub project_path: String,
+    pub(crate) save_status: crate::project_save::SaveStatus,
     pub camera_device_id: String,
     pub camera_width: u32,
     pub camera_height: u32,
@@ -163,6 +167,9 @@ impl Default for UiState {
             deck_packages: std::array::from_fn(|_| DeckPackageSlot::default()),
             deck_effect_reload_status: "Deck effect runtime idle".to_owned(),
             effect_registry_status: "Effect registry not scanned".to_owned(),
+            effect_registry_errors: 0,
+            effect_reload_failed: false,
+            deck_effect_reload_failed: false,
             master_modulation: MasterModulation::default(),
             effects: [DeckEffects::default(); 4],
             transforms: [DeckTransform::default(); 4],
@@ -175,6 +182,7 @@ impl Default for UiState {
             bpm: 120.0,
             quantization: Quantization::Immediate,
             project_path: "show.virtual".to_owned(),
+            save_status: crate::project_save::SaveStatus::default(),
             camera_device_id: "0".to_owned(),
             camera_width: 1280,
             camera_height: 720,
@@ -472,6 +480,7 @@ pub struct PerformanceMetrics<'a> {
     pub audio_inputs: &'a [AudioInputDevice],
     pub audio_status: &'a str,
     pub audio_connected: bool,
+    pub audio_required: bool,
     pub audio_snapshot: AudioInputSnapshot,
     pub audio_visual: &'a AudioVisual,
     pub midi: MidiMetrics<'a>,
@@ -690,6 +699,15 @@ pub fn draw(
     let palette = state.theme.palette();
     state.fps.push(metrics.frame_time.delta);
     let mut actions = Vec::new();
+
+    egui::Window::new("VIRTUAL")
+        .default_pos([16.0, 16.0])
+        .default_size([1180.0, 760.0])
+        .min_size([560.0, 420.0])
+        .resizable(true)
+        .scroll([false, false])
+        .show(ctx, |ui| {
+            draw_toolbar(ui, state, clips, &metrics, palette, &mut actions);
     let midi_map = MidiMapUi {
         active: state.midi_map_mode,
         learning: metrics.midi.mapper.learning(),
@@ -709,15 +727,11 @@ pub fn draw(
             .collect(),
         palette,
     };
-
-    egui::Window::new("VIRTUAL")
-        .default_pos([16.0, 16.0])
-        .default_size([1180.0, 760.0])
-        .min_size([560.0, 420.0])
-        .resizable(true)
-        .scroll([true, true])
-        .show(ctx, |ui| {
-            draw_toolbar(ui, state, clips, &metrics, palette, &mut actions);
+            egui::ScrollArea::both()
+                .id_salt("performance-editor")
+                .auto_shrink([false, false])
+                .max_height(ui.available_height())
+                .show(ui, |ui| {
             ui.separator();
             // Everything an operator sets up before the show - output,
             // project, devices, diagnostics - lives in one collapsible
@@ -1034,6 +1048,7 @@ pub fn draw(
                         );
                     });
             }
+            });
         });
     if !state.show_mode {
         state.theme.editor_ui(ctx);

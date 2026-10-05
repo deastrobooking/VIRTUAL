@@ -81,10 +81,17 @@ cargo run --release -p virtual-app
 ## Preflight and Show Mode
 
 The rail beneath the application header summarizes output health, missing or
-still-loading media, requested MIDI devices that have not connected, unsaved
-project changes and rejected effect reloads. **PREFLIGHT READY** means every
-hard show-path check is currently clear; audio, MIDI and OSC remain optional
-unless the project actually uses them.
+still-loading media, requested MIDI devices that have not connected, a
+requested audio input that is disconnected, rejected master or deck effect
+reloads and effect-registry errors, unsaved project changes, and saves that
+are still pending or have failed. **PREFLIGHT READY** means every one of these
+is clear; audio, MIDI and OSC remain optional unless the project actually uses
+them. Hover **effect attention** to see which effect check failed.
+
+The toolbar, emergency controls and preflight rail sit outside the scrolling
+editor, so they stay on screen however far the editor is scrolled. Save
+progress and save failures appear there in both modes. A failure stays visible
+until the same file saves successfully or you press **Dismiss save error**.
 
 After setup and saving, press **SHOW MODE** in the top bar. Show Mode keeps
 clip and scene launches, deck transport, levels, solo/bypass, live per-deck
@@ -92,9 +99,14 @@ effect sliders, compact master-effect bypass/wet cards, the A/B crossfader,
 master opacity, freeze and emergency blackout available. Custom cards keep the
 selected algorithmic package name visible. It hides or locks
 output/project/device setup, file drops, slot movement, relink/clear, eject,
-MIDI mapping, bus/blend structure, transforms, effect-chain reordering and
-resets, modulation, package selection and advanced master-effect editing.
-Press **EXIT SHOW MODE** to return to preparation.
+MIDI mapping, audio device selection and audio mappings, opening or
+recovering another show, Save As, bus/blend structure, transforms,
+effect-chain reordering and resets, modulation, package selection and advanced
+master-effect editing. Audio meters and response controls stay live, and so do
+video-input switching and camera recording, which are performance controls.
+**Save** (`Cmd/Ctrl+S`) and autosave keep working. The lock is enforced by the
+application, not only by hiding controls. Press **EXIT SHOW MODE** to return
+to preparation.
 The lock is deliberately temporary and is not stored in a project.
 
 Master freeze intentionally holds the exact final program frame. While it is
@@ -533,6 +545,11 @@ Stage-safety shortcuts:
 | `Cmd/Ctrl+Shift+S` | Save As… (not in Show Mode) |
 | `Cmd/Ctrl+O` | Open a show (not in Show Mode) |
 
+Single-key shortcuts only act when no modifier is held and no text field
+has keyboard focus, so typing a project path or take name never triggers
+blackout, freeze, output or scene launches. `Cmd/Ctrl+S` and `Cmd/Ctrl+O`
+work everywhere.
+
 ## Program output
 
 VIRTUAL renders the mixer once into an offscreen program texture. The operator
@@ -622,6 +639,12 @@ LFOs, modulation routes, tempo,
 output settings, theme/layout choices, MIDI mapping data and requested MIDI
 devices.
 Version-one projects are upgraded when loaded.
+
+Opening another show while the current one has unsaved changes asks
+**Save**, **Discard** or **Cancel**. Save writes the current show to its own
+file, asking for a location if it is untitled. The new show opens only after
+that save succeeds and nothing changed while it was saving; otherwise the
+current show stays open and the status explains why.
 
 VIRTUAL writes a recovery autosave after changes and on close. Use **Recover
 autosave** when the recovery copy is newer. A successful save retires the

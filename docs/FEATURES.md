@@ -21,8 +21,8 @@ This matrix reflects the current source tree, not the aspirational MVP notes.
 | OSC | Bounded OSC 1.0 UDP input/output, nested bundles, NTP-timetag scheduling, initial state snapshots, live health counters and origin-aware routes for mixer, decks, clips, scenes, tempo and output |
 | Musical control | Manual BPM, Tap, half/double, beat/bar phase and synchronized LFO divisions |
 | Audio modulation | Native input capture with interface channel selection, bounded queue, RMS/FFT bands, 8-band spectrum EQ with per-band gain and dB scale, transient, adaptive normalization, live meters, band-to-control mappings (continuous, trigger, gate) and thirteen audio plus beat/bar matrix sources |
-| Persistence | Atomic save, autosave, recovery, asynchronous restore, automatic v1–v4-to-v5 loading, stable project/take identity, deterministic seeds, active graph metadata and missing-media relinking |
-| Operator safety | Selected-deck primary editor, direct deck-row targeting, Show Mode performance lock, preflight rail and button/keyboard clip deletion |
+| Persistence | Atomic background save with persistent pending/failure status, save-before-open, autosave, recovery, asynchronous restore, automatic v1–v5-to-v6 loading, show-folder-relative media paths, stable project/take identity, deterministic seeds, active graph metadata and missing-media relinking |
+| Operator safety | Selected-deck primary editor, direct deck-row targeting, Show Mode performance lock enforced at UI and action level, fixed (non-scrolling) emergency toolbar, preflight rail covering devices, effects and saves, text-safe keyboard shortcuts and button/keyboard clip deletion |
 | Diagnostics | FPS, decoder drop/repeat/late counters, RGBA allocation/reuse/live/discard telemetry, output surface state, presentation skips/recovery and display-topology changes |
 
 ## Partial foundations
@@ -46,6 +46,6 @@ target-specific `deck-v1` GPU contract.
 ## Not implemented
 
 - Recent-project list
-- OSC route expansion/discovery, Ableton Link, NDI, Syphon/Spout and projection mapping
+- OSC route expansion/discovery, NDI, Syphon/Spout and projection mapping
 - Developer ID signing, notarization and a pre-macOS-26 FFmpeg build (`--portable` bundles Homebrew FFmpeg)
 - Graph editor, Score view, Spatial view and compiled GPU node execution
