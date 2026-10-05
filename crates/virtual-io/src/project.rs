@@ -1546,6 +1546,51 @@ pub fn save_project_atomic(
     result
 }
 
+/// Write `project` with media inside the destination's folder stored
+/// relative to it, so a show folder can move between drives and machines.
+/// Media elsewhere keeps its absolute path. Pair with
+/// [`resolve_media_paths`] on load.
+pub fn save_project_portable(
+    path: impl AsRef<Path>,
+    project: &ProjectFile,
+) -> Result<(), ProjectError> {
+    let path = path.as_ref();
+    let mut portable = project.clone();
+    if let Some(base) = path.parent().filter(|base| base.is_absolute()) {
+        relativize_media_paths(&mut portable, base);
+    }
+    save_project_atomic(path, &portable)
+}
+
+/// Rewrite absolute clip paths under `base` as `base`-relative paths.
+pub fn relativize_media_paths(project: &mut ProjectFile, base: &Path) {
+    for path in project
+        .decks
+        .iter_mut()
+        .flat_map(|deck| deck.clips.iter_mut().flatten())
+    {
+        if path.is_absolute()
+            && let Ok(relative) = path.strip_prefix(base)
+            && !relative.as_os_str().is_empty()
+        {
+            *path = relative.to_path_buf();
+        }
+    }
+}
+
+/// Resolve relative clip paths against `base`, the project file's folder.
+pub fn resolve_media_paths(project: &mut ProjectFile, base: &Path) {
+    for path in project
+        .decks
+        .iter_mut()
+        .flat_map(|deck| deck.clips.iter_mut().flatten())
+    {
+        if path.is_relative() {
+            *path = base.join(&*path);
+        }
+    }
+}
+
 pub fn autosave_path(project_path: Option<&Path>, workspace: &Path) -> PathBuf {
     project_path.map_or_else(
         || workspace.join(".virtual-untitled.autosave"),
@@ -1587,6 +1632,39 @@ mod tests {
             "virtual-project-{}-{id}-{name}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn portable_save_relativizes_media_inside_the_show_folder_only() {
+        let show = test_path("portable-show");
+        let path = show.join("set.virtual");
+        let mut project = ProjectFile::default();
+        project.decks[0].clips[0] = Some(show.join("media/intro.mov"));
+        project.decks[1].clips[2] = Some(PathBuf::from("/elsewhere/loop.mov"));
+        save_project_portable(&path, &project).unwrap();
+
+        let stored = load_project(&path).unwrap();
+        assert_eq!(
+            stored.decks[0].clips[0],
+            Some(PathBuf::from("media/intro.mov"))
+        );
+        assert_eq!(
+            stored.decks[1].clips[2],
+            Some(PathBuf::from("/elsewhere/loop.mov"))
+        );
+
+        // A copied show folder resolves against its new location.
+        let mut moved = stored;
+        resolve_media_paths(&mut moved, Path::new("/Volumes/Show/set"));
+        assert_eq!(
+            moved.decks[0].clips[0],
+            Some(PathBuf::from("/Volumes/Show/set/media/intro.mov"))
+        );
+        assert_eq!(
+            moved.decks[1].clips[2],
+            Some(PathBuf::from("/elsewhere/loop.mov"))
+        );
+        fs::remove_dir_all(show).unwrap();
     }
 
     #[test]

@@ -124,6 +124,10 @@ struct State {
     workspace: PathBuf,
     project_status: String,
     last_autosave: Instant,
+    /// Throttled display copy of [`State::project_dirty`], which snapshots
+    /// and compares the whole project and is too costly to run every frame.
+    project_dirty_cached: bool,
+    last_dirty_check: Option<Instant>,
     project_epoch: u64,
     restorer: ClipRestorer,
     restore_active: [Option<usize>; 4],
@@ -677,6 +681,8 @@ impl State {
             workspace,
             project_status: String::new(),
             last_autosave: Instant::now(),
+            project_dirty_cached: false,
+            last_dirty_check: None,
             project_epoch: 0,
             restorer: ClipRestorer::new(32),
             restore_active: [None; 4],
@@ -771,7 +777,7 @@ impl State {
             log::error!("performance runtime: {error:#}");
         }
         let runtime_status = self.performance_runtime.status();
-        let project_dirty = self.project_dirty();
+        let project_dirty = self.project_dirty_throttled(now);
 
         // --- UI pass: pure CPU, produces geometry for the GPU pass below.
         let ctx = self.egui_state.egui_ctx().clone();
@@ -1424,16 +1430,6 @@ fn display_path(path: &std::path::Path) -> String {
     path.file_name()
         .and_then(|name| name.to_str())
         .map_or_else(|| path.display().to_string(), ToOwned::to_owned)
-}
-
-fn resolve_project_paths(project: &mut ProjectFile, base: &std::path::Path) {
-    for deck in &mut project.decks {
-        for path in deck.clips.iter_mut().flatten() {
-            if path.is_relative() {
-                *path = base.join(&*path);
-            }
-        }
-    }
 }
 
 #[cfg(test)]

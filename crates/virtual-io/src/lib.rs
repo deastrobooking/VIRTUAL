@@ -28,5 +28,6 @@ pub use project::{
     MidiMappingProject, MidiMessageProject, ModRouteProject, OutputProject, PROJECT_VERSION,
     ProjectError, ProjectFile, ProjectSettings, QuantizationProject, SourceModeProject,
     TakeMetadataProject, ThemeAppearanceProject, ThemeProject, TransformProject, TransportProject,
-    autosave_path, load_project, new_project_id, recovery_is_newer, save_project_atomic,
+    autosave_path, load_project, new_project_id, recovery_is_newer, relativize_media_paths,
+    resolve_media_paths, save_project_atomic, save_project_portable,
 };

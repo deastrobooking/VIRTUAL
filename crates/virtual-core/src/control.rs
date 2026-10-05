@@ -125,11 +125,19 @@ pub struct MidiBinding {
     pub invert: bool,
     pub mode: MappingMode,
     pub soft_takeover: bool,
-    latched: bool,
     picked_up: bool,
+    /// Last hardware position mapped into the output range, used to pick up
+    /// a fast move that jumps across the current value.
+    last_hardware: Option<f32>,
+    /// Last value this binding emitted. When the target later diverges from
+    /// it (UI, OSC, audio map, project load), soft takeover re-arms.
+    last_output: Option<f32>,
 }
 
 impl MidiBinding {
+    /// A fresh binding with defaults suited to the target: its natural output
+    /// range, and for pads/keys a press-driven mode so that soft,
+    /// velocity-sensitive hits still fire triggers and flip switches.
     pub fn learned(device: impl Into<String>, message: MidiMessage, target: ControlTarget) -> Self {
         let (channel, kind, number) = message.identity();
         Self {
@@ -139,12 +147,17 @@ impl MidiBinding {
             number,
             target,
             input_range: [0.0, 1.0],
-            output_range: [0.0, 1.0],
+            output_range: crate::audio_map::default_output_range(target),
             invert: false,
-            mode: MappingMode::Continuous,
+            mode: if kind == MidiMessageKind::Note {
+                note_mode_for(target)
+            } else {
+                MappingMode::Continuous
+            },
             soft_takeover: false,
-            latched: false,
             picked_up: false,
+            last_hardware: None,
+            last_output: None,
         }
     }
 
@@ -157,13 +170,16 @@ impl MidiBinding {
             if raw <= 0.0 {
                 return None;
             }
-            self.latched = !self.latched;
-            let normalized = if self.invert {
-                f32::from(!self.latched)
+            // Flip relative to the target's live state rather than a private
+            // latch, so a switch changed from the UI, OSC or a project load is
+            // never "pressed twice" from the controller.
+            let span = self.output_range[1] - self.output_range[0];
+            let on = if span.abs() > f32::EPSILON {
+                (current - self.output_range[0]) / span >= 0.5
             } else {
-                f32::from(self.latched)
+                false
             };
-            return Some(self.map_output(normalized));
+            return Some(self.map_output(f32::from(!on)));
         }
         if self.mode == MappingMode::Momentary {
             let active = raw > 0.0;
@@ -212,18 +228,52 @@ impl MidiBinding {
             normalized = 1.0 - normalized;
         }
         let mapped = self.map_output(normalized);
-        if self.soft_takeover && !self.picked_up {
-            let tolerance = (self.output_range[1] - self.output_range[0]).abs() / 127.0 * 2.0;
-            if (mapped - current).abs() > tolerance.max(0.01) {
-                return None;
+        if self.soft_takeover {
+            let tolerance =
+                ((self.output_range[1] - self.output_range[0]).abs() / 127.0 * 2.0).max(0.01);
+            if self.picked_up
+                && self
+                    .last_output
+                    .is_some_and(|last| (last - current).abs() > tolerance)
+            {
+                self.picked_up = false;
             }
-            self.picked_up = true;
+            if !self.picked_up {
+                let crossed = self
+                    .last_hardware
+                    .is_some_and(|previous| (previous - current) * (mapped - current) <= 0.0);
+                self.last_hardware = Some(mapped);
+                if !crossed && (mapped - current).abs() > tolerance {
+                    return None;
+                }
+                self.picked_up = true;
+            }
         }
+        self.last_hardware = Some(mapped);
+        self.last_output = Some(mapped);
         Some(mapped)
     }
 
     fn map_output(&self, normalized: f32) -> f32 {
         self.output_range[0] + normalized * (self.output_range[1] - self.output_range[0])
+    }
+}
+
+/// Default mode for a target learned from a note (pad or key).
+fn note_mode_for(target: ControlTarget) -> MappingMode {
+    match target {
+        ControlTarget::TapTempo
+        | ControlTarget::DeckRestart(_)
+        | ControlTarget::DeckSelect(_)
+        | ControlTarget::ClipLaunch { .. }
+        | ControlTarget::SceneLaunch(_) => MappingMode::Momentary,
+        ControlTarget::MasterBlackout
+        | ControlTarget::MasterFreeze
+        | ControlTarget::DeckPlay(_)
+        | ControlTarget::DeckFreeze(_)
+        | ControlTarget::LfoParameter { parameter: 0, .. }
+        | ControlTarget::ModRouteParameter { parameter: 0, .. } => MappingMode::Toggle,
+        _ => MappingMode::Continuous,
     }
 }
 
@@ -536,6 +586,71 @@ mod tests {
             ),
             Some(1.0)
         );
+    }
+
+    fn cc(value: u8) -> MidiMessage {
+        MidiMessage::ControlChange {
+            channel: 0,
+            controller: 1,
+            value,
+        }
+    }
+
+    fn pad(velocity: u8) -> MidiMessage {
+        MidiMessage::NoteOn {
+            channel: 0,
+            note: 36,
+            velocity,
+        }
+    }
+
+    #[test]
+    fn soft_velocity_pad_still_fires_learned_triggers() {
+        let mut mapper = MidiMapper::default();
+        mapper.learn(ControlTarget::ClipLaunch { deck: 0, slot: 3 });
+        mapper.ingest("pads", pad(127), |_| 0.0);
+        assert_eq!(mapper.bindings[0].mode, MappingMode::Momentary);
+        let updates = mapper.ingest("pads", pad(20), |_| 0.0);
+        assert_eq!(updates[0].value, 1.0);
+    }
+
+    #[test]
+    fn learned_defaults_follow_target_domain() {
+        let speed = MidiBinding::learned("knobs", cc(0), ControlTarget::DeckSpeed(0));
+        assert_eq!(speed.mode, MappingMode::Continuous);
+        assert_eq!(speed.output_range, [0.5, 2.0]);
+        let blackout = MidiBinding::learned("pads", pad(127), ControlTarget::MasterBlackout);
+        assert_eq!(blackout.mode, MappingMode::Toggle);
+        // A CC fader on a switch stays absolute rather than toggling per tick.
+        let fader = MidiBinding::learned("knobs", cc(0), ControlTarget::MasterBlackout);
+        assert_eq!(fader.mode, MappingMode::Continuous);
+    }
+
+    #[test]
+    fn toggle_flips_from_the_live_target_state() {
+        let mut binding = MidiBinding::learned("pads", pad(127), ControlTarget::MasterBlackout);
+        // Blackout was already engaged from the UI: the first press releases it.
+        assert_eq!(binding.apply(pad(127), 1.0), Some(0.0));
+        assert_eq!(binding.apply(pad(127), 0.0), Some(1.0));
+    }
+
+    #[test]
+    fn soft_takeover_rearms_after_the_target_moves_elsewhere() {
+        let mut binding = MidiBinding::learned("knobs", cc(0), ControlTarget::MasterOpacity);
+        binding.soft_takeover = true;
+        assert!(binding.apply(cc(64), 64.0 / 127.0).is_some());
+        // The operator drags opacity to 1.0 on screen; the knob must not jump it.
+        assert_eq!(binding.apply(cc(66), 1.0), None);
+        assert!(binding.apply(cc(127), 1.0).is_some());
+    }
+
+    #[test]
+    fn soft_takeover_picks_up_when_a_fast_move_crosses_the_value() {
+        let mut binding = MidiBinding::learned("knobs", cc(0), ControlTarget::MasterOpacity);
+        binding.soft_takeover = true;
+        assert_eq!(binding.apply(cc(20), 0.5), None);
+        // One message jumps from below to above 0.5 without landing near it.
+        assert!(binding.apply(cc(110), 0.5).is_some());
     }
 
     #[test]

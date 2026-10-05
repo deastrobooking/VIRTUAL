@@ -5,13 +5,16 @@ use std::time::{Duration, Instant};
 
 use virtual_core::MediaTime;
 use virtual_io::{
-    ProjectFile, autosave_path, load_project, recovery_is_newer, save_project_atomic,
+    ProjectFile, autosave_path, load_project, recovery_is_newer, resolve_media_paths,
+    save_project_portable,
 };
 use virtual_media::{ClipAddress, ClipBank, ClipRestoreRequest, DeckId, LaunchQueue};
 use virtual_session::{CommandOperation, CommandOrigin};
 
 use super::project_save::{SaveCompletion, SaveKind, SaveRequest};
-use super::{State, display_path, project, resolve_project_paths};
+use super::{State, display_path, project};
+
+const DIRTY_CHECK_INTERVAL: Duration = Duration::from_millis(250);
 
 impl State {
     pub(crate) fn project_snapshot(&self) -> ProjectFile {
@@ -51,6 +54,19 @@ impl State {
 
     pub(crate) fn project_dirty(&self) -> bool {
         project::is_dirty(&self.project_snapshot(), self.last_saved_project.as_ref())
+    }
+
+    /// Dirty state for the status display, recomputed at most four times a
+    /// second. Save, autosave and close paths call [`Self::project_dirty`].
+    pub(crate) fn project_dirty_throttled(&mut self, now: Instant) -> bool {
+        if self
+            .last_dirty_check
+            .is_none_or(|last| now.saturating_duration_since(last) >= DIRTY_CHECK_INTERVAL)
+        {
+            self.project_dirty_cached = self.project_dirty();
+            self.last_dirty_check = Some(now);
+        }
+        self.project_dirty_cached
     }
 
     pub(crate) fn path_from_ui(&self) -> Option<PathBuf> {
@@ -105,6 +121,7 @@ impl State {
             Ok(()) if request.kind == SaveKind::Project => {
                 self.project_path = Some(request.path.clone());
                 self.last_saved_project = Some(request.snapshot);
+                self.last_dirty_check = None;
                 self.recovery_path = None;
                 self.project_status = format!("Saved {}", display_path(&request.path));
             }
@@ -125,7 +142,7 @@ impl State {
         }
         if self.project_dirty() {
             let path = autosave_path(self.project_path.as_deref(), &self.workspace);
-            if let Err(error) = save_project_atomic(&path, &self.project_snapshot()) {
+            if let Err(error) = save_project_portable(&path, &self.project_snapshot()) {
                 log::error!("close-time recovery save failed: {error}");
             }
         }
@@ -143,7 +160,7 @@ impl State {
         match load_project(&path) {
             Ok(mut project_file) => {
                 let base = path.parent().unwrap_or(&self.workspace);
-                resolve_project_paths(&mut project_file, base);
+                resolve_media_paths(&mut project_file, base);
                 let graph = project_file
                     .graph
                     .clone()
@@ -275,6 +292,7 @@ impl State {
         }
 
         self.last_saved_project = (!recovered).then_some(project_file);
+        self.last_dirty_check = None;
         self.performance_started = Instant::now();
         self.last_autosave = Instant::now();
     }

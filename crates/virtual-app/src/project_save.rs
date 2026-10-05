@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 
-use virtual_io::{ProjectFile, save_project_atomic};
+use virtual_io::{ProjectFile, save_project_portable};
 
 const SAVE_QUEUE_CAPACITY: usize = 4;
 
@@ -41,7 +41,8 @@ pub(crate) struct ProjectSaver {
 impl ProjectSaver {
     pub fn new() -> std::io::Result<Self> {
         Self::spawn(|request| {
-            save_project_atomic(&request.path, &request.snapshot).map_err(|error| error.to_string())
+            save_project_portable(&request.path, &request.snapshot)
+                .map_err(|error| error.to_string())
         })
     }
 
