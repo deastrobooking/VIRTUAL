@@ -18,6 +18,7 @@ pub(super) struct DeckControls<'a> {
     pub(super) package: &'a mut DeckPackageSlot,
     pub(super) packages: &'a [EffectDescriptor],
     pub(super) generator: virtual_generate::GeneratorStats,
+    pub(super) generator_window: &'a mut bool,
 }
 
 pub(super) fn draw_deck(
@@ -42,6 +43,7 @@ pub(super) fn draw_deck(
         package,
         packages,
         generator,
+        generator_window,
     } = controls;
     let accent = palette.deck_color(id);
     let selected = mixer.selected() == id;
@@ -166,7 +168,15 @@ pub(super) fn draw_deck(
                 });
                 ui.weak("Non-seekable low-latency source");
             }
-            DeckState::Generator(_) => {}
+            DeckState::Generator(settings) => {
+                super::generator::draw_generator_summary(
+                    ui,
+                    settings,
+                    generator,
+                    palette,
+                    generator_window,
+                );
+            }
             DeckState::Error { path, message } => {
                 ui.colored_label(palette.danger, "IMPORT ERROR");
                 ui.label(
@@ -176,12 +186,6 @@ pub(super) fn draw_deck(
                 );
                 ui.weak(message);
             }
-        }
-
-        if let DeckState::Generator(settings) = &mut mixer.deck_mut(id).state {
-            super::generator::draw_generator_controls(
-                ui, id, settings, generator, palette, show_mode,
-            );
         }
 
         let deck = mixer.deck_mut(id);

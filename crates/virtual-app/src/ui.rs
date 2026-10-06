@@ -102,6 +102,11 @@ pub struct UiState {
     pub capture_pixel_format: virtual_media::CapturePixelFormat,
     /// Pattern the generator loader puts on a deck.
     pub generator_pattern: virtual_generate::RecursivePattern,
+    /// Per-deck generator window visibility.
+    pub generator_windows: [bool; 4],
+    /// Whether each deck was a generator last frame, to open its window on
+    /// the transition into a generator source.
+    pub generator_seen: [bool; 4],
     pub audio_device_id: String,
     pub audio_analysis: AudioAnalysisSettings,
     /// Zero-based interface channel to analyse, or `None` to mix all.
@@ -193,6 +198,8 @@ impl Default for UiState {
             camera_fps_denominator: 1,
             capture_pixel_format: virtual_media::CapturePixelFormat::Auto,
             generator_pattern: virtual_generate::RecursivePattern::default(),
+            generator_windows: [false; 4],
+            generator_seen: [false; 4],
             audio_device_id: String::new(),
             audio_analysis: AudioAnalysisSettings::default(),
             audio_channel: None,
@@ -792,6 +799,7 @@ pub fn draw(
                 let deck_packages_ref = &mut state.deck_packages;
                 let deck_effect_packages = &state.deck_effect_packages;
                 let generator_stats = metrics.generator_stats;
+                let generator_windows_ref = &mut state.generator_windows;
                 let actions_ref = &mut actions;
                 let mut deck_strip = |ui: &mut egui::Ui, deck_id: DeckId| {
                     draw_deck(
@@ -813,6 +821,7 @@ pub fn draw(
                             package: &mut deck_packages_ref[deck_id.index()],
                             packages: deck_effect_packages,
                             generator: generator_stats[deck_id.index()],
+                            generator_window: &mut generator_windows_ref[deck_id.index()],
                         },
                         actions_ref,
                     );
@@ -1065,6 +1074,7 @@ pub fn draw(
         state.theme.editor_ui(ctx);
     }
     draw_midi_manager(ctx, state, &mut metrics.midi, &palette, &mut actions);
+    generator::draw_generator_windows(ctx, state, mixer, metrics.generator_stats, palette);
     actions
 }
 

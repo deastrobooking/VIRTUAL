@@ -11,12 +11,20 @@ a camera, so deck effects, blend modes, transforms, modulation, Freeze and
    offers a pattern list grouped into 2D and 3D. Choose one, then press
    **Load to Deck X**. This replaces the deck's clip or video input, and it
    is allowed in Show Mode.
-2. The deck strip shows a **◆ GENERATOR** panel with a stats line: 2D/3D,
-   segment count, depth, resolution and CPU time per frame. When the depth
+2. Generators are a deck source, not an effect, so their controls are in a
+   separate **◆ GENERATOR · DECK X** window. It opens when a generator
+   becomes a deck's source (from the loader or a project load) and closes
+   when the deck switches to a clip, camera or Eject. Each generator deck
+   has its own window.
+3. The window holds a pattern gallery (2D and 3D tiles) and the Shape,
+   Motion & camera, Color & light, Audio and Output sections. Pattern and
+   controls can be changed live; rotation, growth and trails carry on
+   without a restart.
+4. The deck strip shows only a summary: the pattern, a stats line (2D/3D,
+   segment count, depth, resolution, CPU time per frame) and a
+   **Generator controls…** button that reopens the window. When the depth
    is shown in amber, it was lowered to stay inside the segment budget.
-3. Pattern and controls can be changed live. Rotation, growth and trails
-   carry on without a restart.
-4. Generator settings are saved in the project and restored when it is
+5. Generator settings are saved in the project and restored when it is
    opened.
 
 ## Patterns
