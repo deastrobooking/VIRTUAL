@@ -1,18 +1,21 @@
 //! Bounded decoder actor used by each active mixer deck.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use virtual_core::MediaTime;
+use virtual_generate::{AudioBands, Generator, GeneratorSettings, GeneratorStats};
 use virtual_hap::Decoder as HapDecoder;
 
 use crate::capture_interrupt::CaptureCancellation;
 
 use crate::{
     CameraConfig, DecodePath, FfmpegVideoDecoder, FrameBufferPool, FramePoolStats, HapDemuxer,
-    ScheduledFrame, VideoFramePayload,
+    RgbaFrame, ScheduledFrame, VideoFramePayload,
 };
 
 #[derive(Debug)]
@@ -29,6 +32,12 @@ enum DecoderCommand {
         config: CameraConfig,
         generation: u64,
     },
+    Generator {
+        settings: GeneratorSettings,
+        generation: u64,
+        link: Arc<GeneratorLink>,
+    },
+    GeneratorSettings(GeneratorSettings),
     Stop,
     Shutdown,
 }
@@ -89,8 +98,71 @@ impl ArmedDecoderFailure {
     }
 }
 
+/// Lock-free exchange between the render thread and a generator session:
+/// live audio bands in, last-frame statistics out. Neither side waits.
+#[derive(Debug, Default)]
+struct GeneratorLink {
+    audio: [AtomicU32; 3],
+    segments: AtomicU32,
+    drawn: AtomicU32,
+    depths: AtomicU32,
+    flags: AtomicU32,
+    generate_micros: AtomicU32,
+    render_micros: AtomicU32,
+}
+
+impl GeneratorLink {
+    fn set_audio(&self, audio: AudioBands) {
+        for (slot, value) in self.audio.iter().zip([audio.bass, audio.mid, audio.high]) {
+            slot.store(value.to_bits(), Ordering::Relaxed);
+        }
+    }
+
+    fn audio(&self) -> AudioBands {
+        let band = |index: usize| f32::from_bits(self.audio[index].load(Ordering::Relaxed));
+        AudioBands {
+            bass: band(0),
+            mid: band(1),
+            high: band(2),
+        }
+    }
+
+    fn publish(&self, stats: GeneratorStats) {
+        self.segments.store(stats.segments, Ordering::Relaxed);
+        self.drawn.store(stats.drawn, Ordering::Relaxed);
+        self.depths.store(
+            (stats.requested_depth.min(0xFFFF) << 16) | stats.depth.min(0xFFFF),
+            Ordering::Relaxed,
+        );
+        self.flags.store(
+            u32::from(stats.truncated) | (u32::from(stats.planar) << 1),
+            Ordering::Relaxed,
+        );
+        self.generate_micros
+            .store(stats.generate_micros, Ordering::Relaxed);
+        self.render_micros
+            .store(stats.render_micros, Ordering::Relaxed);
+    }
+
+    fn stats(&self) -> GeneratorStats {
+        let depths = self.depths.load(Ordering::Relaxed);
+        let flags = self.flags.load(Ordering::Relaxed);
+        GeneratorStats {
+            segments: self.segments.load(Ordering::Relaxed),
+            drawn: self.drawn.load(Ordering::Relaxed),
+            requested_depth: depths >> 16,
+            depth: depths & 0xFFFF,
+            truncated: flags & 1 != 0,
+            planar: flags & 2 != 0,
+            generate_micros: self.generate_micros.load(Ordering::Relaxed),
+            render_micros: self.render_micros.load(Ordering::Relaxed),
+        }
+    }
+}
+
 pub struct DeckDecoder {
     capture_cancellation: CaptureCancellation,
+    generator_link: Arc<GeneratorLink>,
     commands: mpsc::Sender<DecoderCommand>,
     frames: Receiver<ScheduledFrame<VideoFramePayload>>,
     events: Receiver<DecoderEvent>,
@@ -132,6 +204,7 @@ impl DeckDecoder {
             .expect("spawn deck decoder");
         Self {
             capture_cancellation: CaptureCancellation::default(),
+            generator_link: Arc::default(),
             commands: commands_tx,
             frames: frames_rx,
             events: events_rx,
@@ -191,6 +264,35 @@ impl DeckDecoder {
         });
     }
 
+    /// Starts a procedural source. Frames are rendered on this deck's worker
+    /// at the settings' frame rate and dropped, like camera frames, when the
+    /// render loop falls behind.
+    pub fn connect_generator(&self, settings: GeneratorSettings, generation: u64) {
+        let _ = self.capture_cancellation.next();
+        self.generator_link.publish(GeneratorStats::default());
+        let _ = self.commands.send(DecoderCommand::Generator {
+            settings,
+            generation,
+            link: self.generator_link.clone(),
+        });
+    }
+
+    /// Applies live setting changes without restarting the generator, so
+    /// rotation, growth and trails continue smoothly.
+    pub fn update_generator(&self, settings: GeneratorSettings) {
+        let _ = self
+            .commands
+            .send(DecoderCommand::GeneratorSettings(settings));
+    }
+
+    pub fn set_generator_audio(&self, audio: AudioBands) {
+        self.generator_link.set_audio(audio);
+    }
+
+    pub fn generator_stats(&self) -> GeneratorStats {
+        self.generator_link.stats()
+    }
+
     pub fn try_frame(&self) -> Result<ScheduledFrame<VideoFramePayload>, TryRecvError> {
         self.frames.try_recv()
     }
@@ -240,12 +342,24 @@ enum Session {
         generation: u64,
         skip_before: Option<MediaTime>,
     },
+    Generator {
+        generator: Box<Generator>,
+        generation: u64,
+        sequence: u64,
+        /// Seconds of generated time; also the frame PTS.
+        clock: f64,
+        next_due: Instant,
+        pool: FrameBufferPool,
+        link: Arc<GeneratorLink>,
+    },
 }
 
 impl Session {
     fn generation(&self) -> u64 {
         match self {
-            Self::Hap { generation, .. } | Self::Ffmpeg { generation, .. } => *generation,
+            Self::Hap { generation, .. }
+            | Self::Ffmpeg { generation, .. }
+            | Self::Generator { generation, .. } => *generation,
         }
     }
 
@@ -296,11 +410,62 @@ impl Session {
                     payload: VideoFramePayload::Rgba8(frame.pixels),
                 }));
             },
+            Self::Generator {
+                generator,
+                generation,
+                sequence,
+                clock,
+                next_due,
+                pool,
+                link,
+            } => {
+                let now = Instant::now();
+                if now.saturating_duration_since(*next_due) > Duration::from_millis(250) {
+                    // Resynchronise after a stall instead of bursting frames.
+                    *next_due = now;
+                }
+                let interval = 1.0 / f64::from(generator.settings().fps.max(1));
+                let [width, height] = generator.extent();
+                let mut data = pool.acquire(width as usize * height as usize * 4);
+                generator.render(*clock, link.audio(), &mut data);
+                link.publish(generator.stats());
+                let micros = |seconds: f64| (seconds * 1_000_000.0).round() as i64;
+                let pts = MediaTime::new(micros(*clock), 1_000_000).map_err(|e| e.to_string())?;
+                let frame = ScheduledFrame {
+                    pts,
+                    duration: MediaTime::new(micros(interval), 1_000_000).ok(),
+                    generation: *generation,
+                    sequence: *sequence,
+                    payload: VideoFramePayload::Rgba8(RgbaFrame {
+                        extent: [width, height],
+                        data,
+                    }),
+                };
+                *sequence += 1;
+                *clock += interval;
+                *next_due += Duration::from_secs_f64(interval);
+                Ok(Some(frame))
+            }
         }
     }
 
     fn is_live(&self) -> bool {
-        matches!(self, Self::Ffmpeg { decoder, .. } if decoder.is_live())
+        match self {
+            Self::Ffmpeg { decoder, .. } => decoder.is_live(),
+            Self::Generator { .. } => true,
+            Self::Hap { .. } => false,
+        }
+    }
+
+    /// Time until a paced source's next frame is due, if it is not yet.
+    fn until_due(&self) -> Option<Duration> {
+        match self {
+            Self::Generator { next_due, .. } => {
+                let wait = next_due.saturating_duration_since(Instant::now());
+                (!wait.is_zero()).then_some(wait)
+            }
+            Self::Hap { .. } | Self::Ffmpeg { .. } => None,
+        }
     }
 }
 
@@ -329,6 +494,30 @@ fn decoder_loop(
             }
             Err(TryRecvError::Disconnected) => break,
             Err(TryRecvError::Empty) => {}
+        }
+
+        // Paced sources wait on the command channel, so setting changes and
+        // stops are handled immediately rather than after the next frame.
+        if pending.is_none()
+            && let Some(wait) = session.as_ref().and_then(Session::until_due)
+        {
+            match commands.recv_timeout(wait) {
+                Ok(command) => {
+                    if handle_command(
+                        command,
+                        &mut session,
+                        &mut pending,
+                        &events,
+                        &frame_pool,
+                        &mut failure,
+                    ) {
+                        break;
+                    }
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            }
+            continue;
         }
 
         if pending.is_none()
@@ -510,11 +699,100 @@ fn handle_command(
             }
             false
         }
+        DecoderCommand::Generator {
+            settings,
+            generation,
+            link,
+        } => {
+            *pending = None;
+            if let Some(failure) = failure.as_mut() {
+                failure.arm(generation);
+            }
+            *session = Some(Session::Generator {
+                generator: Box::new(Generator::new(settings)),
+                generation,
+                sequence: 0,
+                clock: 0.0,
+                next_due: Instant::now(),
+                pool: frame_pool.clone(),
+                link,
+            });
+            let _ = events.send(DecoderEvent::Loaded { generation });
+            false
+        }
+        DecoderCommand::GeneratorSettings(settings) => {
+            if let Some(Session::Generator { generator, .. }) = session.as_mut() {
+                generator.set_settings(settings);
+            }
+            false
+        }
         DecoderCommand::Stop => {
             *session = None;
             *pending = None;
             false
         }
         DecoderCommand::Shutdown => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn small_generator() -> GeneratorSettings {
+        GeneratorSettings {
+            resolution: [128, 72],
+            fps: 120,
+            ..GeneratorSettings::default()
+        }
+    }
+
+    fn next_rgba(decoder: &DeckDecoder) -> ScheduledFrame<VideoFramePayload> {
+        decoder
+            .recv_frame_timeout(Duration::from_secs(5))
+            .expect("generator frame")
+    }
+
+    #[test]
+    fn generator_streams_paced_frames_and_applies_live_settings() {
+        let decoder = DeckDecoder::spawn(2);
+        decoder.connect_generator(small_generator(), 9);
+        assert_eq!(
+            decoder.recv_event_timeout(Duration::from_secs(5)).unwrap(),
+            DecoderEvent::Loaded { generation: 9 }
+        );
+        let first = next_rgba(&decoder);
+        let second = next_rgba(&decoder);
+        assert_eq!(first.generation, 9);
+        assert!(second.pts > first.pts, "generated time advances");
+        let VideoFramePayload::Rgba8(frame) = &first.payload else {
+            panic!("generator frames are RGBA");
+        };
+        assert_eq!(frame.extent, [128, 72]);
+        assert_eq!(frame.data.len(), 128 * 72 * 4);
+        assert!(decoder.generator_stats().segments > 0);
+
+        decoder.update_generator(GeneratorSettings {
+            resolution: [64, 64],
+            ..small_generator()
+        });
+        let resized = (0..50)
+            .map(|_| next_rgba(&decoder))
+            .find_map(|frame| match frame.payload {
+                VideoFramePayload::Rgba8(rgba) if rgba.extent == [64, 64] => Some(frame.generation),
+                _ => None,
+            });
+        assert_eq!(resized, Some(9), "live update keeps the generation");
+
+        decoder.stop();
+        while decoder.try_frame().is_ok() {}
+        std::thread::sleep(Duration::from_millis(50));
+        while decoder.try_frame().is_ok() {}
+        assert!(
+            decoder
+                .recv_frame_timeout(Duration::from_millis(100))
+                .is_err(),
+            "stop ends the generator session"
+        );
     }
 }

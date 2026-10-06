@@ -310,6 +310,17 @@ impl ProjectFile {
                     (deck.camera.is_some() && deck.active_slot.is_some()),
                 ),
                 (
+                    "generator (cannot coexist with an active clip or camera)",
+                    deck.generator.is_some()
+                        && (deck.active_slot.is_some() || deck.camera.is_some()),
+                ),
+                (
+                    "generator",
+                    deck.generator.as_ref().is_some_and(|generator| {
+                        generator.resolution.contains(&0) || generator.fps == 0
+                    }),
+                ),
+                (
                     "clip_playback",
                     deck.clip_playback.iter().any(|playback| {
                         !playback.in_point.is_finite()
@@ -1030,6 +1041,9 @@ pub struct DeckProject {
     pub mod_routes: Vec<ModRouteProject>,
     #[serde(default)]
     pub camera: Option<CameraProject>,
+    /// Procedural recursive-geometry source on this deck.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generator: Option<GeneratorProject>,
 }
 
 impl Default for DeckProject {
@@ -1051,6 +1065,7 @@ impl Default for DeckProject {
             lfos: default_lfos(),
             mod_routes: default_mod_routes(),
             camera: None,
+            generator: None,
         }
     }
 }
@@ -1449,6 +1464,79 @@ pub struct CameraProject {
     pub fps_denominator: u32,
     #[serde(default = "default_capture_pixel_format")]
     pub pixel_format: String,
+}
+
+/// Recursive-geometry generator settings. Every field defaults, so files
+/// written before a field existed still load. `pattern` is an open string:
+/// an unknown id from a newer build falls back to the default pattern.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneratorProject {
+    pub pattern: String,
+    pub seed: u32,
+    pub depth: f32,
+    pub scale: f32,
+    pub spread: f32,
+    pub twist: f32,
+    pub randomness: f32,
+    pub flatten: bool,
+    pub rotate_speed: f32,
+    pub tilt: f32,
+    pub spin_speed: f32,
+    pub zoom: f32,
+    pub perspective: f32,
+    pub reveal: f32,
+    pub grow_speed: f32,
+    pub hue: f32,
+    pub hue_range: f32,
+    pub color_speed: f32,
+    pub saturation: f32,
+    pub lightness: f32,
+    pub brightness: f32,
+    pub line_width: f32,
+    pub depth_fade: f32,
+    pub trails: f32,
+    pub transparent: bool,
+    pub audio_amount: f32,
+    pub resolution: [u32; 2],
+    pub fps: u32,
+}
+
+impl Default for GeneratorProject {
+    // Mirrors `virtual_generate::GeneratorSettings::default`; the app tests
+    // that the two stay identical.
+    fn default() -> Self {
+        Self {
+            pattern: "fractal_tree".to_owned(),
+            seed: 1,
+            depth: 0.60,
+            scale: 0.50,
+            spread: 0.45,
+            twist: 0.35,
+            randomness: 0.0,
+            flatten: false,
+            rotate_speed: 0.15,
+            tilt: 0.0,
+            spin_speed: 0.0,
+            zoom: 1.0,
+            perspective: 0.5,
+            reveal: 1.0,
+            grow_speed: 0.0,
+            hue: 0.55,
+            hue_range: 0.45,
+            color_speed: 0.5,
+            saturation: 0.65,
+            lightness: 0.45,
+            brightness: 1.6,
+            line_width: 1.25,
+            depth_fade: 0.35,
+            trails: 0.0,
+            transparent: true,
+            audio_amount: 0.0,
+            resolution: [1280, 720],
+            fps: 60,
+        }
+    }
 }
 
 fn default_capture_denominator() -> u32 {
@@ -2473,6 +2561,35 @@ mod tests {
         assert_eq!(load_project(&path).unwrap().decks[0].camera, Some(camera));
         std::fs::remove_file(path).unwrap();
         project.decks[0].camera.as_mut().unwrap().fps_denominator = 0;
+        assert!(project.validate().is_err());
+    }
+
+    #[test]
+    fn generator_decks_round_trip_and_reject_conflicting_sources() {
+        let mut project = ProjectFile::default();
+        project.decks[1].generator = Some(GeneratorProject {
+            pattern: "dragon_curve".to_owned(),
+            trails: 0.6,
+            ..GeneratorProject::default()
+        });
+        let path = test_path("generator.virtual");
+        save_project_atomic(&path, &project).unwrap();
+        assert_eq!(
+            load_project(&path).unwrap().decks[1].generator,
+            project.decks[1].generator
+        );
+        std::fs::remove_file(path).unwrap();
+
+        // Files written before generators existed load without one.
+        let mut legacy = serde_json::to_value(DeckProject::default()).unwrap();
+        legacy.as_object_mut().unwrap().remove("generator");
+        let deck: DeckProject = serde_json::from_value(legacy).unwrap();
+        assert_eq!(deck.generator, None);
+
+        project.decks[1].active_slot = Some(0);
+        assert!(project.validate().is_err());
+        project.decks[1].active_slot = None;
+        project.decks[1].generator.as_mut().unwrap().fps = 0;
         assert!(project.validate().is_err());
     }
 }

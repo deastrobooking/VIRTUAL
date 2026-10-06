@@ -2,21 +2,22 @@ use virtual_core::{
     AudioAnalysisSettings, AudioBinding, AudioMapMode, AudioMapper, ClockSource, ControlTarget,
     MappingMode, MidiBinding, MidiMapper, MidiMessage, MidiMessageKind, Quantization,
 };
+use virtual_generate::{GeneratorSettings, RecursivePattern};
 use virtual_io::{
     AudioAnalysisProject, AudioInputProject, AudioMapModeProject, AudioMappingProject,
     BlendModeProject, CameraProject, ClipLaunchModeProject, ClipPlaybackProject,
     ClockSourceProject, ControlTargetProject, CrossfadeBusProject,
     DeckPackageModulationRouteProject, DeckPackageProject, DeckProject, EffectGroupProject,
     EffectParameterValueProject, EffectProject, EffectSlotProject, EffectTargetProject,
-    EndModeProject, LfoProject, LfoWaveformProject, MappingModeProject, MasterEffectKindProject,
-    MasterEffectSlotProject, MasterEffectsProject, MasterLfoProject, MasterModulationProject,
-    MasterModulationRouteProject, MidiClockProject, MidiMappingProject, MidiMessageProject,
-    ModRouteProject, OutputProject, ProjectFile, ProjectSettings, QuantizationProject,
-    SourceModeProject, ThemeProject, TransformProject, TransportProject,
+    EndModeProject, GeneratorProject, LfoProject, LfoWaveformProject, MappingModeProject,
+    MasterEffectKindProject, MasterEffectSlotProject, MasterEffectsProject, MasterLfoProject,
+    MasterModulationProject, MasterModulationRouteProject, MidiClockProject, MidiMappingProject,
+    MidiMessageProject, ModRouteProject, OutputProject, ProjectFile, ProjectSettings,
+    QuantizationProject, SourceModeProject, ThemeProject, TransformProject, TransportProject,
 };
 use virtual_media::{
     CLIPS_PER_DECK, CameraConfig, CameraDevice, ClipAddress, ClipBank, ClipLaunchMode,
-    ClipPlayback, CrossfadeBus, DeckId, DeckTransport, EndMode, FourDeckMixer,
+    ClipPlayback, CrossfadeBus, DeckId, DeckState, DeckTransport, EndMode, FourDeckMixer,
 };
 use virtual_render::{
     DeckEffects, DeckLfos, DeckPackageModulationRoute, DeckPackageSlot, DeckTransform, EffectGroup,
@@ -147,6 +148,10 @@ pub fn snapshot(
                             fps_denominator: config.fps_denominator,
                             pixel_format: config.pixel_format.id().to_owned(),
                         }),
+                    generator: match &live.state {
+                        DeckState::Generator(settings) => Some(generator_to_project(settings)),
+                        _ => None,
+                    },
                 }
             })
             .collect(),
@@ -191,6 +196,73 @@ pub fn camera_from_project(camera: &CameraProject) -> CameraConfig {
         requested_fps: camera.requested_fps,
         fps_denominator: camera.fps_denominator,
         pixel_format: virtual_media::CapturePixelFormat::from_id(&camera.pixel_format),
+    }
+}
+
+pub fn generator_from_project(project: &GeneratorProject) -> GeneratorSettings {
+    GeneratorSettings {
+        pattern: RecursivePattern::from_id(&project.pattern).unwrap_or_default(),
+        seed: project.seed,
+        depth: project.depth,
+        scale: project.scale,
+        spread: project.spread,
+        twist: project.twist,
+        randomness: project.randomness,
+        flatten: project.flatten,
+        rotate_speed: project.rotate_speed,
+        tilt: project.tilt,
+        spin_speed: project.spin_speed,
+        zoom: project.zoom,
+        perspective: project.perspective,
+        reveal: project.reveal,
+        grow_speed: project.grow_speed,
+        hue: project.hue,
+        hue_range: project.hue_range,
+        color_speed: project.color_speed,
+        saturation: project.saturation,
+        lightness: project.lightness,
+        brightness: project.brightness,
+        line_width: project.line_width,
+        depth_fade: project.depth_fade,
+        trails: project.trails,
+        transparent: project.transparent,
+        audio_amount: project.audio_amount,
+        resolution: project.resolution,
+        fps: project.fps,
+    }
+    .sanitized()
+}
+
+pub fn generator_to_project(settings: &GeneratorSettings) -> GeneratorProject {
+    GeneratorProject {
+        pattern: settings.pattern.id().to_owned(),
+        seed: settings.seed,
+        depth: settings.depth,
+        scale: settings.scale,
+        spread: settings.spread,
+        twist: settings.twist,
+        randomness: settings.randomness,
+        flatten: settings.flatten,
+        rotate_speed: settings.rotate_speed,
+        tilt: settings.tilt,
+        spin_speed: settings.spin_speed,
+        zoom: settings.zoom,
+        perspective: settings.perspective,
+        reveal: settings.reveal,
+        grow_speed: settings.grow_speed,
+        hue: settings.hue,
+        hue_range: settings.hue_range,
+        color_speed: settings.color_speed,
+        saturation: settings.saturation,
+        lightness: settings.lightness,
+        brightness: settings.brightness,
+        line_width: settings.line_width,
+        depth_fade: settings.depth_fade,
+        trails: settings.trails,
+        transparent: settings.transparent,
+        audio_amount: settings.audio_amount,
+        resolution: settings.resolution,
+        fps: settings.fps,
     }
 }
 
@@ -1069,6 +1141,36 @@ fn target_from_project(target: ControlTargetProject) -> ControlTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generator_project_defaults_match_runtime_defaults_and_round_trip() {
+        assert_eq!(
+            generator_from_project(&GeneratorProject::default()),
+            GeneratorSettings::default()
+        );
+        let settings = GeneratorSettings {
+            pattern: RecursivePattern::MengerSponge,
+            seed: 99,
+            spread: 0.8,
+            flatten: true,
+            trails: 0.5,
+            transparent: false,
+            resolution: [1920, 1080],
+            fps: 30,
+            ..GeneratorSettings::default()
+        };
+        let json = serde_json::to_string(&generator_to_project(&settings)).unwrap();
+        let loaded: GeneratorProject = serde_json::from_str(&json).unwrap();
+        assert_eq!(generator_from_project(&loaded), settings);
+
+        // Older or newer files: missing fields default, unknown patterns fall back.
+        let partial: GeneratorProject =
+            serde_json::from_str(r#"{"pattern":"from_the_future","spread":0.2}"#).unwrap();
+        let settings = generator_from_project(&partial);
+        assert_eq!(settings.pattern, RecursivePattern::default());
+        assert_eq!(settings.spread, 0.2);
+        assert_eq!(settings.fps, 60);
+    }
 
     #[test]
     fn moving_playhead_does_not_mark_saved_project_dirty() {

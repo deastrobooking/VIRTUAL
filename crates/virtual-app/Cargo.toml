@@ -12,6 +12,7 @@ path = "src/main.rs"
 [dependencies]
 rusty_link = "=0.4.9"
 virtual-core.workspace = true
+virtual-generate.workspace = true
 virtual-graph.workspace = true
 virtual-io.workspace = true
 virtual-media.workspace = true

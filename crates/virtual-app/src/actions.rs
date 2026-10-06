@@ -246,6 +246,19 @@ impl State {
                     );
                     self.connect_camera(deck, config);
                 }
+                ui::UiAction::ConnectGenerator { deck, settings } => {
+                    self.record_show_operation(
+                        CommandOrigin::Operator,
+                        now,
+                        CommandOperation::SetParameter {
+                            path: format!("deck.{}.generator", deck.index()),
+                            value: virtual_graph::ParameterValue::Text(
+                                settings.pattern.id().to_owned(),
+                            ),
+                        },
+                    );
+                    self.connect_generator(deck, settings);
+                }
                 ui::UiAction::StartCameraRecording(address) => {
                     self.start_camera_recording(address, now);
                 }
@@ -265,7 +278,7 @@ impl ui::UiAction {
             | Self::SaveProject | Self::TapTempo | Self::HalfTempo | Self::DoubleTempo
             | Self::MidiCancelLearn | Self::MidiClockContinue
             // Live video switching and recording are intentional performance controls.
-            | Self::RefreshCameras | Self::ConnectCamera { .. }
+            | Self::RefreshCameras | Self::ConnectCamera { .. } | Self::ConnectGenerator { .. }
             | Self::StartCameraRecording(_) | Self::StopCameraRecording(_)
         )
     }

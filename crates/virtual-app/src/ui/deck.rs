@@ -17,6 +17,7 @@ pub(super) struct DeckControls<'a> {
     pub(super) mod_sources: [f32; MODULATION_SOURCES],
     pub(super) package: &'a mut DeckPackageSlot,
     pub(super) packages: &'a [EffectDescriptor],
+    pub(super) generator: virtual_generate::GeneratorStats,
 }
 
 pub(super) fn draw_deck(
@@ -40,6 +41,7 @@ pub(super) fn draw_deck(
         mod_sources,
         package,
         packages,
+        generator,
     } = controls;
     let accent = palette.deck_color(id);
     let selected = mixer.selected() == id;
@@ -164,6 +166,7 @@ pub(super) fn draw_deck(
                 });
                 ui.weak("Non-seekable low-latency source");
             }
+            DeckState::Generator(_) => {}
             DeckState::Error { path, message } => {
                 ui.colored_label(palette.danger, "IMPORT ERROR");
                 ui.label(
@@ -173,6 +176,12 @@ pub(super) fn draw_deck(
                 );
                 ui.weak(message);
             }
+        }
+
+        if let DeckState::Generator(settings) = &mut mixer.deck_mut(id).state {
+            super::generator::draw_generator_controls(
+                ui, id, settings, generator, palette, show_mode,
+            );
         }
 
         let deck = mixer.deck_mut(id);
@@ -234,10 +243,15 @@ pub(super) fn draw_deck(
             }
         });
         let live = matches!(mixer.deck(id).state, DeckState::Live(_));
-        if live {
+        let generated = matches!(mixer.deck(id).state, DeckState::Generator(_));
+        if live || generated {
             ui.horizontal(|ui| {
                 ui.checkbox(&mut transport.frozen, "Freeze live frame");
-                ui.weak("seek, loop and speed are unavailable for cameras");
+                ui.weak(if generated {
+                    "generator runs live; seek, loop and speed don't apply"
+                } else {
+                    "seek, loop and speed are unavailable for cameras"
+                });
             });
         } else {
             ui.horizontal(|ui| {

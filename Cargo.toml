@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/virtual-core",
+    "crates/virtual-generate",
     "crates/virtual-graph",
     "crates/virtual-hap",
     "crates/virtual-hap-sys",
@@ -20,6 +21,7 @@ rust-version = "1.95"
 
 [workspace.dependencies]
 virtual-core = { path = "crates/virtual-core" }
+virtual-generate = { path = "crates/virtual-generate" }
 virtual-graph = { path = "crates/virtual-graph" }
 virtual-hap = { path = "crates/virtual-hap" }
 virtual-hap-sys = { path = "crates/virtual-hap-sys" }

@@ -345,6 +345,7 @@ pub(super) fn draw_clip_grid(
 
     let recording = camera_recordings[deck.index()];
     super::video_input::draw_video_input(ui, state, deck, cameras, camera_status, actions);
+    super::generator::draw_generator_source(ui, state, deck, actions);
     ui.horizontal_wrapped(|ui| {
         if recording.address.is_some() {
             let label = if recording.finalizing {
@@ -365,7 +366,10 @@ pub(super) fn draw_clip_grid(
                 );
             }
         } else {
-            let live = matches!(mixer.deck(deck).state, DeckState::Live(_));
+            let live = matches!(
+                mixer.deck(deck).state,
+                DeckState::Live(_) | DeckState::Generator(_)
+            );
             let can_record = live && !selected_occupied;
             if ui
                 .add_enabled(
@@ -374,11 +378,11 @@ pub(super) fn draw_clip_grid(
                         .fill(palette.control_tint(palette.danger, 0.28)),
                 )
                 .on_hover_text(if !live {
-                    "Connect this deck to a video input first"
+                    "Connect this deck to a video input or generator first"
                 } else if selected_occupied {
                     "Select an empty clip slot to record into"
                 } else {
-                    "Record this video input into the selected clip slot"
+                    "Record this deck's live source into the selected clip slot"
                 })
                 .clicked()
             {

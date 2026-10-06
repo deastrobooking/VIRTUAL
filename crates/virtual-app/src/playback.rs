@@ -21,6 +21,7 @@ impl State {
         let duration = match &self.mixer.deck(deck).state {
             DeckState::Ready(movie) => movie.duration.map(MediaTime::as_seconds),
             DeckState::Live(_)
+            | DeckState::Generator(_)
             | DeckState::Empty
             | DeckState::Loading { .. }
             | DeckState::Error { .. } => None,
@@ -80,6 +81,7 @@ impl State {
             {
                 self.seek_deck(deck);
             }
+            self.sync_generator(deck);
             let generation = self.playback_generations[index];
             while let Ok(event) = self.decoders[index].try_event() {
                 match event {
@@ -95,6 +97,9 @@ impl State {
                         let path = match &self.mixer.deck(deck).state {
                             DeckState::Ready(movie) => movie.path.clone(),
                             DeckState::Live(config) => config.virtual_path(),
+                            DeckState::Generator(settings) => {
+                                PathBuf::from(format!("generator://{}", settings.pattern.id()))
+                            }
                             DeckState::Loading { path } | DeckState::Error { path, .. } => {
                                 path.clone()
                             }
@@ -119,11 +124,12 @@ impl State {
                 }
             }
 
+            let generated = matches!(self.mixer.deck(deck).state, DeckState::Generator(_));
             while let Ok(frame) = self.decoders[index].try_frame() {
                 if frame.generation != generation {
                     continue;
                 }
-                if self.live_configs[index].is_some()
+                if (self.live_configs[index].is_some() || generated)
                     && let virtual_media::VideoFramePayload::Rgba8(rgba) = &frame.payload
                     && let Some(recording) = &mut self.camera_recordings[index]
                     && !recording.finalizing
@@ -131,6 +137,19 @@ impl State {
                     recording.recorder.try_push(rgba, frame.pts, frame.duration);
                 }
                 self.media_origins[index].get_or_insert(frame.pts);
+                if generated && !self.transports[index].frozen && !self.ui.master_freeze {
+                    // A generator has no timeline to seek. Keep its newest
+                    // frame due now, so releasing a deck or master freeze
+                    // resumes at once instead of waiting out the pause.
+                    let micros = (self.transports[index].position * 1_000_000.0)
+                        .clamp(0.0, i64::MAX as f64) as i64;
+                    if let Ok(position) = MediaTime::new(micros, 1_000_000)
+                        && let Ok(due) = frame.pts.checked_sub(position)
+                        && self.media_origins[index].is_some_and(|origin| origin < due)
+                    {
+                        self.media_origins[index] = Some(due);
+                    }
+                }
                 if self.schedulers[index].enqueue(frame).is_err() {
                     break;
                 }
@@ -153,6 +172,28 @@ impl State {
             {
                 log::error!("deck {} upload failed: {error}", deck.label());
             }
+        }
+    }
+
+    /// Forwards in-place UI edits and the live audio bands to a generator
+    /// deck's worker. Both are non-blocking.
+    fn sync_generator(&mut self, deck: DeckId) {
+        let index = deck.index();
+        let DeckState::Generator(settings) = &self.mixer.deck(deck).state else {
+            self.generator_sent[index] = None;
+            return;
+        };
+        if self.generator_sent[index].as_ref() != Some(settings) {
+            self.decoders[index].update_generator(settings.clone());
+            self.generator_sent[index] = Some(settings.clone());
+        }
+        if settings.audio_amount > 0.0 {
+            let analysis = self.audio_snapshot.analysis;
+            self.decoders[index].set_generator_audio(virtual_generate::AudioBands {
+                bass: analysis.bass,
+                mid: analysis.mid,
+                high: analysis.high,
+            });
         }
     }
 

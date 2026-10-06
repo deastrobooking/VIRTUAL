@@ -170,6 +170,9 @@ struct State {
     cameras: Vec<CameraDevice>,
     camera_status: String,
     live_configs: [Option<CameraConfig>; 4],
+    /// Last generator settings forwarded to each deck's worker; the deck UI
+    /// edits `DeckState::Generator` in place and playback forwards changes.
+    generator_sent: [Option<virtual_generate::GeneratorSettings>; 4],
     audio_inputs: Vec<AudioInputDevice>,
     audio_input: Option<AudioInput>,
     /// Whether the operator wants the audio input connected; saved with the
@@ -732,6 +735,7 @@ impl State {
             cameras,
             camera_status,
             live_configs: std::array::from_fn(|_| None),
+            generator_sent: std::array::from_fn(|_| None),
             audio_inputs,
             audio_input: None,
             audio_wanted: false,
@@ -847,6 +851,9 @@ impl State {
                                 dropped_frames: recording.recorder.dropped_frames(),
                             },
                         )
+                    }),
+                    generator_stats: std::array::from_fn(|index| {
+                        self.decoders[index].generator_stats()
                     }),
                     audio_inputs: &self.audio_inputs,
                     audio_status: &self.audio_status,
@@ -1065,7 +1072,9 @@ impl State {
                                     let deck = self.mixer.deck(DeckId::ALL[index]);
                                     if matches!(
                                         deck.state,
-                                        DeckState::Ready(_) | DeckState::Live(_)
+                                        DeckState::Ready(_)
+                                            | DeckState::Live(_)
+                                            | DeckState::Generator(_)
                                     ) {
                                         deck.level
                                     } else {

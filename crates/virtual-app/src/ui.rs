@@ -8,6 +8,7 @@ mod audio;
 mod clips;
 mod deck;
 mod diagnostics;
+mod generator;
 mod master_fx;
 mod midi;
 mod midi_manager;
@@ -99,6 +100,8 @@ pub struct UiState {
     pub camera_fps: u32,
     pub camera_fps_denominator: u32,
     pub capture_pixel_format: virtual_media::CapturePixelFormat,
+    /// Pattern the generator loader puts on a deck.
+    pub generator_pattern: virtual_generate::RecursivePattern,
     pub audio_device_id: String,
     pub audio_analysis: AudioAnalysisSettings,
     /// Zero-based interface channel to analyse, or `None` to mix all.
@@ -189,6 +192,7 @@ impl Default for UiState {
             camera_fps: 30,
             camera_fps_denominator: 1,
             capture_pixel_format: virtual_media::CapturePixelFormat::Auto,
+            generator_pattern: virtual_generate::RecursivePattern::default(),
             audio_device_id: String::new(),
             audio_analysis: AudioAnalysisSettings::default(),
             audio_channel: None,
@@ -376,6 +380,10 @@ pub enum UiAction {
     },
     BrowseRelink(ClipAddress),
     Eject(DeckId),
+    ConnectGenerator {
+        deck: DeckId,
+        settings: virtual_generate::GeneratorSettings,
+    },
     SaveProject,
     SaveProjectAs,
     OpenProject,
@@ -477,6 +485,7 @@ pub struct PerformanceMetrics<'a> {
     pub cameras: &'a [CameraDevice],
     pub camera_status: &'a str,
     pub camera_recordings: [CameraRecordingStatus; 4],
+    pub generator_stats: [virtual_generate::GeneratorStats; 4],
     pub audio_inputs: &'a [AudioInputDevice],
     pub audio_status: &'a str,
     pub audio_connected: bool,
@@ -782,6 +791,7 @@ pub fn draw(
                 let mod_sources = state.mod_sources;
                 let deck_packages_ref = &mut state.deck_packages;
                 let deck_effect_packages = &state.deck_effect_packages;
+                let generator_stats = metrics.generator_stats;
                 let actions_ref = &mut actions;
                 let mut deck_strip = |ui: &mut egui::Ui, deck_id: DeckId| {
                     draw_deck(
@@ -802,6 +812,7 @@ pub fn draw(
                             mod_sources: mod_sources[deck_id.index()],
                             package: &mut deck_packages_ref[deck_id.index()],
                             packages: deck_effect_packages,
+                            generator: generator_stats[deck_id.index()],
                         },
                         actions_ref,
                     );

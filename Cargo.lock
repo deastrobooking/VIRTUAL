@@ -3677,6 +3677,7 @@ dependencies = [
  "serde",
  "serde_json",
  "virtual-core",
+ "virtual-generate",
  "virtual-graph",
  "virtual-io",
  "virtual-media",
@@ -3694,6 +3695,10 @@ dependencies = [
  "serde",
  "thiserror 2.0.19",
 ]
+
+[[package]]
+name = "virtual-generate"
+version = "0.1.0"
 
 [[package]]
 name = "virtual-graph"
@@ -3742,6 +3747,7 @@ dependencies = [
  "ffmpeg-next",
  "thiserror 2.0.19",
  "virtual-core",
+ "virtual-generate",
  "virtual-hap",
 ]
 

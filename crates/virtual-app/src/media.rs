@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use virtual_core::MediaTime;
+use virtual_generate::GeneratorSettings;
 use virtual_media::{
     CLIPS_PER_DECK, CameraConfig, CameraRecorder, ClipAddress, ClipRestoreRequest, DeckId,
     DeckState, FolderScanRequest, SubmitError, ThumbnailRequest, VideoFramePayload,
@@ -481,15 +482,36 @@ impl State {
         self.camera_status = format!("Connecting Deck {}…", deck.label());
     }
 
+    /// Puts a procedural source on `deck`. Like a camera, it replaces the
+    /// active clip; unlike a camera it never fails to connect.
+    pub(crate) fn connect_generator(&mut self, deck: DeckId, settings: GeneratorSettings) {
+        self.stop_camera_recording(deck);
+        self.master_effect_processor.reset_history();
+        self.clips
+            .remember_position(deck, self.transports[deck.index()].position);
+        self.launches.cancel(deck);
+        self.clips.deactivate(deck);
+        self.live_configs[deck.index()] = None;
+        let settings = settings.sanitized();
+        let generation = self.mixer.connect_generator(deck, settings.clone());
+        self.reset_playback(deck, generation);
+        self.transports[deck.index()].end_mode = virtual_media::EndMode::OneShot;
+        self.generator_sent[deck.index()] = Some(settings.clone());
+        self.decoders[deck.index()].connect_generator(settings, generation);
+    }
+
     pub(crate) fn start_camera_recording(&mut self, address: ClipAddress, now: Instant) {
         let deck = address.deck;
         if self.camera_recordings[deck.index()].is_some() {
             self.camera_status = format!("Deck {} is already recording", deck.label());
             return;
         }
-        if !matches!(self.mixer.deck(deck).state, DeckState::Live(_)) {
+        if !matches!(
+            self.mixer.deck(deck).state,
+            DeckState::Live(_) | DeckState::Generator(_)
+        ) {
             self.camera_status = format!(
-                "Connect Deck {} to a video input before recording",
+                "Connect Deck {} to a video input or generator before recording",
                 deck.label()
             );
             return;
@@ -516,6 +538,10 @@ impl State {
                 config.requested_fps.map(|fps| {
                     (f64::from(fps) / f64::from(config.fps_denominator.max(1))).round() as u32
                 })
+            })
+            .or_else(|| match &self.mixer.deck(deck).state {
+                DeckState::Generator(settings) => Some(settings.fps),
+                _ => None,
             })
             .unwrap_or(30);
         match CameraRecorder::start(path.clone(), fps) {

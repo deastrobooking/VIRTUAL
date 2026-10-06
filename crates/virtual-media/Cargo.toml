@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 virtual-core.workspace = true
+virtual-generate.workspace = true
 virtual-hap.workspace = true
 
 ffmpeg-next.workspace = true

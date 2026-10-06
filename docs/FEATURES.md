@@ -10,6 +10,7 @@ This matrix reflects the current source tree, not the aspirational MVP notes.
 | Import | File/folder drag/drop, bounded recursive scanning, deterministic slot assignment, probing, thumbnails, first-frame launch previews, movie metadata and PNG/JPEG stills |
 | Codecs | Direct HAP family path plus FFmpeg fallback for conventional codecs |
 | Cameras | AVFoundation discovery/manual ID, requested size/FPS and any-deck assignment |
+| Generators | Fourteen recursive 2D/3D line-geometry sources (trees, spirals, mandala, Koch, crystal, web, Sierpinski, dragon, Hilbert, H-tree, Pythagoras, tetrahedron, Menger, geodesic) rendered per deck with live shape, camera, colour, trails and audio controls, a 200k-segment budget, seeded randomness, recording and project persistence — see [generators](GENERATORS.md) |
 | Playback | Play, pause, restart, freeze, seek, loop/one-shot, 0.25–4× speed and per-slot In/Out ranges |
 | Timing | Exact timestamps, bounded keyframe indexes, indexed conventional-codec reopen, bounded schedulers and generation-safe stale-frame rejection |
 | Triggering | Immediate, next-beat and next-bar clip/scene launches, per-slot restart/resume and BPM-relative beat duration |

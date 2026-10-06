@@ -64,7 +64,8 @@ the same acceptance boundary.
 | `virtual-graph` | Typed ports and node contracts, graph validation, immutable plan compilation, resource lifetimes and shadow transactions |
 | `virtual-hap-sys` | Pinned Vidvox HAP reference implementation and raw FFI |
 | `virtual-hap` | Validated safe HAP decode into BC-compressed planes |
-| `virtual-media` | Probe, demux, decode workers, clip bank, transport, scheduling, thumbnails and cameras |
+| `virtual-generate` | Recursive 2D/3D geometry patterns, segment budgets and the CPU line rasterizer behind generator decks |
+| `virtual-media` | Probe, demux, decode workers, clip bank, transport, scheduling, thumbnails, cameras and generator sessions |
 | `virtual-render` | Render-plan lowering, GPU resources, HAP/RGBA upload, effects, LFO resolution and four-deck composition |
 | `virtual-io` | Versioned project JSON, atomic save and recovery paths |
 | `virtual-session` | Serializable show commands, session state, checkpoints, replay, branches, named takes and bounded crash-safe journal persistence |

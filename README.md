@@ -334,6 +334,7 @@ for setup and troubleshooting.
 | `virtual-graph` | Typed node contracts, validation, plan compilation, transient resource scheduling and graph transactions. |
 | `virtual-hap-sys` | Pinned Vidvox HAP C reference source and raw bindings. |
 | `virtual-hap` | Bounded safe HAP decode to GPU-native BC planes. |
+| `virtual-generate` | Recursive 2D/3D geometry generators and their CPU rasterizer. No GPU or UI. See [generators](docs/GENERATORS.md). |
 | `virtual-media` | Demux, codec dispatch, frame queues and scheduling. |
 | `virtual-render` | wgpu device, surface, render passes. Knows nothing about winit or egui. |
 | `virtual-io` | Versioned project persistence plus bounded native MIDI and audio input adapters. |
