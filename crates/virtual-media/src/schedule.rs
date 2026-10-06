@@ -159,6 +159,11 @@ impl<T> FrameScheduler<T> {
         self.current.as_ref()
     }
 
+    /// Whether another frame can be accepted without consuming and losing it.
+    pub fn has_capacity(&self) -> bool {
+        self.queue.len() < self.capacity
+    }
+
     pub fn queued_len(&self) -> usize {
         self.queue.len()
     }
@@ -188,6 +193,34 @@ mod tests {
 
     fn scheduler(policy: DiscontinuityPolicy) -> FrameScheduler<u64> {
         FrameScheduler::new(4, 1, policy).unwrap()
+    }
+
+    #[test]
+    fn slow_playback_and_pause_preserve_future_frames() {
+        let mut scheduler = scheduler(DiscontinuityPolicy::HoldLastFrame);
+        let mut source = (0..60).map(|sequence| frame(sequence, 1));
+        let mut shown = Vec::new();
+        // Four UI ticks per video frame, with a long pause on frame 10.
+        for tick in 0..360 {
+            while scheduler.has_capacity() {
+                let Some(frame) = source.next() else {
+                    break;
+                };
+                scheduler.enqueue(frame).unwrap();
+            }
+            let video_tick = if tick < 40 {
+                tick / 4
+            } else if tick < 160 {
+                10
+            } else {
+                (tick - 120) / 4
+            };
+            if let FrameSelection::Advanced(frame) = scheduler.select(time(video_tick)) {
+                shown.push(frame.sequence);
+            }
+        }
+        assert_eq!(shown, (0..60).collect::<Vec<_>>());
+        assert_eq!(scheduler.stats().queue_full, 0);
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::settings::GeneratorSettings;
 
 /// Camera distance in fitted-radius units for the perspective divide.
 const CAMERA_DISTANCE: f32 = 2.6;
-/// Fraction of half the frame height the fitted bounding sphere fills.
+/// Fraction of half the shortest frame dimension the fitted bounding sphere fills.
 const FIT_FRACTION: f32 = 0.9;
 const PALETTE_ENTRIES: usize = 256;
 /// Per-line sample cap so a degenerate projection can't stall a frame.
@@ -91,6 +91,7 @@ pub struct Generator {
     yaw: f32,
     spin: f32,
     grow_phase: f32,
+    hue_phase: f32,
     last_time: Option<f64>,
     stats: GeneratorStats,
 }
@@ -109,6 +110,7 @@ impl Generator {
             yaw: 0.0,
             spin: 0.0,
             grow_phase: 0.0,
+            hue_phase: 0.0,
             last_time: None,
             stats: GeneratorStats::default(),
         }
@@ -129,6 +131,9 @@ impl Generator {
         }
         if settings.pattern != self.settings.pattern {
             self.fit_radius = 0.0;
+        }
+        if settings.hue != self.settings.hue {
+            self.hue_phase = 0.0;
         }
         self.settings = settings;
     }
@@ -187,7 +192,7 @@ impl Generator {
         }
 
         if settings.trails > 0.0 {
-            let keep = settings.trails;
+            let keep = settings.trails.powf(dt * 60.0);
             for pixel in &mut self.accumulation {
                 pixel[0] *= keep;
                 pixel[1] *= keep;
@@ -197,13 +202,13 @@ impl Generator {
             self.accumulation.fill([0.0; 3]);
         }
 
-        let palette = Palette::from_settings(&settings, audio, seconds);
-        let lut: Vec<[f32; 3]> = (0..PALETTE_ENTRIES)
-            .map(|index| {
-                let color = palette.color(index as f32 / (PALETTE_ENTRIES - 1) as f32);
-                color.map(|channel| channel * settings.brightness)
-            })
-            .collect();
+        self.hue_phase = (self.hue_phase + settings.color_speed * 0.04 * dt).rem_euclid(1.0);
+        let mut palette = Palette::from_settings(&settings, audio, 0.0);
+        palette.hue += self.hue_phase;
+        let lut: [[f32; 3]; PALETTE_ENTRIES] = std::array::from_fn(|index| {
+            let color = palette.color(index as f32 / (PALETTE_ENTRIES - 1) as f32);
+            color.map(|channel| channel * settings.brightness)
+        });
 
         let reveal = settings.reveal
             * if settings.grow_speed > 0.0 {
@@ -218,7 +223,7 @@ impl Generator {
             .then(&Mat3::rotation_x(settings.tilt * FRAC_PI_2))
             .then(&Mat3::rotation_z(self.spin));
         // Points are normalised by the fitted radius before projection.
-        let pixels_per_unit = settings.zoom * FIT_FRACTION * 0.5 * height as f32;
+        let pixels_per_unit = settings.zoom * FIT_FRACTION * 0.5 * width.min(height) as f32;
         let half = [width as f32 * 0.5, height as f32 * 0.5];
         let inverse_radius = 1.0 / self.fit_radius;
         let project = |point: Vec3| {
@@ -233,6 +238,12 @@ impl Generator {
             )
         };
 
+        let exposure = if settings.trails > 0.0 {
+            (1.0 - settings.trails.powf(dt * 60.0)) / (1.0 - settings.trails)
+        } else {
+            1.0
+        };
+        let exposure = if dt == 0.0 { 1.0 } else { exposure };
         let mut canvas = Canvas {
             pixels: &mut self.accumulation,
             width: width as usize,
@@ -243,7 +254,7 @@ impl Generator {
             let (x1, y1, fade1) = project(segment.end);
             let index = (segment.t.clamp(0.0, 1.0) * (PALETTE_ENTRIES - 1) as f32) as usize;
             let fade = (fade0 + fade1) * 0.5;
-            let color = lut[index].map(|channel| channel * fade);
+            let color = lut[index].map(|channel| channel * fade * exposure);
             canvas.line(x0, y0, x1, y1, color, settings.line_width);
         }
 
@@ -433,6 +444,60 @@ mod tests {
         let mut out = vec![0; (w * h * 4) as usize];
         generator.render(time, AudioBands::default(), &mut out);
         out
+    }
+
+    #[test]
+    fn stopping_hue_drift_preserves_current_color() {
+        let mut generator = Generator::new(GeneratorSettings {
+            rotate_speed: 0.0,
+            ..small(RecursivePattern::Spirograph)
+        });
+        frame(&mut generator, 0.0);
+        let before = frame(&mut generator, 0.25);
+        let mut settings = generator.settings().clone();
+        settings.color_speed = 0.0;
+        generator.set_settings(settings);
+        assert_eq!(before, frame(&mut generator, 0.5));
+    }
+
+    #[test]
+    fn trail_decay_matches_elapsed_time_at_different_frame_rates() {
+        let run = |fps: u32| {
+            let mut generator = Generator::new(GeneratorSettings {
+                trails: 0.9,
+                rotate_speed: 0.0,
+                color_speed: 0.0,
+                ..small(RecursivePattern::Spirograph)
+            });
+            frame(&mut generator, 0.0);
+            generator.settings.reveal = 0.0;
+            for step in 1..=fps {
+                frame(&mut generator, step as f64 / fps as f64);
+            }
+            generator.accumulation
+        };
+        let a = run(30);
+        let b = run(60);
+        for (a, b) in a.iter().flatten().zip(b.iter().flatten()) {
+            assert!((a - b).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn portrait_framing_keeps_planar_curve_inside_frame() {
+        let mut generator = Generator::new(GeneratorSettings {
+            resolution: [90, 160],
+            perspective: 0.0,
+            rotate_speed: 0.0,
+            ..small(RecursivePattern::Spirograph)
+        });
+        let pixels = frame(&mut generator, 0.0);
+        assert!(pixels.chunks_exact(4).any(|p| p[3] > 0));
+        for y in 0..160 {
+            for x in [0, 89] {
+                assert_eq!(pixels[(y * 90 + x) * 4 + 3], 0);
+            }
+        }
     }
 
     #[test]

@@ -26,6 +26,7 @@ pub(crate) fn requested_depth(pattern: RecursivePattern, levels: u32) -> u32 {
         PythagorasTree => levels + 1,
         MengerSponge => levels.saturating_sub(3) / 2,
         GeodesicSphere => levels.saturating_sub(4),
+        Spirograph | TorusKnot => levels,
     }
 }
 
@@ -63,6 +64,7 @@ pub(crate) fn estimate(params: &GeometryParams, depth: u32) -> u64 {
         SierpinskiTetrahedron => pow(4, depth).saturating_mul(6),
         MengerSponge => pow(20, depth).saturating_mul(12),
         GeodesicSphere => pow(4, depth).saturating_mul(60),
+        Spirograph | TorusKnot => 256 * u64::from(depth.max(1)),
     }
 }
 
@@ -176,6 +178,51 @@ pub(crate) fn build(p: &GeometryParams, depth: u32, out: &mut Builder) {
         }
         MengerSponge => menger(&mut c, Vec3::ZERO, scale, depth),
         GeodesicSphere => geodesic(&mut c, depth),
+        Spirograph | TorusKnot => parametric_curve(&mut c, depth),
+    }
+}
+
+/// Closed periodic curves. Reuse the first point at the seam so seeded
+/// displacement stays continuous as well as deterministic.
+fn parametric_curve(c: &mut Ctx, depth: u32) {
+    let steps = 256 * depth.max(1);
+    let lobes = 2.0 + (c.p.spread * 10.0).floor();
+    let point = |c: &mut Ctx, index: u32| {
+        let t = index as f32 / steps as f32 * TAU;
+        let v = if c.p.pattern == RecursivePattern::Spirograph {
+            let loop_size = 0.15 + c.p.twist * 0.85;
+            Vec3::new(
+                t.cos() + loop_size * (lobes * t).cos(),
+                t.sin() - loop_size * (lobes * t).sin(),
+                0.0,
+            )
+        } else {
+            // Consecutive winding numbers are coprime: one continuous knot.
+            let radius = 1.0 + (0.15 + c.p.twist * 0.65) * ((lobes + 1.0) * t).cos();
+            Vec3::new(
+                radius * (lobes * t).cos(),
+                radius * (lobes * t).sin(),
+                (0.15 + c.p.twist * 0.65) * ((lobes + 1.0) * t).sin(),
+            )
+        };
+        v * c.p.scale
+            + c.jitter_vec(
+                c.p.scale * 0.04,
+                c.p.pattern == RecursivePattern::Spirograph,
+            )
+    };
+    let first = point(c, 0);
+    let mut previous = first;
+    for index in 1..=steps {
+        let next = if index == steps {
+            first
+        } else {
+            point(c, index)
+        };
+        if !c.out.line(previous, next, 0.0) {
+            break;
+        }
+        previous = next;
     }
 }
 
@@ -631,6 +678,24 @@ mod tests {
         );
         p.levels = levels;
         p
+    }
+
+    #[test]
+    fn new_curves_are_closed_seeded_and_respond_to_controls() {
+        for pattern in [RecursivePattern::Spirograph, RecursivePattern::TorusKnot] {
+            let mut p = params(pattern, 7);
+            p.randomness = 0.3;
+            let geometry = generate(&p);
+            assert_eq!(geometry, generate(&p));
+            assert_eq!(
+                geometry.segments.first().unwrap().start,
+                geometry.segments.last().unwrap().end
+            );
+            p.seed += 1;
+            assert_ne!(geometry, generate(&p));
+            p.spread = 1.0;
+            assert_ne!(geometry, generate(&p));
+        }
     }
 
     #[test]

@@ -116,6 +116,9 @@ pub struct FfmpegVideoDecoder {
     stream_index: usize,
     time_base: ffmpeg::Rational,
     average_duration: Option<MediaTime>,
+    timestamp_origin: i64,
+    next_pts: Option<MediaTime>,
+    pending_frame: Option<DecodedRgbaFrame>,
     decoder: ffmpeg::decoder::Video,
     scaler: ffmpeg::software::scaling::Context,
     decoded: ffmpeg::frame::Video,
@@ -153,9 +156,20 @@ impl FfmpegVideoDecoder {
         seek_to: Option<MediaTime>,
         frame_pool: FrameBufferPool,
     ) -> Result<Self, FfmpegDecodeError> {
-        let mut decoder = Self::open_with_pool(path, frame_pool)?;
+        let path = path.as_ref();
+        let mut decoder = Self::open_with_pool(path, frame_pool.clone())?;
         if let Some(seek_to) = seek_to {
             decoder.seek(seek_to)?;
+            // Some MPEG demuxers seek past the requested keyframe or lose
+            // the timestamp anchor at the seek boundary. Never silently
+            // present a later GOP: reopen and let the worker decode forward.
+            match decoder.next_frame() {
+                Ok(Some(frame)) if frame.pts <= seek_to => decoder.pending_frame = Some(frame),
+                Ok(_) | Err(FfmpegDecodeError::MissingTimestamp) => {
+                    decoder = Self::open_with_pool(path, frame_pool)?;
+                }
+                Err(error) => return Err(error),
+            }
         }
         Ok(decoder)
     }
@@ -291,19 +305,46 @@ impl FfmpegVideoDecoder {
         live: bool,
         frame_pool: FrameBufferPool,
     ) -> Result<Self, FfmpegDecodeError> {
-        let (stream_index, time_base, average_duration, decoder, scaler) = {
+        let (stream_index, time_base, timestamp_origin, average_duration, decoder, scaler) = {
             let stream = input
                 .streams()
                 .best(ffmpeg::media::Type::Video)
                 .ok_or(FfmpegDecodeError::NoVideoStream)?;
             let stream_index = stream.index();
             let time_base = stream.time_base();
+            let timestamp_origin = if live {
+                0
+            } else {
+                crate::probe::timestamp_origin(&stream)
+            };
             let parameters = stream.parameters();
             if parameters.id() == ffmpeg::codec::Id::HAP && !allow_hap {
                 return Err(FfmpegDecodeError::HapRequiresDirectDecoder);
             }
-            let decoder = ffmpeg::codec::Context::from_parameters(parameters)
-                .and_then(|context| context.decoder().video())
+            let codec = ffmpeg::codec::decoder::find(parameters.id());
+            let mut context = ffmpeg::codec::Context::from_parameters(parameters)
+                .map_err(FfmpegDecodeError::CreateDecoder)?;
+            // Bound per-deck concurrency: four decks also share cores with
+            // generators, audio analysis and presentation. Live capture uses
+            // slice threading only, avoiding frame-thread buffering latency.
+            let capabilities = codec
+                .map(|codec| codec.capabilities())
+                .unwrap_or_else(ffmpeg::codec::Capabilities::empty);
+            let kind = if !live && capabilities.contains(ffmpeg::codec::Capabilities::FRAME_THREADS)
+            {
+                ffmpeg::codec::threading::Type::Frame
+            } else if capabilities.contains(ffmpeg::codec::Capabilities::SLICE_THREADS) {
+                ffmpeg::codec::threading::Type::Slice
+            } else {
+                ffmpeg::codec::threading::Type::None
+            };
+            context.set_threading(ffmpeg::codec::threading::Config {
+                kind,
+                count: std::thread::available_parallelism().map_or(1, |n| n.get().min(4)),
+            });
+            let decoder = context
+                .decoder()
+                .video()
                 .map_err(FfmpegDecodeError::CreateDecoder)?;
             let width = decoder.width();
             let height = decoder.height();
@@ -321,7 +362,12 @@ impl FfmpegVideoDecoder {
             )
             .map_err(FfmpegDecodeError::CreateScaler)?;
             let average_duration = {
-                let rate = stream.avg_frame_rate();
+                let average = stream.avg_frame_rate();
+                let rate = if average.numerator() > 0 && average.denominator() > 0 {
+                    average
+                } else {
+                    stream.rate()
+                };
                 if rate.numerator() > 0 && rate.denominator() > 0 {
                     Some(MediaTime::new(
                         i64::from(rate.denominator()),
@@ -332,7 +378,14 @@ impl FfmpegVideoDecoder {
                 }
             };
 
-            (stream_index, time_base, average_duration, decoder, scaler)
+            (
+                stream_index,
+                time_base,
+                timestamp_origin,
+                average_duration,
+                decoder,
+                scaler,
+            )
         };
 
         Ok(Self {
@@ -341,6 +394,9 @@ impl FfmpegVideoDecoder {
             stream_index,
             time_base,
             average_duration,
+            timestamp_origin,
+            next_pts: Some(MediaTime::ZERO),
+            pending_frame: None,
             decoder,
             scaler,
             decoded: ffmpeg::frame::Video::empty(),
@@ -360,20 +416,53 @@ impl FfmpegVideoDecoder {
     }
 
     fn seek(&mut self, target: MediaTime) -> Result<(), FfmpegDecodeError> {
+        // Seek in the video stream's own time base, restoring the container
+        // offset removed from presented frames and the keyframe index.
         let timestamp = i128::from(target.ticks())
-            .checked_mul(i128::from(ffmpeg::ffi::AV_TIME_BASE))
-            .and_then(|value| value.checked_div(i128::from(target.timescale())))
+            .checked_mul(i128::from(self.time_base.denominator()))
+            .and_then(|value| {
+                value.checked_div(
+                    i128::from(target.timescale()) * i128::from(self.time_base.numerator()),
+                )
+            })
+            .and_then(|value| value.checked_add(i128::from(self.timestamp_origin)))
             .and_then(|value| i64::try_from(value).ok())
             .ok_or(FfmpegDecodeError::SeekTimestampOverflow)?;
-        self.input
-            .seek(timestamp, ..timestamp.saturating_add(1))
-            .map_err(FfmpegDecodeError::Seek)?;
+        // Demuxer indexes can be DTS-based. Back up by the codec reorder
+        // window so a keyframe's earlier DTS is not skipped when seeking to
+        // its presentation time. The worker decodes forward to the target.
+        // SAFETY: decoder owns a live AVCodecContext. has_b_frames is the
+        // decoder's reorder depth; an extra frame covers timestamp rounding.
+        let reorder_frames = unsafe { (*self.decoder.as_ptr()).has_b_frames.max(0) as f64 + 1.0 };
+        let preroll = self.average_duration.map_or(0, |duration| {
+            (duration.as_seconds() * f64::from(self.time_base.denominator())
+                / f64::from(self.time_base.numerator())
+                * reorder_frames)
+                .ceil() as i64
+        });
+        let timestamp = timestamp.saturating_sub(preroll);
+        // SAFETY: input owns a live context and stream_index was selected from it.
+        let result = unsafe {
+            ffmpeg::ffi::av_seek_frame(
+                self.input.as_mut_ptr(),
+                self.stream_index as i32,
+                timestamp,
+                ffmpeg::ffi::AVSEEK_FLAG_BACKWARD,
+            )
+        };
+        if result < 0 {
+            return Err(FfmpegDecodeError::Seek(ffmpeg::Error::from(result)));
+        }
+        self.next_pts = None;
         self.decoder.flush();
         self.draining = false;
         Ok(())
     }
 
     pub fn next_frame(&mut self) -> Result<Option<DecodedRgbaFrame>, FfmpegDecodeError> {
+        if let Some(frame) = self.pending_frame.take() {
+            return Ok(Some(frame));
+        }
         if let Some(interrupt) = &mut self.capture_interrupt {
             interrupt.begin_read();
         }
@@ -463,10 +552,20 @@ impl FfmpegVideoDecoder {
         let timestamp = self.decoded.timestamp().or_else(|| self.decoded.pts());
         let pts = if let Some(timestamp) = timestamp {
             MediaTime::from_time_base(
-                timestamp,
+                timestamp
+                    .checked_sub(self.timestamp_origin)
+                    .ok_or(MediaTimeError::Overflow)?,
                 self.time_base.numerator(),
                 self.time_base.denominator(),
             )?
+        } else if !self.live
+            && self.average_duration.is_some()
+            && let Some(next_pts) = self.next_pts
+        {
+            // MPEG program streams can omit timestamps on decoded frames.
+            // Continue from the last presented frame, not the packet/decode
+            // order (which differs when B frames are present).
+            next_pts
         } else if self.allow_missing_timestamp {
             let ticks = self
                 .sequence
@@ -487,6 +586,7 @@ impl FfmpegVideoDecoder {
         } else {
             self.average_duration
         };
+        self.next_pts = duration.and_then(|duration| pts.checked_add(duration).ok());
         let sequence = self.sequence;
         self.sequence = self.sequence.wrapping_add(1);
 

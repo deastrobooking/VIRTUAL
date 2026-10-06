@@ -90,6 +90,7 @@ pub fn probe_movie(path: impl AsRef<Path>) -> Result<MovieMetadata, ProbeError> 
     }
 
     let time_base = stream.time_base();
+    let origin = timestamp_origin(&stream);
     let duration = if stream.duration() != ffmpeg::ffi::AV_NOPTS_VALUE
         && stream.duration() >= 0
         && time_base.numerator() > 0
@@ -118,7 +119,7 @@ pub fn probe_movie(path: impl AsRef<Path>) -> Result<MovieMetadata, ProbeError> 
         .ok()
         .filter(|count| *count > 0);
     let keyframes = if decode_path == DecodePath::FfmpegVideo {
-        build_keyframe_index(&mut input, stream_index, time_base)
+        build_keyframe_index(&mut input, stream_index, time_base, origin)
     } else {
         KeyframeIndex::default()
     };
@@ -146,10 +147,19 @@ pub fn probe_movie(path: impl AsRef<Path>) -> Result<MovieMetadata, ProbeError> 
     })
 }
 
+// Keep probing, playback and seeking on the same zero-based clip timeline.
+pub(crate) fn timestamp_origin(stream: &ffmpeg::format::stream::Stream<'_>) -> i64 {
+    match stream.start_time() {
+        ffmpeg::ffi::AV_NOPTS_VALUE => 0,
+        value => value,
+    }
+}
+
 fn build_keyframe_index(
     input: &mut ffmpeg::format::context::Input,
     stream_index: usize,
     time_base: ffmpeg::Rational,
+    origin: i64,
 ) -> KeyframeIndex {
     let mut index = KeyframeIndex::new();
     if time_base.numerator() <= 0 || time_base.denominator() <= 0 {
@@ -160,6 +170,9 @@ fn build_keyframe_index(
             continue;
         }
         let Some(timestamp) = packet.pts().or_else(|| packet.dts()) else {
+            continue;
+        };
+        let Some(timestamp) = timestamp.checked_sub(origin) else {
             continue;
         };
         if timestamp < 0 {

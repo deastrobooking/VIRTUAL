@@ -125,7 +125,14 @@ impl State {
             }
 
             let generated = matches!(self.mixer.deck(deck).state, DeckState::Generator(_));
-            while let Ok(frame) = self.decoders[index].try_frame() {
+            // Leave future movie frames in the bounded worker channel until
+            // the scheduler has room. Reading first used to discard one frame
+            // per UI tick while full, racing through movies (especially at
+            // slow speeds or while paused) and leaving long frozen gaps.
+            while self.schedulers[index].has_capacity() {
+                let Ok(frame) = self.decoders[index].try_frame() else {
+                    break;
+                };
                 if frame.generation != generation {
                     continue;
                 }

@@ -19,6 +19,8 @@ pub enum RecursivePattern {
     SierpinskiTetrahedron,
     MengerSponge,
     GeodesicSphere,
+    Spirograph,
+    TorusKnot,
 }
 
 /// Whether a pattern is drawn in the XY plane or occupies 3D space.
@@ -42,7 +44,7 @@ pub enum ColorMode {
 }
 
 impl RecursivePattern {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 16] = [
         Self::FractalTree,
         Self::RecursiveSpiral,
         Self::Mandala,
@@ -57,6 +59,8 @@ impl RecursivePattern {
         Self::SierpinskiTetrahedron,
         Self::MengerSponge,
         Self::GeodesicSphere,
+        Self::Spirograph,
+        Self::TorusKnot,
     ];
 
     pub const fn id(self) -> &'static str {
@@ -75,6 +79,8 @@ impl RecursivePattern {
             Self::SierpinskiTetrahedron => "sierpinski_tetrahedron",
             Self::MengerSponge => "menger_sponge",
             Self::GeodesicSphere => "geodesic_sphere",
+            Self::Spirograph => "spirograph",
+            Self::TorusKnot => "torus_knot",
         }
     }
 
@@ -98,6 +104,8 @@ impl RecursivePattern {
             Self::SierpinskiTetrahedron => "Sierpinski Tetrahedron",
             Self::MengerSponge => "Menger Sponge",
             Self::GeodesicSphere => "Geodesic Sphere",
+            Self::Spirograph => "Spirograph",
+            Self::TorusKnot => "Torus Knot",
         }
     }
 
@@ -118,19 +126,23 @@ impl RecursivePattern {
             Self::SierpinskiTetrahedron => "Spread: gap between cells · Twist: cell rotation",
             Self::MengerSponge => "Spread: gap between cubes · Twist: cube rotation",
             Self::GeodesicSphere => "Spread: fractal spikes · Twist: spike phase",
+            Self::Spirograph => "Depth: curve detail · Spread: lobes · Twist: loop size",
+            Self::TorusKnot => "Depth: curve detail · Spread: windings · Twist: tube radius",
         }
     }
 
     pub const fn dimension(self) -> Dimension {
         match self {
-            Self::KochSnowflake
+            Self::Spirograph
+            | Self::KochSnowflake
             | Self::RecursiveWeb
             | Self::SierpinskiTriangle
             | Self::DragonCurve
             | Self::HilbertCurve
             | Self::HTree
             | Self::PythagorasTree => Dimension::Planar,
-            Self::FractalTree
+            Self::TorusKnot
+            | Self::FractalTree
             | Self::RecursiveSpiral
             | Self::Mandala
             | Self::CrystalGrowth
@@ -142,7 +154,11 @@ impl RecursivePattern {
 
     pub const fn color_mode(self) -> ColorMode {
         match self {
-            Self::KochSnowflake | Self::DragonCurve | Self::HilbertCurve => ColorMode::Path,
+            Self::KochSnowflake
+            | Self::DragonCurve
+            | Self::HilbertCurve
+            | Self::Spirograph
+            | Self::TorusKnot => ColorMode::Path,
             Self::SierpinskiTriangle
             | Self::SierpinskiTetrahedron
             | Self::MengerSponge
@@ -267,11 +283,13 @@ impl Default for GeneratorSettings {
     }
 }
 
-pub const RESOLUTIONS: [(&str, [u32; 2]); 4] = [
+pub const RESOLUTIONS: [(&str, [u32; 2]); 6] = [
     ("540p", [960, 540]),
     ("720p", [1280, 720]),
     ("1080p", [1920, 1080]),
     ("Square 1080", [1080, 1080]),
+    ("Portrait 720", [720, 1280]),
+    ("Portrait 1080", [1080, 1920]),
 ];
 
 pub const FRAME_RATES: [u32; 4] = [24, 30, 50, 60];

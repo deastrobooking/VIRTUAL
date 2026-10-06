@@ -90,6 +90,14 @@ fn stats_line(
             stats.render_micros as f32 / 1000.0
         ))
         .on_hover_text("CPU time for the last generated frame, including geometry rebuilds");
+        let budget_ms = 1000.0 / settings.fps.max(1) as f32;
+        if stats.render_micros as f32 / 1000.0 > budget_ms {
+            ui.colored_label(palette.warning, "Over frame budget")
+                .on_hover_text(
+                    "Lower depth, line width, resolution or frame rate to reduce CPU load.",
+                );
+        }
+        ui.weak(format!("{} / {} drawn", stats.drawn, stats.segments));
     });
 }
 
@@ -287,6 +295,19 @@ fn draw_window_body(
                 .on_hover_text("Projects 3D patterns onto the flat XY plane");
         });
         section(&mut columns[1], "MOTION & CAMERA", palette, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for (name, rotate, spin, grow) in [
+                    ("Orbit", 0.15, 0.0, 0.0),
+                    ("Spin", 0.0, 0.15, 0.0),
+                    ("Grow", 0.0, 0.0, 0.25),
+                ] {
+                    if ui.button(name).clicked() {
+                        settings.rotate_speed = rotate;
+                        settings.spin_speed = spin;
+                        settings.grow_speed = grow;
+                    }
+                }
+            });
             slider(ui, &mut settings.rotate_speed, -1.0..=1.0, "rotate");
             slider(ui, &mut settings.tilt, -1.0..=1.0, "tilt");
             slider(ui, &mut settings.spin_speed, -1.0..=1.0, "spin");
@@ -299,6 +320,11 @@ fn draw_window_body(
             slider(ui, &mut settings.reveal, 0.0..=1.0, "reveal");
             slider(ui, &mut settings.grow_speed, 0.0..=1.0, "grow loop")
                 .on_hover_text("Above zero, the reveal replays from trunk to tips");
+            if ui.button("Reset camera controls").clicked() {
+                settings.tilt = 0.0;
+                settings.zoom = 1.0;
+                settings.perspective = 0.5;
+            }
             if ui.button("Stop motion").clicked() {
                 settings.rotate_speed = 0.0;
                 settings.spin_speed = 0.0;
@@ -306,6 +332,21 @@ fn draw_window_body(
             }
         });
         section(&mut columns[2], "COLOR & LIGHT", palette, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                for (name, hue, range, saturation) in [
+                    ("Neon", 0.75, 0.45, 0.9),
+                    ("Fire", 0.0, 0.15, 0.95),
+                    ("Ice", 0.48, 0.18, 0.7),
+                    ("Mono", 0.0, 0.0, 0.0),
+                ] {
+                    if ui.button(name).clicked() {
+                        settings.hue = hue;
+                        settings.hue_range = range;
+                        settings.saturation = saturation;
+                        settings.color_speed = 0.0;
+                    }
+                }
+            });
             slider(ui, &mut settings.hue, 0.0..=1.0, "hue");
             slider(ui, &mut settings.hue_range, 0.0..=1.0, "hue range");
             slider(ui, &mut settings.color_speed, 0.0..=1.0, "hue drift");

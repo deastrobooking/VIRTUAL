@@ -45,6 +45,8 @@ a camera, so deck effects, blend modes, transforms, modulation, Freeze and
 | Sierpinski Tetrahedron | 3D | centre → edge | cell gap · cell rotation |
 | Menger Sponge | 3D | centre → edge | cube gap · cube rotation |
 | Geodesic Sphere | 3D | centre → edge | fractal spikes · spike phase |
+| Spirograph | 2D | along the path | lobe count · loop size |
+| Torus Knot | 3D | along the path | winding count · tube radius |
 
 The first six patterns follow the formulas in the earlier generator. Three
 deliberate changes were made:
@@ -64,7 +66,16 @@ deliberate changes were made:
 | Motion & camera | rotate (turntable), tilt, spin (about the view axis), zoom, perspective, reveal, grow loop, Stop motion |
 | Color & light | hue, hue range, hue drift, saturation, lightness, brightness, line width, depth fade, trails, transparent background |
 | Audio | audio amount: bass, mid and high bend the geometry (tree angle, length and roll; Koch bumps; web wobble and Z displacement; geodesic spikes) and shift hue, saturation and lightness |
-| Output | 540p / 720p / 1080p / square 1080, at 24, 30, 50 or 60 fps (hidden in Show Mode) |
+| Output | 540p / 720p / 1080p / square 1080 / portrait 720 / portrait 1080, at 24, 30, 50 or 60 fps (hidden in Show Mode) |
+
+**Neon**, **Fire**, **Ice** and **Mono** buttons apply color presets and stop
+hue drift; shape, motion and output settings are preserved. Hue drift can be
+enabled again after choosing a preset. Spirograph and Torus Knot use depth
+for curve detail, with seeded randomness and continuous closed seams.
+
+Framing fits the shorter output dimension, including portrait formats.
+Trail decay and incoming brightness use elapsed time, keeping their 60 fps
+appearance consistent at other frame rates.
 
 With **Transparent background** on, alpha follows line brightness, so the
 lines sit over lower decks under Normal blend. With it off, lines are drawn
@@ -112,3 +123,25 @@ DeckDecoder::update_generator ──► deck worker thread
   generator.
 - Generator decks are not included in session-journal crash recovery
   (camera decks aren't either). Project autosave does include them.
+
+## October 2026 review
+
+- **Orbit / Spin / Grow** motion presets change animation speeds without
+  replacing the shape, colors or output settings. **Reset camera controls**
+  restores tilt, zoom and perspective while retaining the current animation pose.
+- The stats line shows the revealed segment count and flags frames exceeding
+  the selected frame-rate budget. Lower depth, line width, resolution or fps
+  when this persists; a geometry rebuild may cause a single transient warning.
+- Hue drift now integrates its phase. Changing or stopping its speed keeps
+  the current color; selecting a different base hue resets the drift offset.
+- The renderer uses a fixed-size palette table instead of allocating it on
+  every frame.
+
+Local release measurements at 720p (10 frames per pattern, no live audio):
+about 1–2.6 ms/frame at default depth, and 1–9.7 ms at maximum depth. Maximum
+Mandala geometry generation took 13.2 ms separately. These are single-generator
+CPU timings, not guarantees for a four-deck show with effects and video.
+
+Next useful additions are generator MIDI/OSC parameter routing, tempo-synced
+motion, and GPU line rendering for heavy multi-generator shows. These remain
+future work.

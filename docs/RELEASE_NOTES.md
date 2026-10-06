@@ -280,3 +280,20 @@
   MIDI reconnect/feedback and sustained 1080p output.
 - Confirm packaging, signing, notarization and FFmpeg distribution decisions
   before assigning a release version.
+
+## Playback and generator review — 2026-10-06
+
+- Fixed future movie frames being consumed and discarded when the scheduler
+  was full. Slow playback and pauses now retain bounded decoder backpressure.
+- Conventional FFmpeg decode uses up to four threads per deck, selecting
+  supported frame or slice threading; live inputs avoid frame-thread latency.
+- Playback timestamps, keyframe indexes and seeks share a clip-relative time
+  origin. Missing movie-frame timestamps continue from the previous frame's
+  duration when a frame rate is available.
+- Seek results are checked before presentation. MPEG demuxers that overshoot
+  or lose the timestamp anchor fall back to reopening and decoding forward;
+  those fallback seeks can be slower on long files.
+- Added generated MPEG-2 program/transport stream and H.264 MP4 regressions
+  covering B frames, nonzero starts, end-of-stream draining and seeking.
+- Generator controls add Orbit/Spin/Grow presets, camera-control reset, drawn
+  segment counts and frame-budget feedback. Hue-speed edits retain color phase.
