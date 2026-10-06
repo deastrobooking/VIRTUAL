@@ -21,26 +21,28 @@ origin, so recovery and timeline replay remain deterministic.
 
 ## Routes
 
-Deck, clip and scene numbers in OSC addresses are one-based.
+Every route sits under `/virtual`. Deck, clip and scene numbers in OSC
+addresses are one-based. Layouts built for the earlier `/vjx` prefix still
+work on input; feedback is sent under `/virtual` only.
 
 | Address | Argument | Result |
 |---|---:|---|
-| `/vjx/crossfader` | float 0–1 | A/B crossfader |
-| `/vjx/master/opacity` | float 0–1 | Master opacity |
-| `/vjx/master/blackout` | bool or 0/1 | Master blackout |
-| `/vjx/master/freeze` | bool or 0/1 | Master freeze |
-| `/vjx/tempo` | float 20–400 | Set BPM |
-| `/vjx/output/enabled` | bool or 0/1 | Show/hide clean output |
-| `/vjx/output/fullscreen` | bool or 0/1 | Toggle output fullscreen |
-| `/vjx/deck/{1-4}/level` | float 0–1 | Deck opacity |
-| `/vjx/deck/{1-4}/play` | bool or 0/1 | Play/pause deck |
-| `/vjx/deck/{1-4}/freeze` | bool or 0/1 | Freeze deck |
-| `/vjx/deck/{1-4}/speed` | float 0.25–4 | Playback speed |
-| `/vjx/deck/{1-4}/select` | optional trigger | Select deck |
-| `/vjx/deck/{1-4}/restart` | optional trigger | Restart deck |
-| `/vjx/deck/{1-4}/clip/{1-8}/launch` | optional trigger | Launch clip |
-| `/vjx/deck/{1-4}/package/{parameter-key}` | float | Set a deck-package parameter by its 16-digit stable hexadecimal key |
-| `/vjx/scene/{1-8}/launch` | optional trigger | Launch scene |
+| `/virtual/crossfader` | float 0–1 | A/B crossfader |
+| `/virtual/master/opacity` | float 0–1 | Master opacity |
+| `/virtual/master/blackout` | bool or 0/1 | Master blackout |
+| `/virtual/master/freeze` | bool or 0/1 | Master freeze |
+| `/virtual/tempo` | float 20–400 | Set BPM |
+| `/virtual/output/enabled` | bool or 0/1 | Show/hide clean output |
+| `/virtual/output/fullscreen` | bool or 0/1 | Toggle output fullscreen |
+| `/virtual/deck/{1-4}/level` | float 0–1 | Deck opacity |
+| `/virtual/deck/{1-4}/play` | bool or 0/1 | Play/pause deck |
+| `/virtual/deck/{1-4}/freeze` | bool or 0/1 | Freeze deck |
+| `/virtual/deck/{1-4}/speed` | float 0.25–4 | Playback speed |
+| `/virtual/deck/{1-4}/select` | optional trigger | Select deck |
+| `/virtual/deck/{1-4}/restart` | optional trigger | Restart deck |
+| `/virtual/deck/{1-4}/clip/{1-8}/launch` | optional trigger | Launch clip |
+| `/virtual/deck/{1-4}/package/{parameter-key}` | float | Set a deck-package parameter by its 16-digit stable hexadecimal key |
+| `/virtual/scene/{1-8}/launch` | optional trigger | Launch scene |
 
 Trigger routes default to `1` when sent without arguments. Sending a trigger
 value below `0.5` is treated as a release edge and does not mutate or journal

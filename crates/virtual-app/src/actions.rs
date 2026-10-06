@@ -117,7 +117,10 @@ impl State {
                     if enabled {
                         self.output.window.request_redraw();
                     }
-                    self.publish_osc_value("/vjx/output/enabled", f32::from(enabled));
+                    self.publish_osc_value(
+                        &crate::osc::osc_address("/output/enabled"),
+                        f32::from(enabled),
+                    );
                 }
                 ui::UiAction::SetOutputFullscreen(fullscreen) => {
                     self.record_show_operation(
@@ -127,7 +130,10 @@ impl State {
                     );
                     self.ui.output_fullscreen = fullscreen;
                     self.apply_output_monitor();
-                    self.publish_osc_value("/vjx/output/fullscreen", f32::from(fullscreen));
+                    self.publish_osc_value(
+                        &crate::osc::osc_address("/output/fullscreen"),
+                        f32::from(fullscreen),
+                    );
                 }
                 ui::UiAction::SetOutputDisplay(id) => {
                     self.record_show_operation(

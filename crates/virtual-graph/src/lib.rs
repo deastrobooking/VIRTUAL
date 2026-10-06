@@ -18,9 +18,9 @@ pub use compiler::{
     RenderPlan, ResourceAllocation,
 };
 pub use model::{
-    ColorSpace, Edge, FallbackBehavior, GraphRevision, NodeContract, NodeId, NodeInstance,
-    NodeRegistry, ParameterValue, PortContract, PortDirection, PortRef, PortType, ProjectGraph,
-    QualityLevel, RateDomain, ResolutionPolicy, SchemaId, Units,
+    ColorSpace, Edge, FallbackBehavior, GraphRevision, LEGACY_NODE_KIND_PREFIX, NODE_KIND_PREFIX,
+    NodeContract, NodeId, NodeInstance, NodeRegistry, ParameterValue, PortContract, PortDirection,
+    PortRef, PortType, ProjectGraph, QualityLevel, RateDomain, ResolutionPolicy, SchemaId, Units,
 };
 pub use transaction::{
     CommitPoint, CommitReceipt, GraphTransaction, TimelinePosition, TransactionError,
@@ -69,9 +69,25 @@ mod tests {
         assert_eq!(plan.revision(), GraphRevision(1));
         assert_eq!(plan.nodes().len(), 11);
         assert_eq!(plan.edges().len(), 10);
-        assert_eq!(plan.nodes().last().unwrap().kind, "oneiroi.program_output");
+        assert_eq!(plan.nodes().last().unwrap().kind, "virtual.program_output");
         assert!(plan.resources().iter().any(|resource| resource.slot == 0));
         assert_eq!(plan.estimated_gpu_us(), 8_600);
+    }
+
+    #[test]
+    fn legacy_node_kinds_upgrade_and_compile() {
+        let mut graph = four_deck_performance_graph();
+        for node in &mut graph.nodes {
+            node.kind = node
+                .kind
+                .replacen(NODE_KIND_PREFIX, LEGACY_NODE_KIND_PREFIX, 1);
+        }
+        assert!(graph.upgrade_legacy_kinds());
+        assert_eq!(graph, four_deck_performance_graph());
+        assert!(!graph.upgrade_legacy_kinds());
+        GraphCompiler::new(&builtin_registry(), CompileBudget::default())
+            .compile(&graph)
+            .unwrap();
     }
 
     #[test]

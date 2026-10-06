@@ -323,6 +323,27 @@ Acceptance criteria:
 6. Run show-machine soak, suspend/resume, display reconnect and storage-failure
    tests.
 
+Open items carried from the September and October reviews. The code fixes
+from those reviews have landed; these still need a person, a show machine or
+real hardware:
+
+- **Interactive checks:** shortcuts stay inert while typing, in both the
+  operator and output windows; Save/Discard/Cancel with an unwritable
+  destination; save-queue saturation; a visual pass at minimum window size
+  and at several display scales.
+- **Output health:** preflight still matches output health on the `"Healthy"`
+  status string; replace it with a typed health state.
+- **Hardware:** projector/fullscreen routing, display reconnect and adapters;
+  camera and HDMI-card frame delivery and signal loss; audio capture
+  permissions and real modulation; Link against Ableton Live on the show
+  network, including phase alignment and latency.
+- **Show machine:** the 30-minute fixture pass, four-deck performance
+  benchmark, seek/source replacement, freeze/blackout and the full effects
+  chain, recorded in `RELEASE_CHECKLIST.md` with the binary hash.
+- **Distribution:** application icon, Developer ID signing and notarization,
+  redistribution notices and source obligations, supported-OS policy, and a
+  clean-Mac install; archive the exact release artifact and its hash.
+
 ## Phase 8: typed graph and deterministic session runtime
 
 Status: the compatibility runtime, GPU lowering, command routing, recovery,
@@ -402,10 +423,11 @@ Acceptance criteria:
 ## Deferred beyond the focused release
 
 Projection warping, multiple simultaneous program outputs, edge blending, ISF
-import, generative sources, NDI, Syphon/Spout, Ableton Link, MIDI clock, DMX,
-Art-Net, the visual score, spatial engine and redundant render cluster remain
-beyond the current graph-foundation slice. OSC transport is implemented;
-effect/modulation route expansion and discovery remain in Phase 8.
+import, NDI, Syphon/Spout, DMX, Art-Net, the visual score, spatial engine and
+redundant render cluster remain beyond the current graph-foundation slice.
+Ableton Link, MIDI clock and recursive-geometry generator sources are
+implemented. OSC transport is implemented; effect/modulation route expansion
+and discovery remain in Phase 8.
 
 ## Phase 9: stage integration
 
@@ -414,14 +436,42 @@ Start only after the Phase 7 release gate is repeatable.
 1. Ableton Link tempo/phase integration is implemented with GPL-2.0-or-later
    licensing. Finish network/hardware certification, opt-in transport sync and
    an SDK-free build feature; see [Link](ABLETON_LINK.md).
-2. Add MIDI clock output and Song Position Pointer through the device-neutral
-   control layer.
+2. MIDI clock in and out with Song Position Pointer is implemented; see
+   [MIDI sync](MIDI_SYNC.md).
 3. Expand OSC effect/modulation routes and publish route discovery metadata.
 4. Prototype NDI output in an optional crate after accepting the NDI SDK and
    redistribution terms; preserve a default build without the SDK.
 5. Prototype native Syphon/Spout texture sharing separately per platform.
 6. Add a final bounded projection-warp pass before pursuing multi-output edge
    blending.
+
+Also not yet implemented:
+
+- Automatic BPM detection. Tap tempo, MIDI clock and Link are available.
+- Link transport (start/stop) sync.
+- Decoding audio embedded in video files or capture streams for analysis.
+  Capture cards' separate audio inputs can already be selected.
+
+## Idea backlog
+
+Unscheduled ideas worth keeping. None of these is committed work.
+
+- **Network stream input.** SRT, RTSP and RTMP through the existing FFmpeg
+  path, treated as a live, non-seekable source like a camera. Add a
+  stream-URL field beside the video-input controls, use low-latency demuxer
+  options, and show the host address to enter in a phone streaming app.
+- **Generator control routing.** MIDI learn, OSC and LFO routes for
+  generator parameters. Today only the deck's own effects, transforms and
+  LFOs apply on top of a generator. See [Generators](GENERATORS.md).
+- **Effect packages:**
+  - *Slit-scan.* Temporal strips by position or luminance, using the
+    history texture.
+  - *Datamosh.* Smear the previous frame along a brightness-gradient
+    pseudo-flow, with macroblock quantisation and a hold for drops.
+  - *SDF crystal lattice.* Raymarched icosahedron, cubic or Menger lattice
+    textured and refracted by the live frame.
+  - *Reaction-diffusion.* Gray–Scott growth seeded by the video, in two
+    passes using the history texture.
 
 Dependency policy:
 

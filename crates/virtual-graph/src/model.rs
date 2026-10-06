@@ -253,6 +253,26 @@ pub struct ProjectGraph {
     pub edges: Vec<Edge>,
 }
 
+/// Node-kind prefix for graphs saved before the rename to VIRTUAL.
+pub const LEGACY_NODE_KIND_PREFIX: &str = "oneiroi.";
+pub const NODE_KIND_PREFIX: &str = "virtual.";
+
+impl ProjectGraph {
+    /// Rewrites pre-rename `oneiroi.*` node kinds to `virtual.*`. Returns
+    /// whether anything changed. Contracts are otherwise identical, so the
+    /// upgraded graph compiles against the current registry.
+    pub fn upgrade_legacy_kinds(&mut self) -> bool {
+        let mut changed = false;
+        for node in &mut self.nodes {
+            if let Some(name) = node.kind.strip_prefix(LEGACY_NODE_KIND_PREFIX) {
+                node.kind = format!("{NODE_KIND_PREFIX}{name}");
+                changed = true;
+            }
+        }
+        changed
+    }
+}
+
 impl Default for ProjectGraph {
     fn default() -> Self {
         Self {

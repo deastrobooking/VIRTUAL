@@ -5,12 +5,12 @@ use crate::{
     PortContract, PortType, ProjectGraph, RateDomain, ResolutionPolicy,
 };
 
-pub const DECK_SOURCE_NODE: &str = "oneiroi.deck_source";
-pub const DECK_EFFECTS_NODE: &str = "oneiroi.deck_effects";
-pub const FOUR_DECK_MIXER_NODE: &str = "oneiroi.four_deck_mixer";
-pub const MASTER_EFFECTS_NODE: &str = "oneiroi.master_effects";
-pub const PROGRAM_OUTPUT_NODE: &str = "oneiroi.program_output";
-pub const FRAME_DELAY_NODE: &str = "oneiroi.frame_delay";
+pub const DECK_SOURCE_NODE: &str = "virtual.deck_source";
+pub const DECK_EFFECTS_NODE: &str = "virtual.deck_effects";
+pub const FOUR_DECK_MIXER_NODE: &str = "virtual.four_deck_mixer";
+pub const MASTER_EFFECTS_NODE: &str = "virtual.master_effects";
+pub const PROGRAM_OUTPUT_NODE: &str = "virtual.program_output";
+pub const FRAME_DELAY_NODE: &str = "virtual.frame_delay";
 
 pub fn builtin_registry() -> NodeRegistry {
     let mut registry = NodeRegistry::default();

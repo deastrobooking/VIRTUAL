@@ -2,8 +2,8 @@
 
 Review date: 2026-09-25
 
-Event follow-up: see [the recorded review](EVENT_REVIEW_2026-09-25.md) for the
-local build, fixes, automated checks and remaining physical rehearsal gates.
+Open rehearsal and certification items from the event and finalization
+reviews are tracked under [Phase 7 in the roadmap](ROADMAP.md#phase-7-release-hardening).
 
 September follow-up: project writes now run on a bounded background worker;
 active camera reads support cancellation/deadlines; camera recordings retain

@@ -76,7 +76,7 @@ impl super::State {
             if let Some(sender) = &self.midi_clock_sender {
                 sender.set_bpm(bpm);
             }
-            self.publish_osc_value("/vjx/tempo", bpm as f32);
+            self.publish_osc_value(&crate::osc::osc_address("/tempo"), bpm as f32);
         }
         self.tempo.set_bpm(bpm, elapsed);
         self.launches.anchor_clock(&mut self.tempo, beat, elapsed);

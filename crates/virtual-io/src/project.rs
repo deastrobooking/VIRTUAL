@@ -1678,6 +1678,9 @@ pub fn load_project(path: impl AsRef<Path>) -> Result<ProjectFile, ProjectError>
     if source_version < 5 && project.graph.is_none() {
         project.graph = Some(virtual_graph::four_deck_performance_graph());
     }
+    if let Some(graph) = project.graph.as_mut() {
+        graph.upgrade_legacy_kinds();
+    }
     project.version = PROJECT_VERSION;
     Ok(project)
 }

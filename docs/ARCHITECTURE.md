@@ -297,7 +297,7 @@ passes.
 
 ### Effect package validation and reload
 
-The master postprocessor can watch a versioned `oneiroi-effect` JSON manifest.
+The master postprocessor can watch a versioned `virtual-effect` JSON manifest.
 The manifest declares package identity, a package-relative WGSL path,
 vertex/fragment entry points and parameter schemas. Validation rejects path
 traversal, unsupported versions, duplicate or malformed controls, ranges that
@@ -415,9 +415,9 @@ Operator-window resizing does not change composition resolution.
 
 ## Persistence
 
-`.virtual` files are versioned JSON with the format name `virtual-project`;
-the pre-rename `oneiroi-project` is still read and rewritten on the next save.
-The current schema is version 6 and version-one through version-five files are
+`.virtual` files are versioned JSON with the format name `virtual-project`.
+Older format names are still read; see
+[Development](DEVELOPMENT.md#on-disk-formats-and-compatibility). The current schema is version 6 and version-one through version-five files are
 migrated on load. Version 3 adds stable custom-effect package IDs and named
 parameter values. Saves write a temporary sibling and rename it atomically on
 a dedicated worker thread. Clip paths inside the project's folder are stored

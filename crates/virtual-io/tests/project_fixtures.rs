@@ -237,10 +237,20 @@ fn v5_golden_project_migrates_to_v6_and_round_trips() {
     assert_eq!(source.version, 5);
     source.version = PROJECT_VERSION;
     assert_eq!(source.version, PROJECT_VERSION);
-    // Loading also adopts the VIRTUAL format name.
+    // Loading also adopts the VIRTUAL format name and node kinds.
     source.format = virtual_io::PROJECT_FORMAT.to_owned();
+    assert!(source.graph.as_mut().unwrap().upgrade_legacy_kinds());
 
     let project = load_project(fixture_path(V5_FIXTURE)).unwrap();
+    assert!(
+        project
+            .graph
+            .as_ref()
+            .unwrap()
+            .nodes
+            .iter()
+            .all(|node| node.kind.starts_with("virtual."))
+    );
     assert_eq!(project, source);
     assert_eq!(project.project_id, "33333333333333333333333333333333");
     assert_eq!(project.takes[0].take_id, "44444444444444444444444444444444");

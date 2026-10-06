@@ -80,8 +80,8 @@ cargo run -p virtual-render --example effect_preview -- kaleidoscope spiral-bloo
 
 ## Manifest
 
-`format` must be `virtual-effect`. Packages written for the earlier
-`oneiroi-effect` name still load unchanged.
+`format` must be `virtual-effect`. Packages using an older format name still
+load; see [Development](DEVELOPMENT.md#on-disk-formats-and-compatibility).
 
 ```json
 {

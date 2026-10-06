@@ -355,7 +355,7 @@ impl State {
         if let Some(sender) = &self.midi_clock_sender {
             sender.set_bpm(bpm);
         }
-        self.publish_osc_value("/vjx/tempo", bpm as f32);
+        self.publish_osc_value(&crate::osc::osc_address("/tempo"), bpm as f32);
     }
 
     pub(crate) fn refresh_midi_outputs(&mut self) {
@@ -591,7 +591,10 @@ impl State {
                 if enabled {
                     self.output.window.request_redraw();
                 }
-                self.publish_osc_value("/vjx/output/enabled", f32::from(enabled));
+                self.publish_osc_value(
+                    &crate::osc::osc_address("/output/enabled"),
+                    f32::from(enabled),
+                );
             }
             OscAction::OutputFullscreen(fullscreen) => {
                 self.record_show_operation(
@@ -601,7 +604,10 @@ impl State {
                 );
                 self.ui.output_fullscreen = fullscreen;
                 self.apply_output_monitor();
-                self.publish_osc_value("/vjx/output/fullscreen", f32::from(fullscreen));
+                self.publish_osc_value(
+                    &crate::osc::osc_address("/output/fullscreen"),
+                    f32::from(fullscreen),
+                );
             }
         }
         self.osc_status = format!("{address} · {}", event.peer);
@@ -639,10 +645,13 @@ impl State {
             let value = current_control_value(&self.ui, &self.mixer, &self.transports, target);
             self.publish_osc_control(ControlUpdate { target, value });
         }
-        self.publish_osc_value("/vjx/tempo", self.ui.bpm as f32);
-        self.publish_osc_value("/vjx/output/enabled", f32::from(self.ui.output_enabled));
+        self.publish_osc_value(&crate::osc::osc_address("/tempo"), self.ui.bpm as f32);
         self.publish_osc_value(
-            "/vjx/output/fullscreen",
+            &crate::osc::osc_address("/output/enabled"),
+            f32::from(self.ui.output_enabled),
+        );
+        self.publish_osc_value(
+            &crate::osc::osc_address("/output/fullscreen"),
             f32::from(self.ui.output_fullscreen),
         );
     }

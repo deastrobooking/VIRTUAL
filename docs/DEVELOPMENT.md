@@ -151,6 +151,18 @@ only emit the current name.
 Builds made before the rename reject files saved under the new names. They
 can't open a project once it has been re-saved by a current build.
 
+Other names from before the rename to VIRTUAL are also still accepted. Only
+the current names are ever written or sent:
+
+| What | Current | Also accepted |
+|---|---|---|
+| Graph node kinds in projects | `virtual.*` | `oneiroi.*`, upgraded on load (`ProjectGraph::upgrade_legacy_kinds`) |
+| OSC address prefix | `/virtual` | `/vjx` on input; feedback uses `/virtual` |
+| Project file extension | `.virtual` | `.oneiroi` |
+| Session journals and untitled autosave | `.virtual/session`, `.virtual-untitled.autosave` | `.oneiroi/session`, `.oneiroi-untitled.autosave`, read in place |
+| Effect search path variable | `VIRTUAL_EFFECT_PATH` | `ONEIROI_EFFECT_PATH` |
+| Per-user effects folder | `~/Library/Application Support/VIRTUAL/effects` | `…/Oneiroi/effects` |
+
 Rules for changing a format:
 
 - **Add, don't change.** A new field gets an explicit `#[serde(default)]` or

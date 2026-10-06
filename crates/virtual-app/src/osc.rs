@@ -415,6 +415,25 @@ pub(crate) enum OscAction {
     OutputFullscreen(bool),
 }
 
+/// OSC address namespace. Feedback is always sent under it.
+pub(crate) const OSC_ROOT: &str = "/virtual";
+/// Pre-rename namespace, still accepted on input so existing controller
+/// layouts keep working.
+const LEGACY_OSC_ROOT: &str = "/vjx";
+
+/// Strips either namespace, leaving the route (`/deck/1/level`).
+fn route(address: &str) -> Option<&str> {
+    [OSC_ROOT, LEGACY_OSC_ROOT].into_iter().find_map(|root| {
+        address
+            .strip_prefix(root)
+            .filter(|route| route.starts_with('/'))
+    })
+}
+
+pub(crate) fn osc_address(route: &str) -> String {
+    format!("{OSC_ROOT}{route}")
+}
+
 pub(crate) fn map_message(message: &OscMessage) -> Option<OscAction> {
     let value = message.arguments.first();
     let control = |target, default| {
@@ -423,45 +442,45 @@ pub(crate) fn map_message(message: &OscMessage) -> Option<OscAction> {
             value: value.and_then(OscArgument::number).unwrap_or(default) as f32,
         }))
     };
-    match message.address.as_str() {
-        "/vjx/crossfader" => control(ControlTarget::Crossfader, 0.0),
-        "/vjx/master/opacity" => control(ControlTarget::MasterOpacity, 0.0),
-        "/vjx/master/blackout" => control(ControlTarget::MasterBlackout, 1.0),
-        "/vjx/master/freeze" => control(ControlTarget::MasterFreeze, 1.0),
-        "/vjx/tempo" => value
+    match route(&message.address)? {
+        "/crossfader" => control(ControlTarget::Crossfader, 0.0),
+        "/master/opacity" => control(ControlTarget::MasterOpacity, 0.0),
+        "/master/blackout" => control(ControlTarget::MasterBlackout, 1.0),
+        "/master/freeze" => control(ControlTarget::MasterFreeze, 1.0),
+        "/tempo" => value
             .and_then(OscArgument::number)
             .filter(|bpm| bpm.is_finite())
             .map(|bpm| OscAction::Tempo(bpm.clamp(20.0, 400.0))),
-        "/vjx/output/enabled" => value
+        "/output/enabled" => value
             .and_then(OscArgument::boolean)
             .map(OscAction::OutputEnabled),
-        "/vjx/output/fullscreen" => value
+        "/output/fullscreen" => value
             .and_then(OscArgument::boolean)
             .map(OscAction::OutputFullscreen),
-        address => map_indexed_route(address, value),
+        route => map_indexed_route(route, value),
     }
 }
 
 pub(crate) fn feedback_for_control(update: ControlUpdate) -> Option<(String, f32)> {
     let address = match update.target {
-        ControlTarget::Crossfader => "/vjx/crossfader".to_owned(),
-        ControlTarget::MasterOpacity => "/vjx/master/opacity".to_owned(),
-        ControlTarget::MasterBlackout => "/vjx/master/blackout".to_owned(),
-        ControlTarget::MasterFreeze => "/vjx/master/freeze".to_owned(),
-        ControlTarget::DeckLevel(deck) => format!("/vjx/deck/{}/level", deck + 1),
-        ControlTarget::DeckPlay(deck) => format!("/vjx/deck/{}/play", deck + 1),
-        ControlTarget::DeckFreeze(deck) => format!("/vjx/deck/{}/freeze", deck + 1),
-        ControlTarget::DeckSpeed(deck) => format!("/vjx/deck/{}/speed", deck + 1),
-        ControlTarget::DeckSelect(deck) => format!("/vjx/deck/{}/select", deck + 1),
-        ControlTarget::DeckRestart(deck) => format!("/vjx/deck/{}/restart", deck + 1),
+        ControlTarget::Crossfader => osc_address("/crossfader"),
+        ControlTarget::MasterOpacity => osc_address("/master/opacity"),
+        ControlTarget::MasterBlackout => osc_address("/master/blackout"),
+        ControlTarget::MasterFreeze => osc_address("/master/freeze"),
+        ControlTarget::DeckLevel(deck) => format!("{OSC_ROOT}/deck/{}/level", deck + 1),
+        ControlTarget::DeckPlay(deck) => format!("{OSC_ROOT}/deck/{}/play", deck + 1),
+        ControlTarget::DeckFreeze(deck) => format!("{OSC_ROOT}/deck/{}/freeze", deck + 1),
+        ControlTarget::DeckSpeed(deck) => format!("{OSC_ROOT}/deck/{}/speed", deck + 1),
+        ControlTarget::DeckSelect(deck) => format!("{OSC_ROOT}/deck/{}/select", deck + 1),
+        ControlTarget::DeckRestart(deck) => format!("{OSC_ROOT}/deck/{}/restart", deck + 1),
         ControlTarget::ClipLaunch { deck, slot } => {
-            format!("/vjx/deck/{}/clip/{}/launch", deck + 1, slot + 1)
+            format!("{OSC_ROOT}/deck/{}/clip/{}/launch", deck + 1, slot + 1)
         }
-        ControlTarget::SceneLaunch(slot) => format!("/vjx/scene/{}/launch", slot + 1),
+        ControlTarget::SceneLaunch(slot) => format!("{OSC_ROOT}/scene/{}/launch", slot + 1),
         ControlTarget::DeckEffectParameter {
             deck,
             parameter_key,
-        } => format!("/vjx/deck/{}/package/{parameter_key:016x}", deck + 1),
+        } => format!("{OSC_ROOT}/deck/{}/package/{parameter_key:016x}", deck + 1),
         ControlTarget::TapTempo
         | ControlTarget::EffectParameter { .. }
         | ControlTarget::LfoParameter { .. }
@@ -471,12 +490,12 @@ pub(crate) fn feedback_for_control(update: ControlUpdate) -> Option<(String, f32
     Some((address, update.value))
 }
 
-fn map_indexed_route(address: &str, value: Option<&OscArgument>) -> Option<OscAction> {
-    let parts: Vec<_> = address.trim_matches('/').split('/').collect();
-    if let ["vjx", "scene", slot, "launch"] = parts.as_slice() {
+fn map_indexed_route(route: &str, value: Option<&OscArgument>) -> Option<OscAction> {
+    let parts: Vec<_> = route.trim_matches('/').split('/').collect();
+    if let ["scene", slot, "launch"] = parts.as_slice() {
         return trigger(ControlTarget::SceneLaunch(one_based_index(slot, 8)?), value);
     }
-    let ["vjx", "deck", deck, tail @ ..] = parts.as_slice() else {
+    let ["deck", deck, tail @ ..] = parts.as_slice() else {
         return None;
     };
     let deck = one_based_index(deck, 4)?;
@@ -550,21 +569,21 @@ mod tests {
     fn decodes_standard_float_message() {
         let mut output = Vec::new();
         decode_packet(
-            &float_message("/vjx/crossfader", 0.75),
+            &float_message("/virtual/crossfader", 0.75),
             &mut output,
             0,
             None,
         )
         .unwrap();
         assert_eq!(output.len(), 1);
-        assert_eq!(output[0].address, "/vjx/crossfader");
+        assert_eq!(output[0].address, "/virtual/crossfader");
         assert_eq!(output[0].arguments, vec![OscArgument::Float(0.75)]);
     }
 
     #[test]
     fn maps_human_numbered_decks_clips_and_scenes() {
         let clip = OscMessage {
-            address: "/vjx/deck/4/clip/8/launch".to_owned(),
+            address: "/virtual/deck/4/clip/8/launch".to_owned(),
             arguments: Vec::new(),
             timetag: None,
         };
@@ -576,7 +595,7 @@ mod tests {
             }))
         );
         let scene = OscMessage {
-            address: "/vjx/scene/1/launch".to_owned(),
+            address: "/virtual/scene/1/launch".to_owned(),
             arguments: vec![OscArgument::Int(1)],
             timetag: None,
         };
@@ -593,7 +612,7 @@ mod tests {
     fn maps_and_feeds_back_stable_deck_package_parameters() {
         let key = virtual_core::effect_parameter_key("recursive-2d", "iterations");
         let message = OscMessage {
-            address: format!("/vjx/deck/3/package/{key:016x}"),
+            address: format!("/virtual/deck/3/package/{key:016x}"),
             arguments: vec![OscArgument::Float(0.75)],
             timetag: None,
         };
@@ -614,10 +633,10 @@ mod tests {
     #[test]
     fn rejects_truncated_and_out_of_range_messages() {
         let mut output = Vec::new();
-        assert!(decode_packet(b"/vjx/bad", &mut output, 0, None).is_err());
+        assert!(decode_packet(b"/virtual/bad", &mut output, 0, None).is_err());
         assert_eq!(
             map_message(&OscMessage {
-                address: "/vjx/deck/5/level".to_owned(),
+                address: "/virtual/deck/5/level".to_owned(),
                 arguments: vec![OscArgument::Float(0.5)],
                 timetag: None,
             }),
@@ -627,7 +646,7 @@ mod tests {
 
     #[test]
     fn bundle_timetag_is_inherited_by_contained_messages() {
-        let message = float_message("/vjx/tempo", 128.0);
+        let message = float_message("/virtual/tempo", 128.0);
         let timetag = ((NTP_UNIX_EPOCH_OFFSET + 100) << 32) | 7;
         let mut bundle = osc_string("#bundle");
         bundle.extend(timetag.to_be_bytes());
@@ -652,16 +671,40 @@ mod tests {
 
     #[test]
     fn feedback_encoder_round_trips_through_the_decoder() {
-        let packet = encode_float_message("/vjx/deck/2/level", 0.625);
+        let packet = encode_float_message("/virtual/deck/2/level", 0.625);
         let mut output = Vec::new();
         decode_packet(&packet, &mut output, 0, None).unwrap();
         assert_eq!(
             output,
             vec![OscMessage {
-                address: "/vjx/deck/2/level".to_owned(),
+                address: "/virtual/deck/2/level".to_owned(),
                 arguments: vec![OscArgument::Float(0.625)],
                 timetag: None,
             }]
+        );
+    }
+
+    #[test]
+    fn legacy_vjx_namespace_is_accepted_and_feedback_uses_virtual() {
+        let message = |address: &str| OscMessage {
+            address: address.to_owned(),
+            arguments: vec![OscArgument::Float(0.5)],
+            timetag: None,
+        };
+        let expected = Some(OscAction::Control(ControlUpdate {
+            target: ControlTarget::DeckLevel(1),
+            value: 0.5,
+        }));
+        assert_eq!(map_message(&message("/virtual/deck/2/level")), expected);
+        assert_eq!(map_message(&message("/vjx/deck/2/level")), expected);
+        assert_eq!(map_message(&message("/virtualx/deck/2/level")), None);
+        assert_eq!(map_message(&message("/deck/2/level")), None);
+        assert_eq!(
+            feedback_for_control(ControlUpdate {
+                target: ControlTarget::DeckLevel(1),
+                value: 0.5,
+            }),
+            Some(("/virtual/deck/2/level".to_owned(), 0.5))
         );
     }
 }

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Naming cleanup (2026-10-06)
+
+- OSC routes now use `/virtual/...`. Controller layouts that send `/vjx/...`
+  still work; state feedback is sent under `/virtual/...` only, so update
+  layouts that listen for feedback.
+- Built-in graph nodes are now `virtual.*`. Projects saved with the earlier
+  `oneiroi.*` node kinds upgrade on load.
+- [Development](DEVELOPMENT.md#on-disk-formats-and-compatibility) lists every
+  older name that is still accepted.
+- Developer scratch notes and dated review snapshots were folded into the
+  [roadmap](ROADMAP.md) and removed.
+
+### Recursive geometry generators (2026-10-06)
+
+- Decks can use a generator as their source: fourteen recursive 2D/3D line
+  patterns with shape, motion, colour, trails and audio controls in a separate
+  per-deck window. See [Generators](GENERATORS.md).
+
 ### Session saving, mapping and packaging (2026-10-05)
 
 - Media inside the show folder is saved relative to the project; copied show

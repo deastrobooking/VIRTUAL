@@ -38,8 +38,6 @@ cp "$project_root/LICENSE" "$bundle/Contents/Resources/LICENSE"
 # Preserve the documentation hierarchy so README is an offline entry point.
 cp "$project_root/README.md" "$bundle/Contents/Resources/README.md"
 cp -R "$project_root/docs" "$bundle/Contents/Resources/docs"
-# This developer scratchpad links into a source checkout, not the user guides.
-rm -f "$bundle/Contents/Resources/docs/nextsteps.md"
 
 # Keep each path on its own line. Never split Mach-O paths on spaces, and
 # propagate inspection failures instead of treating them as empty dependencies.

@@ -360,7 +360,7 @@ pub(super) fn draw_setup(
                         metrics.osc.output_stats.dropped,
                         metrics.osc.output_stats.errors
                     ));
-                    ui.weak("Routes use /vjx; deck and clip numbers are 1-based.");
+                    ui.weak("Routes use /virtual (the older /vjx prefix is still accepted); deck and clip numbers are 1-based.");
                 });
             ui.separator();
 
