@@ -336,6 +336,50 @@ fn composites_buses_independently_before_crossfading() {
 }
 
 #[test]
+fn layer_order_and_pinned_deck_control_what_is_on_top() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut mixer = FourDeckCompositor::new(&device, &queue, wgpu::TextureFormat::Rgba8UnormSrgb);
+    mixer
+        .upload(&device, &queue, 0, &solid([255, 0, 0, 255]))
+        .unwrap();
+    mixer
+        .upload(&device, &queue, 1, &solid([0, 255, 0, 255]))
+        .unwrap();
+    let same_bus = |layer_order| MixerParams {
+        levels: [1.0, 1.0, 0.0, 0.0],
+        buses: [MixerBus::A; 4],
+        layer_order,
+        ..Default::default()
+    };
+    // Default order stacks B over A; reversing it puts A on top.
+    let default = render(&device, &queue, &mut mixer, same_bus([0, 1, 2, 3]));
+    assert_eq!(&default[..4], &[0, 255, 0, 255]);
+    let reversed = render(&device, &queue, &mut mixer, same_bus([1, 0, 2, 3]));
+    assert_eq!(&reversed[..4], &[255, 0, 0, 255]);
+    // An invalid order falls back to the default instead of dropping decks.
+    let invalid = render(&device, &queue, &mut mixer, same_bus([0, 0, 2, 3]));
+    assert_eq!(&invalid[..4], &[0, 255, 0, 255]);
+
+    // A pinned deck stays on top even with the crossfader fully on the other bus.
+    let pinned = render(
+        &device,
+        &queue,
+        &mut mixer,
+        MixerParams {
+            levels: [1.0, 1.0, 0.0, 0.0],
+            buses: [MixerBus::A, MixerBus::B, MixerBus::A, MixerBus::B],
+            crossfade_gains: [0.0, 1.0],
+            pinned_deck: Some(0),
+            ..Default::default()
+        },
+    );
+    assert_eq!(&pinned[..4], &[255, 0, 0, 255]);
+}
+
+#[test]
 fn blend_modes_match_known_opaque_primary_colors() {
     let Some((device, queue)) = device() else {
         eprintln!("no GPU adapter; skipping");
@@ -434,6 +478,52 @@ fn solo_isolates_decks_and_bypass_excludes_without_changing_level() {
 }
 
 #[test]
+fn fold_variants_are_distinct_and_keep_the_image_visible() {
+    let Some((device, queue)) = device() else {
+        eprintln!("no GPU adapter; skipping");
+        return;
+    };
+    let mut mixer = FourDeckCompositor::new(&device, &queue, wgpu::TextureFormat::Rgba8UnormSrgb);
+    mixer.upload(&device, &queue, 0, &pattern()).unwrap();
+    let fold = |set: fn(&mut DeckEffects, f32), amount: f32| {
+        let mut effects = DeckEffects::default();
+        set(&mut effects, amount);
+        let mut params = MixerParams::default();
+        params.effects[0] = effects;
+        params
+    };
+    type Setter = fn(&mut DeckEffects, f32);
+    let setters: [(&str, Setter); 4] = [
+        ("fractal", |e, v| e.fractal = v),
+        ("spiral", |e, v| e.spiral_fold = v),
+        ("kali", |e, v| e.kali_fold = v),
+        ("koch", |e, v| e.koch_fold = v),
+    ];
+    let mut outputs = Vec::new();
+    for (name, set) in setters {
+        for amount in [0.3, 1.0] {
+            let pixels = render(&device, &queue, &mut mixer, fold(set, amount));
+            // Folds only move sampling, so the frame must not collapse to black.
+            // (Readback rows are padded, so only look for any lit pixel.)
+            assert!(
+                pixels
+                    .chunks_exact(4)
+                    .any(|p| p[..3].iter().any(|c| *c > 8)),
+                "{name} at {amount} lost the image"
+            );
+            if amount == 1.0 {
+                outputs.push((name, pixels));
+            }
+        }
+    }
+    for (index, (name, pixels)) in outputs.iter().enumerate() {
+        for (other, other_pixels) in &outputs[index + 1..] {
+            assert_ne!(pixels, other_pixels, "{name} matches {other}");
+        }
+    }
+}
+
+#[test]
 fn expanded_effects_each_change_a_patterned_source() {
     let Some((device, queue)) = device() else {
         eprintln!("no GPU adapter; skipping");
@@ -462,6 +552,27 @@ fn expanded_effects_each_change_a_patterned_source() {
             "fractal",
             DeckEffects {
                 fractal: 0.8,
+                ..Default::default()
+            },
+        ),
+        (
+            "spiral fold",
+            DeckEffects {
+                spiral_fold: 0.8,
+                ..Default::default()
+            },
+        ),
+        (
+            "kali fold",
+            DeckEffects {
+                kali_fold: 0.8,
+                ..Default::default()
+            },
+        ),
+        (
+            "koch fold",
+            DeckEffects {
+                koch_fold: 0.8,
                 ..Default::default()
             },
         ),

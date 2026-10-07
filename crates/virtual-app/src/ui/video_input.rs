@@ -2,7 +2,7 @@
 
 use virtual_media::{CameraConfig, CameraDevice, CapturePixelFormat, DeckId};
 
-use super::{UiAction, UiState};
+use super::{UiAction, UiState, buttons};
 
 pub(super) fn draw_video_input(
     ui: &mut egui::Ui,
@@ -23,9 +23,27 @@ pub(super) fn draw_video_input(
                         ui.selectable_value(&mut state.camera_device_id, device.id.clone(), &device.label);
                     }
                 });
-            if ui.button("Refresh").clicked() { actions.push(UiAction::RefreshCameras); }
-            if ui.add_enabled(!state.camera_device_id.trim().is_empty(),
-                egui::Button::new(format!("Connect to Deck {}", deck.label()))).clicked() {
+            if buttons::midi_button(ui, "video_input.refresh", "Video input · Refresh devices", |ui| {
+                ui.button("Refresh")
+            })
+            .clicked()
+            {
+                actions.push(UiAction::RefreshCameras);
+            }
+            let connectable = !state.camera_device_id.trim().is_empty();
+            if buttons::midi_button(
+                ui,
+                &format!("video_input.connect.{}", deck.index()),
+                &format!("Deck {} · Connect video input", deck.label()),
+                |ui| {
+                    ui.add_enabled(
+                        connectable,
+                        egui::Button::new(format!("Connect to Deck {}", deck.label())),
+                    )
+                },
+            )
+            .clicked()
+            {
                 let device = devices.iter().find(|device| device.id == state.camera_device_id)
                     .cloned().unwrap_or_else(|| CameraDevice {
                         id: state.camera_device_id.trim().to_owned(),

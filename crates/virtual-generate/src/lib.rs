@@ -20,3 +20,6 @@ pub use settings::{
     ColorMode, Dimension, FRAME_RATES, GeneratorSettings, RESOLUTIONS, RecursivePattern,
 };
 pub use turtle::{Frame, MAX_SEGMENTS, Turtle};
+
+mod parameters;
+pub use parameters::{GENERATOR_PARAMETERS, GeneratorParameter};

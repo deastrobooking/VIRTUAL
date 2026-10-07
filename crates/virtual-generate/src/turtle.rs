@@ -33,7 +33,13 @@ impl Builder {
             self.truncated = true;
             return false;
         }
-        self.segments.push(Segment { start, end, t });
+        self.segments.push(Segment {
+            start,
+            end,
+            t,
+            trace: [0.0, 1.0, 0.0],
+            echo: 0,
+        });
         true
     }
 }

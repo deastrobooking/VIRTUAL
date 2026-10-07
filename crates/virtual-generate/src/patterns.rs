@@ -26,7 +26,7 @@ pub(crate) fn requested_depth(pattern: RecursivePattern, levels: u32) -> u32 {
         PythagorasTree => levels + 1,
         MengerSponge => levels.saturating_sub(3) / 2,
         GeodesicSphere => levels.saturating_sub(4),
-        Spirograph | TorusKnot => levels,
+        ChebyshevCurve | PolynomialContours | Supershape | Spirograph | TorusKnot => levels,
     }
 }
 
@@ -64,6 +64,10 @@ pub(crate) fn estimate(params: &GeometryParams, depth: u32) -> u64 {
         SierpinskiTetrahedron => pow(4, depth).saturating_mul(6),
         MengerSponge => pow(20, depth).saturating_mul(12),
         GeodesicSphere => pow(4, depth).saturating_mul(60),
+        ChebyshevCurve => 256 * u64::from(depth.max(1)),
+        PolynomialContours | Supershape => {
+            params.contours.round().clamp(4.0, 64.0) as u64 * 2 * 64 * u64::from(depth.max(1))
+        }
         Spirograph | TorusKnot => 256 * u64::from(depth.max(1)),
     }
 }
@@ -178,6 +182,7 @@ pub(crate) fn build(p: &GeometryParams, depth: u32, out: &mut Builder) {
         }
         MengerSponge => menger(&mut c, Vec3::ZERO, scale, depth),
         GeodesicSphere => geodesic(&mut c, depth),
+        ChebyshevCurve | PolynomialContours | Supershape => advanced_curves(&mut c, depth),
         Spirograph | TorusKnot => parametric_curve(&mut c, depth),
     }
 }
@@ -658,6 +663,126 @@ fn geodesic_face(c: &mut Ctx, [a, b, d]: [Vec3; 3], depth: u32, level: u32) {
     let (ab, bd, da) = (midpoint(a, b), midpoint(b, d), midpoint(d, a));
     for child in [[a, ab, da], [ab, b, bd], [da, bd, d], [ab, bd, da]] {
         geodesic_face(c, child, depth - 1, level + 1);
+    }
+}
+
+fn chebyshev(x: f32, degree: u32) -> f32 {
+    let (mut a, mut b) = (1.0, x);
+    if degree == 0 {
+        return a;
+    }
+    for _ in 1..degree {
+        (a, b) = (b, 2.0 * x * b - a);
+    }
+    b
+}
+
+fn advanced_curves(c: &mut Ctx, depth: u32) {
+    let p = *c.p;
+    let steps = if p.pattern == RecursivePattern::ChebyshevCurve {
+        256
+    } else {
+        64
+    } * depth.max(1);
+    let count = p.contours.round().clamp(4.0, 64.0) as u32;
+    let degree = |v: f32| v.round().clamp(1.0, 12.0) as u32;
+    let orient = |v: Vec3| match p.slice_axis.round() as u32 {
+        0 => Vec3::new(v.z, v.x, v.y),
+        1 => Vec3::new(v.x, v.z, v.y),
+        _ => v,
+    };
+    let cheb_point = |t: f32| {
+        let component = |phase: f32, d: f32| {
+            let x = (t + phase).cos();
+            chebyshev(x, degree(d)) * (1.0 - p.polynomial_mix) + x * p.polynomial_mix
+        };
+        Vec3::new(
+            component(0.0, p.degree_x),
+            component(0.4 + p.twist, p.degree_y),
+            component(1.1 + p.spread, p.degree_z),
+        )
+    };
+    // Positive even powers and nonnegative cross terms keep each radial
+    // slice bounded and monotone, making bisection deterministic.
+    let order = ((p.surface_order / 2.0).round().clamp(1.0, 6.0) as i32) * 2;
+    let contour_point = |t: f32, z: f32| {
+        let (sin, cos) = t.sin_cos();
+        let field = |r: f32| {
+            let (x, y) = (r * cos, r * sin);
+            x.powi(order)
+                + y.powi(order)
+                + z.powi(order)
+                + p.surface_cross * (x * x * y * y + y * y * z * z + z * z * x * x)
+        };
+        let (mut lo, mut hi) = (0.0, 2.0);
+        for _ in 0..24 {
+            let mid = (lo + hi) * 0.5;
+            if field(mid) > 1.0 {
+                hi = mid;
+            } else {
+                lo = mid;
+            }
+        }
+        orient(Vec3::new(cos * (lo + hi) * 0.5, sin * (lo + hi) * 0.5, z))
+    };
+    let super_radius = |angle: f32| {
+        let a = p.symmetry.round() * angle * 0.25;
+        (a.cos().abs().powf(p.exponent) + a.sin().abs().powf(p.exponent))
+            .max(0.001)
+            .powf(-1.0 / p.exponent)
+    };
+    let super_point = |lon: f32, lat: f32| {
+        let r = super_radius(lon);
+        let v = super_radius(lat);
+        orient(Vec3::new(
+            r * lon.cos() * v * lat.cos(),
+            r * lon.sin() * v * lat.cos(),
+            v * lat.sin(),
+        ))
+    };
+    let paths = if p.pattern == RecursivePattern::ChebyshevCurve {
+        1
+    } else if p.pattern == RecursivePattern::Supershape {
+        count * 2
+    } else {
+        count
+    };
+    for path in 0..paths {
+        if c.out.full() {
+            break;
+        }
+        let point = |i: u32| {
+            let t = i as f32 / steps as f32;
+            let v = match p.pattern {
+                RecursivePattern::ChebyshevCurve => cheb_point(t * TAU),
+                RecursivePattern::PolynomialContours => {
+                    contour_point(t * TAU, -0.98 + 1.96 * path as f32 / (count - 1) as f32)
+                }
+                _ if path < count => super_point(
+                    t * TAU,
+                    -FRAC_PI_2 + PI * (path as f32 + 0.5) / count as f32,
+                ),
+                _ => super_point(
+                    (path - count) as f32 / count as f32 * TAU,
+                    -FRAC_PI_2 + t * PI,
+                ),
+            };
+            v * p.scale
+        };
+        let first = point(0);
+        let mut previous = first;
+        for i in 1..=steps {
+            let closed = p.pattern != RecursivePattern::Supershape || path < count;
+            let next = if i == steps && closed {
+                first
+            } else {
+                point(i)
+            };
+            if !c.out.line(previous, next, 0.0) {
+                return;
+            }
+            previous = next;
+        }
     }
 }
 

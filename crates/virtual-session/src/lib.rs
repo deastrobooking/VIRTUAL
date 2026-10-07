@@ -489,6 +489,13 @@ pub fn control_parameter_path(target: ControlTarget) -> String {
         ControlTarget::DeckFreeze(deck) => format!("deck.{deck}.freeze"),
         ControlTarget::DeckSpeed(deck) => format!("deck.{deck}.speed"),
         ControlTarget::DeckSelect(deck) => format!("deck.{deck}.select"),
+        ControlTarget::DeckMute(deck) => format!("deck.{deck}.mute"),
+        ControlTarget::DeckPin(deck) => format!("deck.{deck}.layer.pin"),
+        ControlTarget::DeckLayerTop(deck) => format!("deck.{deck}.layer.top"),
+        ControlTarget::DeckLayerUp(deck) => format!("deck.{deck}.layer.up"),
+        ControlTarget::DeckLayerDown(deck) => format!("deck.{deck}.layer.down"),
+        ControlTarget::LayerReset => "mixer.layer.reset".to_owned(),
+        ControlTarget::UiButton(key) => format!("ui.button.{key:016x}"),
         ControlTarget::DeckRestart(deck) => format!("deck.{deck}.restart"),
         ControlTarget::ClipLaunch { deck, slot } => format!("deck.{deck}.clip.{slot}.launch"),
         ControlTarget::SceneLaunch(slot) => format!("scene.{slot}.launch"),
@@ -507,6 +514,9 @@ pub fn control_parameter_path(target: ControlTarget) -> String {
             route,
             parameter,
         } => format!("deck.{deck}.mod_route.{route}.parameter.{parameter}"),
+        ControlTarget::GeneratorParameter { deck, parameter } => {
+            format!("deck.{deck}.generator.parameter.{parameter}")
+        }
         ControlTarget::DeckEffectParameter {
             deck,
             parameter_key,

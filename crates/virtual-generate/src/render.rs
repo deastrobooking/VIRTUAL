@@ -27,6 +27,7 @@ const MAX_STEPS_PER_LINE: f32 = 8192.0;
 struct GeometryKey {
     pattern: crate::RecursivePattern,
     levels: u32,
+    extra: [i32; 16],
     controls: [i32; 4],
     seed: u32,
     flatten: bool,
@@ -54,6 +55,24 @@ impl GeometryKey {
         Self {
             pattern: settings.pattern,
             levels: settings.depth_levels(),
+            extra: [
+                q(settings.degree_x),
+                q(settings.degree_y),
+                q(settings.degree_z),
+                q(settings.polynomial_mix),
+                q(settings.surface_order),
+                q(settings.surface_cross),
+                q(settings.contours),
+                q(settings.slice_axis),
+                q(settings.symmetry),
+                q(settings.exponent),
+                q(settings.echo_copies),
+                q(settings.echo_scale),
+                q(settings.echo_x),
+                q(settings.echo_y),
+                q(settings.echo_z),
+                q(settings.echo_offset),
+            ],
             controls: [
                 q(settings.scale),
                 q(settings.spread),
@@ -91,6 +110,7 @@ pub struct Generator {
     yaw: f32,
     spin: f32,
     grow_phase: f32,
+    trace_phase: f32,
     hue_phase: f32,
     last_time: Option<f64>,
     stats: GeneratorStats,
@@ -110,6 +130,7 @@ impl Generator {
             yaw: 0.0,
             spin: 0.0,
             grow_phase: 0.0,
+            trace_phase: 0.0,
             hue_phase: 0.0,
             last_time: None,
             stats: GeneratorStats::default(),
@@ -180,6 +201,8 @@ impl Generator {
             self.grow_phase = (self.grow_phase + settings.grow_speed * 0.5 * dt).rem_euclid(1.0);
         }
 
+        self.trace_phase = (self.trace_phase + settings.trace_speed * dt).rem_euclid(1.0);
+
         // Ease the framing toward new geometry instead of popping.
         let target_radius = self.geometry.radius.max(1e-3);
         if self.fit_radius <= 0.0 {
@@ -249,20 +272,25 @@ impl Generator {
             width: width as usize,
             height: height as usize,
         };
+        let mut traced = 0;
         for segment in &self.geometry.segments[..drawn] {
-            let (x0, y0, fade0) = project(segment.start);
-            let (x1, y1, fade1) = project(segment.end);
             let index = (segment.t.clamp(0.0, 1.0) * (PALETTE_ENTRIES - 1) as f32) as usize;
-            let fade = (fade0 + fade1) * 0.5;
-            let color = lut[index].map(|channel| channel * fade * exposure);
-            canvas.line(x0, y0, x1, y1, color, settings.line_width);
+            let intensity = settings.echo_fade.powi(segment.echo as i32);
+            trace_intervals(segment.trace, self.trace_phase, &settings, |a, b| {
+                let (x0, y0, fade0) = project(segment.start.lerp(segment.end, a));
+                let (x1, y1, fade1) = project(segment.start.lerp(segment.end, b));
+                let fade = (fade0 + fade1) * 0.5;
+                let color = lut[index].map(|channel| channel * fade * exposure * intensity);
+                canvas.line(x0, y0, x1, y1, color, settings.line_width);
+                traced += 1;
+            });
         }
 
         tone_map(&self.accumulation, out, settings.transparent);
 
         self.stats = GeneratorStats {
             segments: count as u32,
-            drawn: drawn as u32,
+            drawn: traced,
             requested_depth: self.geometry.requested_depth,
             depth: self.geometry.depth,
             truncated: self.geometry.truncated,
@@ -426,9 +454,80 @@ fn clip(
     ))
 }
 
+/// Clip by path distance, preserving partial segments and wrapping tails.
+fn trace_intervals(
+    trace: [f32; 3],
+    phase: f32,
+    settings: &GeneratorSettings,
+    mut draw: impl FnMut(f32, f32),
+) {
+    if settings.trace_length >= 1.0 {
+        draw(0.0, 1.0);
+        return;
+    }
+    if settings.trace_length <= 0.0 {
+        return;
+    }
+    let [start, end, offset] = trace;
+    let span = end - start;
+    if span <= 1e-9 {
+        return;
+    }
+    let heads = settings.trace_heads.round().clamp(1.0, 8.0) as u32;
+    for head in 0..heads {
+        let tip =
+            (phase + offset * settings.trace_spread + head as f32 / heads as f32).rem_euclid(1.0);
+        let tail = tip - settings.trace_length / heads as f32;
+        for shift in [0.0, 1.0] {
+            let a = start.max(tail + shift);
+            let b = end.min(tip + shift);
+            if b > a {
+                draw(
+                    ((a - start) / span).clamp(0.0, 1.0),
+                    ((b - start) / span).clamp(0.0, 1.0),
+                );
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn intervals(trace: [f32; 3], phase: f32, settings: &GeneratorSettings) -> Vec<(f32, f32)> {
+        let mut out = Vec::new();
+        trace_intervals(trace, phase, settings, |a, b| out.push((a, b)));
+        out
+    }
+
+    #[test]
+    fn default_tracing_draws_whole_segments() {
+        let settings = GeneratorSettings::default();
+        assert_eq!(intervals([0.2, 0.4, 0.5], 0.7, &settings), vec![(0.0, 1.0)]);
+    }
+
+    #[test]
+    fn trace_heads_clip_and_wrap_along_the_path() {
+        let settings = GeneratorSettings {
+            trace_length: 0.2,
+            ..GeneratorSettings::default()
+        };
+        // Head at 0.5 lights 0.3–0.5 of the path: half of a 0.4–0.6 segment.
+        let half = intervals([0.4, 0.6, 0.0], 0.5, &settings);
+        assert_eq!(half.len(), 1);
+        assert!(half[0].0 == 0.0 && (half[0].1 - 0.5).abs() < 1e-5);
+        assert!(intervals([0.6, 0.8, 0.0], 0.5, &settings).is_empty());
+        // A head at 0.05 wraps its tail onto 0.85–1.0 of the path.
+        let wrapped = intervals([0.8, 1.0, 0.0], 0.05, &settings);
+        assert_eq!(wrapped.len(), 1);
+        assert!((wrapped[0].0 - 0.25).abs() < 1e-5 && (wrapped[0].1 - 1.0).abs() < 1e-5);
+        let off = GeneratorSettings {
+            trace_length: 0.0,
+            ..settings
+        };
+        assert!(intervals([0.0, 1.0, 0.0], 0.5, &off).is_empty());
+    }
     use crate::RecursivePattern;
 
     fn small(pattern: RecursivePattern) -> GeneratorSettings {

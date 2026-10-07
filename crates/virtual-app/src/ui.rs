@@ -5,6 +5,7 @@
 //! path the parameter/modulation system takes later.
 
 mod audio;
+pub(crate) mod buttons;
 mod clips;
 mod deck;
 mod diagnostics;
@@ -86,6 +87,12 @@ pub struct UiState {
     pub blend_modes: [LayerBlendMode; 4],
     pub solo: [bool; 4],
     pub bypassed: [bool; 4],
+    /// Deck indices from bottom to top within each crossfade bus.
+    pub layer_order: [u8; 4],
+    /// Deck composited over the crossfaded mix, ignoring the crossfader.
+    pub pinned_deck: Option<DeckId>,
+    /// UI buttons pressed from MIDI/OSC since the last frame.
+    pub pending_buttons: std::collections::BTreeSet<u64>,
     pub lfos: [DeckLfos; 4],
     /// Last rendered modulation source values per deck, for UI meters.
     pub mod_sources: [[f32; MODULATION_SOURCES]; 4],
@@ -184,6 +191,9 @@ impl Default for UiState {
             blend_modes: [LayerBlendMode::Normal; 4],
             solo: [false; 4],
             bypassed: [false; 4],
+            layer_order: virtual_render::DEFAULT_LAYER_ORDER,
+            pinned_deck: None,
+            pending_buttons: Default::default(),
             lfos: [DeckLfos::default(); 4],
             mod_sources: [[0.0; MODULATION_SOURCES]; 4],
             master_mod_sources: [0.0; MASTER_MODULATION_SOURCES],
@@ -585,6 +595,7 @@ pub struct OscMetrics<'a> {
 /// Ableton-style mapping: arm the mode, click any highlighted control, then
 /// move a knob on any connected device. While the mode is armed the wrapped
 /// widgets are disabled so browsing for a control cannot change the mix.
+#[derive(Clone)]
 pub(super) struct MidiMapUi {
     pub active: bool,
     pub learning: Option<ControlTarget>,
@@ -618,6 +629,136 @@ impl MidiMapUi {
 /// Outside map mode this is a transparent pass-through. Inside it, the widget
 /// draws disabled and an overlay takes the clicks: primary arms the target
 /// for the next incoming message, secondary clears its bindings.
+/// Moves `deck` to the top of the bottom-to-top layer order.
+pub(crate) fn layer_to_top(order: &mut [u8; 4], deck: u8) {
+    if let Some(slot) = order.iter().position(|candidate| *candidate == deck) {
+        order[slot..].rotate_left(1);
+    }
+}
+
+/// Moves `deck` one layer up or down; no-op at either end.
+pub(crate) fn layer_step(order: &mut [u8; 4], deck: u8, up: bool) {
+    let Some(slot) = order.iter().position(|candidate| *candidate == deck) else {
+        return;
+    };
+    match (up, slot) {
+        (true, slot) if slot + 1 < order.len() => order.swap(slot, slot + 1),
+        (false, slot) if slot > 0 => order.swap(slot, slot - 1),
+        _ => {}
+    }
+}
+
+/// Bottom-to-top deck stacking, plus one deck pinned over the crossfade.
+/// `compact` drops the per-deck arrows for the master toolbar.
+pub(super) fn draw_layer_order(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    palette: &ThemePalette,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    compact: bool,
+) {
+    ui.horizontal_wrapped(|ui| {
+        ui.strong("LAYERS").on_hover_text(
+            "Stacking order within each crossfade bus, bottom to top. \
+             Click a deck to bring it to the top. PIN draws a deck over the \
+             crossfaded mix so crossfades and auto blends never fade it out.",
+        );
+        if !compact {
+            ui.weak("bottom");
+        }
+        for slot in 0..state.layer_order.len() {
+            let index = state.layer_order[slot];
+            let deck = DeckId::ALL[usize::from(index)];
+            let color = palette.deck_color(deck);
+            if !compact
+                && mappable(
+                    ui,
+                    midi_map,
+                    ControlTarget::DeckLayerDown(index),
+                    actions,
+                    |ui| {
+                        ui.add_enabled(slot > 0, egui::Button::new("◀").small())
+                            .on_hover_text(format!("Move deck {} down one layer", deck.label()))
+                    },
+                )
+                .clicked()
+            {
+                layer_step(&mut state.layer_order, index, false);
+            }
+            let top = slot + 1 == state.layer_order.len();
+            if mappable(
+                ui,
+                midi_map,
+                ControlTarget::DeckLayerTop(index),
+                actions,
+                |ui| {
+                    ui.add(
+                        egui::Button::new(egui::RichText::new(deck.label()).strong())
+                            .fill(palette.control_tint(color, if top { 0.45 } else { 0.15 }))
+                            .stroke(egui::Stroke::new(1.0, color))
+                            .min_size(egui::vec2(28.0, 0.0)),
+                    )
+                    .on_hover_text(format!("Bring deck {} to the top layer", deck.label()))
+                },
+            )
+            .clicked()
+            {
+                layer_to_top(&mut state.layer_order, index);
+            }
+            if !compact
+                && mappable(
+                    ui,
+                    midi_map,
+                    ControlTarget::DeckLayerUp(index),
+                    actions,
+                    |ui| {
+                        ui.add_enabled(!top, egui::Button::new("▶").small())
+                            .on_hover_text(format!("Move deck {} up one layer", deck.label()))
+                    },
+                )
+                .clicked()
+            {
+                layer_step(&mut state.layer_order, index, true);
+            }
+            let pinned = state.pinned_deck == Some(deck);
+            if mappable(ui, midi_map, ControlTarget::DeckPin(index), actions, |ui| {
+                ui.add(
+                    egui::Button::new(egui::RichText::new("PIN").small())
+                        .selected(pinned)
+                        .fill(palette.control_tint(color, if pinned { 0.55 } else { 0.08 })),
+                )
+                .on_hover_text(format!(
+                    "{} deck {} over the crossfaded mix",
+                    if pinned { "Unpin" } else { "Pin" },
+                    deck.label()
+                ))
+            })
+            .clicked()
+            {
+                state.pinned_deck = (!pinned).then_some(deck);
+            }
+            if !compact {
+                ui.add_space(4.0);
+            }
+        }
+        if !compact {
+            ui.weak("top");
+        }
+        let changed =
+            state.layer_order != virtual_render::DEFAULT_LAYER_ORDER || state.pinned_deck.is_some();
+        if mappable(ui, midi_map, ControlTarget::LayerReset, actions, |ui| {
+            ui.add_enabled(changed || midi_map.active, egui::Button::new("Reset"))
+                .on_hover_text("Restore A–D stacking and unpin")
+        })
+        .clicked()
+        {
+            state.layer_order = virtual_render::DEFAULT_LAYER_ORDER;
+            state.pinned_deck = None;
+        }
+    });
+}
+
 pub(super) fn mappable(
     ui: &mut egui::Ui,
     map: &MidiMapUi,
@@ -715,6 +856,28 @@ pub fn draw(
     let palette = state.theme.palette();
     state.fps.push(metrics.frame_time.delta);
     let mut actions = Vec::new();
+    buttons::begin_frame(
+        std::mem::take(&mut state.pending_buttons),
+        MidiMapUi {
+            active: state.midi_map_mode,
+            learning: metrics.midi.mapper.learning(),
+            mapped: metrics
+                .midi
+                .mapper
+                .bindings
+                .iter()
+                .map(|binding| (binding.target, binding.device.clone()))
+                .collect(),
+            audio_learning: state.audio_learn.map(|learn| learn.source),
+            audio_mapped: state
+                .audio_map
+                .bindings
+                .iter()
+                .map(|binding| (binding.target, binding.source))
+                .collect(),
+            palette,
+        },
+    );
 
     egui::Window::new("VIRTUAL")
         .default_pos([16.0, 16.0])
@@ -723,26 +886,8 @@ pub fn draw(
         .resizable(true)
         .scroll([false, false])
         .show(ctx, |ui| {
-            draw_toolbar(ui, state, clips, &metrics, palette, &mut actions);
-    let midi_map = MidiMapUi {
-        active: state.midi_map_mode,
-        learning: metrics.midi.mapper.learning(),
-        mapped: metrics
-            .midi
-            .mapper
-            .bindings
-            .iter()
-            .map(|binding| (binding.target, binding.device.clone()))
-            .collect(),
-        audio_learning: state.audio_learn.map(|learn| learn.source),
-        audio_mapped: state
-            .audio_map
-            .bindings
-            .iter()
-            .map(|binding| (binding.target, binding.source))
-            .collect(),
-        palette,
-    };
+    let midi_map = buttons::current_map().expect("buttons::begin_frame runs first");
+            draw_toolbar(ui, state, clips, &metrics, palette, &midi_map, &mut actions);
             egui::ScrollArea::both()
                 .id_salt("performance-editor")
                 .auto_shrink([false, false])
@@ -903,11 +1048,22 @@ pub fn draw(
                     )
                 });
                 ui.label("B");
-                ui.checkbox(&mut state.equal_power, "equal power");
-                if ui.button("Center").clicked() {
+                buttons::midi_toggle(
+                    ui,
+                    "mixer.equal_power",
+                    "Mixer · Equal power",
+                    &mut state.equal_power,
+                    |ui, value| ui.checkbox(value, "equal power"),
+                );
+                if buttons::midi_button(ui, "mixer.center", "Mixer · Center crossfader", |ui| {
+                    ui.button("Center")
+                })
+                .clicked()
+                {
                     state.crossfader = 0.5;
                 }
             });
+            draw_layer_order(ui, state, &palette, &midi_map, &mut actions, false);
             ui.horizontal(|ui| {
                 mappable(ui, &midi_map, ControlTarget::MasterOpacity, &mut actions, |ui| {
                     ui.add(
@@ -958,22 +1114,38 @@ pub fn draw(
                                             );
                                         }
                                     });
-                                ui.checkbox(&mut slot.bypassed, "Bypass");
+                                buttons::midi_toggle(
+                                    ui,
+                                    &format!("master.slot.{index}.bypass"),
+                                    &format!("Master slot {} · Bypass", index + 1),
+                                    &mut slot.bypassed,
+                                    |ui, value| ui.checkbox(value, "Bypass"),
+                                );
                                 ui.add(
                                     egui::Slider::new(&mut slot.mix, 0.0..=1.0).text("wet"),
                                 );
-                                if ui
-                                    .add_enabled(index > 0, egui::Button::new("↑"))
-                                    .clicked()
+                                if buttons::midi_button(
+                                    ui,
+                                    &format!("master.slot.{index}.up"),
+                                    &format!("Master slot {} · Move up", index + 1),
+                                    |ui| ui.add_enabled(index > 0, egui::Button::new("↑")),
+                                )
+                                .clicked()
                                 {
                                     reorder = Some((index, index - 1));
                                 }
-                                if ui
-                                    .add_enabled(
-                                        index + 1 < slot_count,
-                                        egui::Button::new("↓"),
-                                    )
-                                    .clicked()
+                                if buttons::midi_button(
+                                    ui,
+                                    &format!("master.slot.{index}.down"),
+                                    &format!("Master slot {} · Move down", index + 1),
+                                    |ui| {
+                                        ui.add_enabled(
+                                            index + 1 < slot_count,
+                                            egui::Button::new("↓"),
+                                        )
+                                    },
+                                )
+                                .clicked()
                                 {
                                     reorder = Some((index, index + 1));
                                 }
@@ -1003,7 +1175,14 @@ pub fn draw(
                     if let Some((from, to)) = reorder {
                         master_effects.slots.swap(from, to);
                     }
-                    if ui.button("Reset master effects").clicked() {
+                    if buttons::midi_button(
+                        ui,
+                        "master.reset_effects",
+                        "Master · Reset effects",
+                        |ui| ui.button("Reset master effects"),
+                    )
+                    .clicked()
+                    {
                         *master_effects = MasterEffectChain::default();
                     }
                     master_effects.sanitize();
@@ -1022,13 +1201,34 @@ pub fn draw(
                     ui.label("Effect package");
                     ui.text_edit_singleline(&mut state.effect_manifest_path);
                     ui.horizontal(|ui| {
-                        if ui.button("Refresh registry").clicked() {
+                        if buttons::midi_button(
+                            ui,
+                            "master.refresh_registry",
+                            "Master · Refresh effect registry",
+                            |ui| ui.button("Refresh registry"),
+                        )
+                        .clicked()
+                        {
                             actions.push(UiAction::RefreshEffectRegistry);
                         }
-                        if ui.button("Watch").clicked() {
+                        if buttons::midi_button(
+                            ui,
+                            "master.watch_manifest",
+                            "Master · Watch effect package",
+                            |ui| ui.button("Watch"),
+                        )
+                        .clicked()
+                        {
                             actions.push(UiAction::WatchEffectManifest);
                         }
-                        if ui.button("Reload now").clicked() {
+                        if buttons::midi_button(
+                            ui,
+                            "master.reload_manifest",
+                            "Master · Reload effect package",
+                            |ui| ui.button("Reload now"),
+                        )
+                        .clicked()
+                        {
                             actions.push(UiAction::ReloadEffectManifest);
                         }
                     });
@@ -1058,7 +1258,13 @@ pub fn draw(
                             ui.horizontal(|ui| {
                                 ui.monospace(format!("{}", index + 1));
                                 ui.strong(label);
-                                ui.checkbox(&mut slot.bypassed, "Bypass");
+                                buttons::midi_toggle(
+                                    ui,
+                                    &format!("master.slot.{index}.bypass"),
+                                    &format!("Master slot {} · Bypass", index + 1),
+                                    &mut slot.bypassed,
+                                    |ui, value| ui.checkbox(value, "Bypass"),
+                                );
                                 ui.add(egui::Slider::new(&mut slot.mix, 0.0..=1.0).text("wet"));
                             });
                         }
@@ -1074,7 +1280,17 @@ pub fn draw(
         state.theme.editor_ui(ctx);
     }
     draw_midi_manager(ctx, state, &mut metrics.midi, &palette, &mut actions);
-    generator::draw_generator_windows(ctx, state, mixer, metrics.generator_stats, palette);
+    let generator_map = buttons::current_map().expect("buttons::begin_frame runs first");
+    generator::draw_generator_windows(
+        ctx,
+        state,
+        mixer,
+        metrics.generator_stats,
+        palette,
+        &generator_map,
+        &mut actions,
+    );
+    actions.extend(buttons::end_frame());
     actions
 }
 
@@ -1124,6 +1340,9 @@ fn effect_parameter_label(effect: u8) -> &'static str {
         "Bloom threshold",
         "Bloom radius",
         "Bloom chroma",
+        "Spiral fold",
+        "Kali fold",
+        "Koch fold",
     ]
     .get(usize::from(effect))
     .copied()
@@ -1137,5 +1356,29 @@ fn mapping_mode_label(mode: MappingMode) -> &'static str {
         MappingMode::Toggle => "Toggle",
         MappingMode::RelativeBinaryOffset => "Relative offset",
         MappingMode::RelativeTwosComplement => "Relative 2's comp",
+    }
+}
+
+#[cfg(test)]
+mod layer_tests {
+    use super::{layer_step, layer_to_top};
+
+    #[test]
+    fn layer_helpers_reorder_without_dropping_decks() {
+        let mut order = [0, 1, 2, 3];
+        layer_to_top(&mut order, 1);
+        assert_eq!(order, [0, 2, 3, 1]);
+        layer_to_top(&mut order, 1);
+        assert_eq!(order, [0, 2, 3, 1]);
+        layer_step(&mut order, 0, false);
+        assert_eq!(order, [0, 2, 3, 1], "bottom layer cannot move down");
+        layer_step(&mut order, 1, true);
+        assert_eq!(order, [0, 2, 3, 1], "top layer cannot move up");
+        layer_step(&mut order, 1, false);
+        assert_eq!(order, [0, 2, 1, 3]);
+        layer_step(&mut order, 0, true);
+        assert_eq!(order, [2, 0, 1, 3]);
+        layer_to_top(&mut order, 9);
+        assert_eq!(order, [2, 0, 1, 3], "unknown decks are ignored");
     }
 }

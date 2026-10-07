@@ -4,7 +4,7 @@ use virtual_core::{ClockSource, ControlTarget, Quantization};
 use virtual_media::FourDeckMixer;
 
 use super::diagnostics::{draw_output_health, draw_pipeline_health, draw_runtime_summary};
-use super::{MidiMapUi, PerformanceMetrics, UiAction, UiState, draw_midi, mappable};
+use super::{MidiMapUi, PerformanceMetrics, UiAction, UiState, buttons, draw_midi, mappable};
 
 pub(super) fn draw_setup(
     ui: &mut egui::Ui,
@@ -27,18 +27,28 @@ pub(super) fn draw_setup(
                 .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label("Output");
-                if ui
-                    .checkbox(&mut state.output_enabled, "Enabled")
-                    .changed()
+                if buttons::midi_toggle(
+                    ui,
+                    "setup.output.enabled",
+                    "Output · Enabled",
+                    &mut state.output_enabled,
+                    |ui, value| ui.checkbox(value, "Enabled"),
+                )
+                .changed()
                 {
                     actions.push(UiAction::SetOutputEnabled(state.output_enabled));
                 }
-                if ui
-                    .add_enabled(
-                        state.output_enabled,
-                        egui::Checkbox::new(&mut state.output_fullscreen, "Fullscreen"),
-                    )
-                    .changed()
+                let output_enabled = state.output_enabled;
+                if buttons::midi_toggle(
+                    ui,
+                    "setup.output.fullscreen",
+                    "Output · Fullscreen",
+                    &mut state.output_fullscreen,
+                    |ui, value| {
+                        ui.add_enabled(output_enabled, egui::Checkbox::new(value, "Fullscreen"))
+                    },
+                )
+                .changed()
                 {
                     actions.push(UiAction::SetOutputFullscreen(state.output_fullscreen));
                 }
@@ -63,7 +73,7 @@ pub(super) fn draw_setup(
                             }
                         }
                     });
-                if ui.button("Refresh displays").clicked() {
+                if buttons::midi_button(ui, "setup.output.refresh_displays", "Output · Refresh displays", |ui| ui.button("Refresh displays")).clicked() {
                     actions.push(UiAction::RefreshDisplays);
                 }
                 ui.separator();
@@ -103,14 +113,26 @@ pub(super) fn draw_setup(
                         .range(180..=4320)
                         .speed(8),
                 );
-                if ui.button("Apply").clicked() {
+                if buttons::midi_button(ui, "setup.output.apply_extent", "Output · Apply custom size", |ui| ui.button("Apply")).clicked() {
                     actions.push(UiAction::SetCompositionExtent(
                         state.custom_composition_extent,
                     ));
                 }
                 ui.separator();
-                ui.checkbox(&mut state.output_test_card, "Test card");
-                ui.checkbox(&mut state.output_identify, "Identify");
+                buttons::midi_toggle(
+                    ui,
+                    "setup.output.test_card",
+                    "Output · Test card",
+                    &mut state.output_test_card,
+                    |ui, value| ui.checkbox(value, "Test card"),
+                );
+                buttons::midi_toggle(
+                    ui,
+                    "setup.output.identify",
+                    "Output · Identify",
+                    &mut state.output_identify,
+                    |ui, value| ui.checkbox(value, "Identify"),
+                );
             });
             draw_output_health(ui, state, metrics, palette);
             ui.horizontal(|ui| {
@@ -124,10 +146,10 @@ pub(super) fn draw_setup(
                     egui::TextEdit::singleline(&mut state.project_path)
                         .hint_text("project.virtual"),
                 );
-                if ui.button("Open").clicked() {
+                if buttons::midi_button(ui, "setup.project.open", "Project · Open path", |ui| ui.button("Open")).clicked() {
                     actions.push(UiAction::OpenProject);
                 }
-                if ui.button("Save").clicked() {
+                if buttons::midi_button(ui, "setup.project.save", "Project · Save", |ui| ui.button("Save")).clicked() {
                     actions.push(UiAction::SaveProject);
                 }
                 if ui.button("Open…").clicked() {
@@ -136,7 +158,7 @@ pub(super) fn draw_setup(
                 if ui.button("Save As…").clicked() {
                     actions.push(UiAction::SaveProjectAs);
                 }
-                if metrics.recovery_available && ui.button("Recover autosave").clicked() {
+                if metrics.recovery_available && buttons::midi_button(ui, "setup.project.recover_autosave", "Project · Recover autosave", |ui| ui.button("Recover autosave")).clicked() {
                     actions.push(UiAction::RecoverProject);
                 }
                 if !metrics.project_status.is_empty() {
@@ -147,7 +169,7 @@ pub(super) fn draw_setup(
                 .default_open(false)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        if ui.button("Scan journals").clicked() {
+                        if buttons::midi_button(ui, "setup.recovery.scan", "Recovery · Scan journals", |ui| ui.button("Scan journals")).clicked() {
                             actions.push(UiAction::RefreshSessionRecoveries);
                         }
                         if !metrics.session_recoveries.is_empty() {
@@ -168,7 +190,7 @@ pub(super) fn draw_setup(
                                         );
                                     }
                                 });
-                            if ui.button("Restore latest as branch").clicked() {
+                            if buttons::midi_button(ui, "setup.recovery.restore_latest", "Recovery · Restore latest as branch", |ui| ui.button("Restore latest as branch")).clicked() {
                                 actions.push(UiAction::RestoreSessionRecovery(
                                     state.session_recovery_selected,
                                 ));
@@ -193,22 +215,22 @@ pub(super) fn draw_setup(
                                         );
                                     }
                                 });
-                            if ui.button("Rename metadata").clicked() {
+                            if buttons::midi_button(ui, "setup.takes.rename", "Takes · Rename metadata", |ui| ui.button("Rename metadata")).clicked() {
                                 actions.push(UiAction::RenameProjectTake(
                                     state.project_take_selected,
                                 ));
                             }
-                            if ui.button("Remove metadata").clicked() {
+                            if buttons::midi_button(ui, "setup.takes.remove", "Takes · Remove metadata", |ui| ui.button("Remove metadata")).clicked() {
                                 actions.push(UiAction::RemoveProjectTake(
                                     state.project_take_selected,
                                 ));
                             }
-                            if ui.button("Export copy").clicked() {
+                            if buttons::midi_button(ui, "setup.takes.export", "Takes · Export copy", |ui| ui.button("Export copy")).clicked() {
                                 actions.push(UiAction::ExportProjectTake(
                                     state.project_take_selected,
                                 ));
                             }
-                            if ui.button("Archive copy").clicked() {
+                            if buttons::midi_button(ui, "setup.takes.archive", "Takes · Archive copy", |ui| ui.button("Archive copy")).clicked() {
                                 actions.push(UiAction::ArchiveProjectTake(
                                     state.project_take_selected,
                                 ));
@@ -222,7 +244,7 @@ pub(super) fn draw_setup(
                     ui.horizontal(|ui| {
                         ui.label("Take / branch name");
                         ui.text_edit_singleline(&mut state.take_name_input);
-                        if ui.button("Start named take").clicked() {
+                        if buttons::midi_button(ui, "setup.takes.start", "Takes · Start named take", |ui| ui.button("Start named take")).clicked() {
                             actions.push(UiAction::StartNamedTake);
                         }
                     });
@@ -230,14 +252,14 @@ pub(super) fn draw_setup(
                         ui.label("Deterministic seed");
                         ui.text_edit_singleline(&mut state.random_seed_scope);
                         ui.add(egui::DragValue::new(&mut state.random_seed_value));
-                        if ui.button("Set seed").clicked() {
+                        if buttons::midi_button(ui, "setup.seed.set", "Session · Set seed", |ui| ui.button("Set seed")).clicked() {
                             actions.push(UiAction::SetRandomSeed);
                         }
                     });
                     ui.horizontal(|ui| {
                         ui.label("Timeline marker");
                         ui.text_edit_singleline(&mut state.timeline_marker_input);
-                        if ui.button("Add marker").clicked() {
+                        if buttons::midi_button(ui, "setup.marker.add", "Session · Add timeline marker", |ui| ui.button("Add marker")).clicked() {
                             actions.push(UiAction::AddTimelineMarker);
                         }
                     });
@@ -273,7 +295,7 @@ pub(super) fn draw_setup(
                                 )
                                 .text("timeline seconds"),
                             );
-                            if ui.button("Restore cursor as branch").clicked() {
+                            if buttons::midi_button(ui, "setup.recovery.restore_cursor", "Recovery · Restore cursor as branch", |ui| ui.button("Restore cursor as branch")).clicked() {
                                 actions.push(UiAction::RestoreSessionRecoveryAt {
                                     index: state.session_recovery_selected,
                                     monotonic_ns: (state.session_replay_seconds
@@ -289,9 +311,18 @@ pub(super) fn draw_setup(
                                 for marker in entry.markers() {
                                     let seconds =
                                         marker.at.monotonic_ns as f64 / 1_000_000_000.0;
-                                    if ui
-                                        .small_button(format!("{} · {:.1}s", marker.label, seconds))
-                                        .clicked()
+                                    if buttons::midi_button(
+                                        ui,
+                                        &format!("setup.marker.jump.{}", marker.label),
+                                        &format!("Recovery · Jump to marker {}", marker.label),
+                                        |ui| {
+                                            ui.small_button(format!(
+                                                "{} · {:.1}s",
+                                                marker.label, seconds
+                                            ))
+                                        },
+                                    )
+                                    .clicked()
                                     {
                                         state.session_replay_seconds = seconds;
                                     }
@@ -321,10 +352,10 @@ pub(super) fn draw_setup(
                                 .desired_width(170.0),
                         );
                         if metrics.osc.connected {
-                            if ui.button("Disconnect").clicked() {
+                            if buttons::midi_button(ui, "setup.osc.disconnect", "OSC · Disconnect input", |ui| ui.button("Disconnect")).clicked() {
                                 actions.push(UiAction::DisconnectOscInput);
                             }
-                        } else if ui.button("Listen").clicked() {
+                        } else if buttons::midi_button(ui, "setup.osc.listen", "OSC · Listen", |ui| ui.button("Listen")).clicked() {
                             actions.push(UiAction::ConnectOscInput);
                         }
                         ui.weak(metrics.osc.status);
@@ -346,10 +377,10 @@ pub(super) fn draw_setup(
                                 .desired_width(170.0),
                         );
                         if metrics.osc.output_connected {
-                            if ui.button("Stop feedback").clicked() {
+                            if buttons::midi_button(ui, "setup.osc.stop_feedback", "OSC · Stop feedback", |ui| ui.button("Stop feedback")).clicked() {
                                 actions.push(UiAction::DisconnectOscOutput);
                             }
-                        } else if ui.button("Send feedback").clicked() {
+                        } else if buttons::midi_button(ui, "setup.osc.send_feedback", "OSC · Send feedback", |ui| ui.button("Send feedback")).clicked() {
                             actions.push(UiAction::ConnectOscOutput);
                         }
                         ui.weak(metrics.osc.output_status);
@@ -399,27 +430,46 @@ pub(super) fn draw_setup(
                 if tap.clicked() {
                     actions.push(UiAction::TapTempo);
                 }
-                if ui
-                    .add_enabled(!external, egui::Button::new("½"))
-                    .on_hover_text("Half tempo")
-                    .clicked()
+                if buttons::midi_button(ui, "tempo.half", "Tempo · Half", |ui| {
+                    ui.add_enabled(!external, egui::Button::new("½"))
+                        .on_hover_text("Half tempo")
+                })
+                .clicked()
                 {
                     actions.push(UiAction::HalfTempo);
                 }
-                if ui
-                    .add_enabled(!external, egui::Button::new("×2"))
-                    .on_hover_text("Double tempo")
-                    .clicked()
+                if buttons::midi_button(ui, "tempo.double", "Tempo · Double", |ui| {
+                    ui.add_enabled(!external, egui::Button::new("×2"))
+                        .on_hover_text("Double tempo")
+                })
+                .clicked()
                 {
                     actions.push(UiAction::DoubleTempo);
                 }
-                ui.selectable_value(
+                buttons::midi_select(
+                    ui,
+                    "tempo.quantize.immediate",
+                    "Quantize · Immediate",
                     &mut state.quantization,
                     Quantization::Immediate,
                     "Immediate",
                 );
-                ui.selectable_value(&mut state.quantization, Quantization::Beat, "Next beat");
-                ui.selectable_value(&mut state.quantization, Quantization::Bar, "Next bar");
+                buttons::midi_select(
+                    ui,
+                    "tempo.quantize.beat",
+                    "Quantize · Next beat",
+                    &mut state.quantization,
+                    Quantization::Beat,
+                    "Next beat",
+                );
+                buttons::midi_select(
+                    ui,
+                    "tempo.quantize.bar",
+                    "Quantize · Next bar",
+                    &mut state.quantization,
+                    Quantization::Bar,
+                    "Next bar",
+                );
                 ui.separator();
                 ui.label(format!(
                     "beat {:.2} · phase {:.2} · bar {:.2}",

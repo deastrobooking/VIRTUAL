@@ -42,6 +42,14 @@ work on input; feedback is sent under `/virtual` only.
 | `/virtual/deck/{1-4}/restart` | optional trigger | Restart deck |
 | `/virtual/deck/{1-4}/clip/{1-8}/launch` | optional trigger | Launch clip |
 | `/virtual/deck/{1-4}/package/{parameter-key}` | float | Set a deck-package parameter by its 16-digit stable hexadecimal key |
+| `/virtual/deck/{1-4}/generator/{0-45}` | float 0–1 | Set a generator parameter by its stable ID (see GENERATORS.md) |
+| `/virtual/deck/{1-4}/mute` | bool or 0/1 | Mute (bypass) the deck in the program mix |
+| `/virtual/deck/{1-4}/layer/pin` | bool or 0/1 | Pin the deck over the crossfaded mix; 0 unpins it |
+| `/virtual/deck/{1-4}/layer/top` | optional trigger | Bring the deck to the top layer |
+| `/virtual/deck/{1-4}/layer/up` | optional trigger | Move the deck up one layer |
+| `/virtual/deck/{1-4}/layer/down` | optional trigger | Move the deck down one layer |
+| `/virtual/layers/reset` | optional trigger | Restore A–D stacking and unpin |
+| `/virtual/button/{key}` | optional trigger | Press an on-screen button by its 16-digit hexadecimal key (shown in OSC feedback after a MIDI/OSC press) |
 | `/virtual/scene/{1-8}/launch` | optional trigger | Launch scene |
 
 Trigger routes default to `1` when sent without arguments. Sending a trigger

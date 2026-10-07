@@ -90,7 +90,8 @@ The current source tree includes:
   live meters, gain/noise-floor/envelope controls and project persistence.
 - Optional adaptive RMS normalization plus beat-phase and four-beat bar-phase
   modulation sources.
-- Native per-deck mirror, neon glow, fractal fold, scanline jitter, find-edges,
+- Native per-deck mirror, neon glow, fractal fold (plus spiral, Kali and Koch
+  fold variants), scanline jitter, find-edges,
   bit reduction, black-light inversion, pixelate and luma-key effects.
 - Three built-in deck-effect groups with independent bypass and dry/wet,
   legacy-compatible project defaults and Neutral, Neon Night, Blacklight,

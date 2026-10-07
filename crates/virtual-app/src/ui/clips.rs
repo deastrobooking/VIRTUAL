@@ -87,15 +87,22 @@ pub(super) fn draw_clip_grid(
             ui.end_row();
 
             for deck in DeckId::ALL {
-                if ui
-                    .selectable_label(
-                        mixer.selected() == deck,
-                        egui::RichText::new(format!("DECK {}", deck.label()))
-                            .strong()
-                            .color(palette.grid_text),
-                    )
-                    .on_hover_text("Select this deck's performance controls")
-                    .clicked()
+                if mappable(
+                    ui,
+                    midi_map,
+                    ControlTarget::DeckSelect(deck.index() as u8),
+                    actions,
+                    |ui| {
+                        ui.selectable_label(
+                            mixer.selected() == deck,
+                            egui::RichText::new(format!("DECK {}", deck.label()))
+                                .strong()
+                                .color(palette.grid_text),
+                        )
+                        .on_hover_text("Select this deck's performance controls")
+                    },
+                )
+                .clicked()
                 {
                     mixer.select(deck);
                 }
@@ -326,10 +333,17 @@ pub(super) fn draw_clip_grid(
             deck.label(),
             address.slot + 1
         ));
-        let delete = ui.add_enabled(
-            selected_occupied && !state.show_mode,
-            egui::Button::new("Delete selected clip")
-                .fill(palette.control_tint(palette.danger, 0.28)),
+        let delete = buttons::midi_button(
+            ui,
+            "clips.delete_selected",
+            "Clips · Delete selected clip",
+            |ui| {
+                ui.add_enabled(
+                    selected_occupied && !state.show_mode,
+                    egui::Button::new("Delete selected clip")
+                        .fill(palette.control_tint(palette.danger, 0.28)),
+                )
+            },
         );
         if delete
             .on_hover_text(if state.show_mode {
@@ -353,9 +367,13 @@ pub(super) fn draw_clip_grid(
             } else {
                 format!("■ Stop · {:.1}s", recording.elapsed_seconds)
             };
-            if ui
-                .add_enabled(!recording.finalizing, egui::Button::new(label))
-                .clicked()
+            if buttons::midi_button(
+                ui,
+                &format!("deck.{}.record", deck.index()),
+                &format!("Deck {} · Record / stop clip", deck.label()),
+                |ui| ui.add_enabled(!recording.finalizing, egui::Button::new(label)),
+            )
+            .clicked()
             {
                 actions.push(UiAction::StopCameraRecording(deck));
             }
@@ -371,20 +389,26 @@ pub(super) fn draw_clip_grid(
                 DeckState::Live(_) | DeckState::Generator(_)
             );
             let can_record = live && !selected_occupied;
-            if ui
-                .add_enabled(
-                    can_record,
-                    egui::Button::new("● Record clip")
-                        .fill(palette.control_tint(palette.danger, 0.28)),
-                )
-                .on_hover_text(if !live {
-                    "Connect this deck to a video input or generator first"
-                } else if selected_occupied {
-                    "Select an empty clip slot to record into"
-                } else {
-                    "Record this deck's live source into the selected clip slot"
-                })
-                .clicked()
+            if buttons::midi_button(
+                ui,
+                &format!("deck.{}.record", deck.index()),
+                &format!("Deck {} · Record / stop clip", deck.label()),
+                |ui| {
+                    ui.add_enabled(
+                        can_record,
+                        egui::Button::new("● Record clip")
+                            .fill(palette.control_tint(palette.danger, 0.28)),
+                    )
+                    .on_hover_text(if !live {
+                        "Connect this deck to a video input or generator first"
+                    } else if selected_occupied {
+                        "Select an empty clip slot to record into"
+                    } else {
+                        "Record this deck's live source into the selected clip slot"
+                    })
+                },
+            )
+            .clicked()
             {
                 actions.push(UiAction::StartCameraRecording(address));
             }
@@ -411,20 +435,24 @@ pub(super) fn draw_clip_grid(
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label("Launch");
-                    changed |= ui
-                        .selectable_value(
-                            &mut playback.launch_mode,
-                            ClipLaunchMode::Restart,
-                            "Restart at In",
-                        )
-                        .changed();
-                    changed |= ui
-                        .selectable_value(
-                            &mut playback.launch_mode,
-                            ClipLaunchMode::Resume,
-                            "Resume last position",
-                        )
-                        .changed();
+                    changed |= buttons::midi_select(
+                        ui,
+                        "clips.selected.launch_restart",
+                        "Selected clip · Launch restarts at In",
+                        &mut playback.launch_mode,
+                        ClipLaunchMode::Restart,
+                        "Restart at In",
+                    )
+                    .changed();
+                    changed |= buttons::midi_select(
+                        ui,
+                        "clips.selected.launch_resume",
+                        "Selected clip · Launch resumes",
+                        &mut playback.launch_mode,
+                        ClipLaunchMode::Resume,
+                        "Resume last position",
+                    )
+                    .changed();
                 });
                 let maximum = media_duration.unwrap_or(86_400.0).max(0.001);
                 ui.horizontal(|ui| {
@@ -438,7 +466,15 @@ pub(super) fn draw_clip_grid(
                         )
                         .changed();
                     let mut out_enabled = playback.out_point.is_some();
-                    if ui.checkbox(&mut out_enabled, "Out").changed() {
+                    if buttons::midi_toggle(
+                        ui,
+                        "clips.selected.out_point",
+                        "Selected clip · Out point",
+                        &mut out_enabled,
+                        |ui, value| ui.checkbox(value, "Out"),
+                    )
+                    .changed()
+                    {
                         playback.out_point = out_enabled.then_some(maximum);
                         changed = true;
                     }
@@ -455,9 +491,14 @@ pub(super) fn draw_clip_grid(
                 });
                 ui.horizontal(|ui| {
                     let mut beat_enabled = playback.beat_duration.is_some();
-                    if ui
-                        .checkbox(&mut beat_enabled, "BPM-relative duration")
-                        .changed()
+                    if buttons::midi_toggle(
+                        ui,
+                        "clips.selected.beat_duration",
+                        "Selected clip · BPM-relative duration",
+                        &mut beat_enabled,
+                        |ui, value| ui.checkbox(value, "BPM-relative duration"),
+                    )
+                    .changed()
                     {
                         playback.beat_duration = beat_enabled.then_some(4.0);
                         changed = true;

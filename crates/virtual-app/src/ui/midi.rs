@@ -35,7 +35,11 @@ pub(super) fn draw_midi(
                             );
                         }
                     });
-                if ui.button("Refresh MIDI").clicked() {
+                if buttons::midi_button(ui, "midi.refresh_inputs", "MIDI · Refresh inputs", |ui| {
+                    ui.button("Refresh MIDI")
+                })
+                .clicked()
+                {
                     actions.push(UiAction::RefreshMidiInputs);
                 }
                 if selected_connected {
@@ -204,10 +208,16 @@ fn draw_clock_sync(
                         "Join a local-network Link session; share tempo and beat phase",
                     ),
                 ] {
-                    if ui
-                        .selectable_label(state.midi_clock_source == source, label)
-                        .on_hover_text(hint)
-                        .clicked()
+                    if buttons::midi_button(
+                        ui,
+                        &format!("clock.source.{label}"),
+                        &format!("Clock source · {label}"),
+                        |ui| {
+                            ui.selectable_label(state.midi_clock_source == source, label)
+                                .on_hover_text(hint)
+                        },
+                    )
+                    .clicked()
                         && state.midi_clock_source != source
                     {
                         actions.push(UiAction::SetMidiClockSource(source));
@@ -305,19 +315,39 @@ fn draw_clock_sync(
                             );
                         }
                     });
-                if ui.button("Refresh outputs").clicked() {
+                if buttons::midi_button(
+                    ui,
+                    "midi.refresh_outputs",
+                    "MIDI · Refresh outputs",
+                    |ui| ui.button("Refresh outputs"),
+                )
+                .clicked()
+                {
                     actions.push(UiAction::RefreshMidiOutputs);
                 }
                 if clock.output_connected {
-                    if ui.button("Disconnect").clicked() {
-                        actions.push(UiAction::DisconnectMidiClockOutput);
-                    }
-                } else if ui
-                    .add_enabled(
-                        !state.midi_output_device_id.is_empty(),
-                        egui::Button::new("Connect"),
+                    if buttons::midi_button(
+                        ui,
+                        "clock.output.disconnect",
+                        "Clock · Disconnect output",
+                        |ui| ui.button("Disconnect"),
                     )
                     .clicked()
+                    {
+                        actions.push(UiAction::DisconnectMidiClockOutput);
+                    }
+                } else if buttons::midi_button(
+                    ui,
+                    "clock.output.connect",
+                    "Clock · Connect output",
+                    |ui| {
+                        ui.add_enabled(
+                            !state.midi_output_device_id.is_empty(),
+                            egui::Button::new("Connect"),
+                        )
+                    },
+                )
+                .clicked()
                 {
                     actions.push(UiAction::ConnectMidiClockOutput(
                         state.midi_output_device_id.clone(),
@@ -326,23 +356,27 @@ fn draw_clock_sync(
             });
             ui.horizontal(|ui| {
                 let mut send = state.midi_clock_send;
-                if ui
-                    .add_enabled(
-                        clock.output_connected,
-                        egui::Checkbox::new(&mut send, "Send clock"),
-                    )
-                    .on_hover_text("Sends Start, then 24 PPQN pulses, until switched off")
-                    .changed()
+                let connected = clock.output_connected;
+                if buttons::midi_toggle(
+                    ui,
+                    "clock.send",
+                    "Clock · Send clock",
+                    &mut send,
+                    |ui, value| ui.add_enabled(connected, egui::Checkbox::new(value, "Send clock")),
+                )
+                .on_hover_text("Sends Start, then 24 PPQN pulses, until switched off")
+                .changed()
                 {
                     actions.push(UiAction::SetMidiClockSend(send));
                 }
-                if ui
-                    .add_enabled(
+                if buttons::midi_button(ui, "clock.continue", "Clock · Continue", |ui| {
+                    ui.add_enabled(
                         clock.output_connected && !clock.output_running,
                         egui::Button::new("Continue"),
                     )
                     .on_hover_text("Resume downstream gear in place instead of rewinding")
-                    .clicked()
+                })
+                .clicked()
                 {
                     actions.push(UiAction::MidiClockContinue);
                 }
@@ -362,6 +396,7 @@ fn draw_clock_sync(
 
 pub(super) fn midi_targets() -> Vec<ControlTarget> {
     let mut targets = vec![
+        ControlTarget::LayerReset,
         ControlTarget::Crossfader,
         ControlTarget::MasterOpacity,
         ControlTarget::MasterBlackout,
@@ -379,9 +414,20 @@ pub(super) fn midi_targets() -> Vec<ControlTarget> {
             ControlTarget::DeckSpeed(deck),
             ControlTarget::DeckSelect(deck),
             ControlTarget::DeckRestart(deck),
+            ControlTarget::DeckMute(deck),
+            ControlTarget::DeckPin(deck),
+            ControlTarget::DeckLayerTop(deck),
+            ControlTarget::DeckLayerUp(deck),
+            ControlTarget::DeckLayerDown(deck),
         ]);
         for slot in 0..8 {
             targets.push(ControlTarget::ClipLaunch { deck, slot });
+        }
+        for parameter in virtual_generate::GENERATOR_PARAMETERS {
+            targets.push(ControlTarget::GeneratorParameter {
+                deck,
+                parameter: parameter.id,
+            });
         }
         for effect in 0..FIXED_DECK_EFFECT_PARAMETER_COUNT {
             targets.push(ControlTarget::EffectParameter {
@@ -409,6 +455,7 @@ pub(super) fn midi_targets() -> Vec<ControlTarget> {
             }
         }
     }
+    targets.extend(super::buttons::known_targets());
     targets
 }
 
@@ -425,6 +472,15 @@ pub(super) fn midi_target_label(target: ControlTarget) -> String {
         ControlTarget::DeckSpeed(deck) => format!("Deck {} · Speed", deck_label(deck)),
         ControlTarget::DeckSelect(deck) => format!("Deck {} · Select", deck_label(deck)),
         ControlTarget::DeckRestart(deck) => format!("Deck {} · Restart", deck_label(deck)),
+        ControlTarget::DeckMute(deck) => format!("Deck {} · Mute", deck_label(deck)),
+        ControlTarget::DeckPin(deck) => format!("Deck {} · Pin over mix", deck_label(deck)),
+        ControlTarget::DeckLayerTop(deck) => {
+            format!("Deck {} · Layer to top", deck_label(deck))
+        }
+        ControlTarget::DeckLayerUp(deck) => format!("Deck {} · Layer up", deck_label(deck)),
+        ControlTarget::DeckLayerDown(deck) => format!("Deck {} · Layer down", deck_label(deck)),
+        ControlTarget::LayerReset => "Mixer · Reset layers".to_owned(),
+        ControlTarget::UiButton(key) => super::buttons::label(key),
         ControlTarget::ClipLaunch { deck, slot } => {
             format!("Deck {} · Launch clip {}", deck_label(deck), slot + 1)
         }
@@ -459,6 +515,13 @@ pub(super) fn midi_target_label(target: ControlTarget) -> String {
                 .get(usize::from(parameter))
                 .copied()
                 .unwrap_or("Unknown")
+        ),
+        ControlTarget::GeneratorParameter { deck, parameter } => format!(
+            "Deck {} · Generator · {}",
+            deck_label(deck),
+            virtual_generate::GENERATOR_PARAMETERS
+                .get(parameter as usize)
+                .map_or("Unknown", |p| p.name)
         ),
         ControlTarget::DeckEffectParameter {
             deck,

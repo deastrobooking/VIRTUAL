@@ -505,9 +505,13 @@ impl ThemeState {
         ui.label("Built-in starting points");
         ui.horizontal_wrapped(|ui| {
             for preset in ThemePreset::ALL {
-                if ui
-                    .selectable_label(self.preset == preset, preset.label())
-                    .clicked()
+                if super::buttons::midi_button(
+                    ui,
+                    &format!("theme.preset.{}", preset.label()),
+                    &format!("Appearance · {}", preset.label()),
+                    |ui| ui.selectable_label(self.preset == preset, preset.label()),
+                )
+                .clicked()
                 {
                     self.preset = preset;
                     self.accent_override = None;
@@ -532,13 +536,27 @@ impl ThemeState {
         ui.horizontal_wrapped(|ui| {
             ui.label("Spacing");
             for density in Density::ALL {
-                ui.selectable_value(&mut self.density, density, density.label());
+                super::buttons::midi_select(
+                    ui,
+                    &format!("theme.density.{}", density.label()),
+                    &format!("Appearance · Spacing {}", density.label()),
+                    &mut self.density,
+                    density,
+                    density.label(),
+                );
             }
         });
         ui.horizontal_wrapped(|ui| {
             ui.label("Deck layout");
             for layout in DeckLayout::ALL {
-                ui.selectable_value(&mut self.deck_layout, layout, layout.label());
+                super::buttons::midi_select(
+                    ui,
+                    &format!("theme.layout.{}", layout.label()),
+                    &format!("Appearance · Deck layout {}", layout.label()),
+                    &mut self.deck_layout,
+                    layout,
+                    layout.label(),
+                );
             }
         });
         ui.separator();
@@ -571,7 +589,11 @@ impl ThemeState {
                         }
                     });
             });
-        if ui.button("Reset appearance to built-in").clicked() {
+        if super::buttons::midi_button(ui, "theme.reset", "Appearance · Reset to built-in", |ui| {
+            ui.button("Reset appearance to built-in")
+        })
+        .clicked()
+        {
             self.appearance = ThemeAppearanceProject::default();
             self.accent_override = None;
         }

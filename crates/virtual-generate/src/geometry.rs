@@ -37,6 +37,9 @@ pub struct Segment {
     pub start: Vec3,
     pub end: Vec3,
     pub t: f32,
+    /// Arc-length start/end and stable path phase.
+    pub trace: [f32; 3],
+    pub echo: u32,
 }
 
 /// Engine-level inputs: normalised controls already mapped to pattern units.
@@ -55,6 +58,22 @@ pub struct GeometryParams {
     pub audio: AudioBands,
     pub time: f32,
     pub budget: usize,
+    pub degree_x: f32,
+    pub degree_y: f32,
+    pub degree_z: f32,
+    pub polynomial_mix: f32,
+    pub surface_order: f32,
+    pub surface_cross: f32,
+    pub contours: f32,
+    pub slice_axis: f32,
+    pub symmetry: f32,
+    pub exponent: f32,
+    pub echo_copies: f32,
+    pub echo_scale: f32,
+    pub echo_x: f32,
+    pub echo_y: f32,
+    pub echo_z: f32,
+    pub echo_offset: f32,
 }
 
 impl GeometryParams {
@@ -71,6 +90,22 @@ impl GeometryParams {
             audio: audio.scaled(settings.audio_amount),
             time,
             budget: MAX_SEGMENTS,
+            degree_x: settings.degree_x,
+            degree_y: settings.degree_y,
+            degree_z: settings.degree_z,
+            polynomial_mix: settings.polynomial_mix,
+            surface_order: settings.surface_order,
+            surface_cross: settings.surface_cross,
+            contours: settings.contours,
+            slice_axis: settings.slice_axis,
+            symmetry: settings.symmetry,
+            exponent: settings.exponent,
+            echo_copies: settings.echo_copies,
+            echo_scale: settings.echo_scale,
+            echo_x: settings.echo_x,
+            echo_y: settings.echo_y,
+            echo_z: settings.echo_z,
+            echo_offset: settings.echo_offset,
         }
     }
 }
@@ -165,7 +200,8 @@ impl Palette {
 
 /// Generates a pattern. Never allocates more than `params.budget` segments.
 pub fn generate(params: &GeometryParams) -> Geometry {
-    let budget = params.budget.min(MAX_SEGMENTS);
+    let copies = params.echo_copies.round().clamp(1.0, 24.0) as usize;
+    let budget = params.budget.min(MAX_SEGMENTS) / copies;
     let requested_depth = patterns::requested_depth(params.pattern, params.levels);
     let depth = patterns::effective_depth(params, requested_depth, budget as u64);
     let mut out = Builder::new(budget, patterns::estimate(params, depth));
@@ -173,6 +209,49 @@ pub fn generate(params: &GeometryParams) -> Geometry {
     let truncated = out.truncated;
     let mut segments = out.segments;
 
+    // Preserve continuous paths before color/reveal ordering changes them.
+    let mut first = 0;
+    let mut path_id = 0;
+    while first < segments.len() {
+        let mut end = first + 1;
+        while end < segments.len() && segments[end - 1].end == segments[end].start {
+            end += 1;
+        }
+        let length: f32 = segments[first..end]
+            .iter()
+            .map(|s| (s.end - s.start).length())
+            .sum();
+        let mut distance = 0.0;
+        for segment in &mut segments[first..end] {
+            let next = distance + (segment.end - segment.start).length();
+            segment.trace = [
+                distance / length.max(1e-9),
+                next / length.max(1e-9),
+                (path_id as f32 * 0.618_034).fract(),
+            ];
+            distance = next;
+        }
+        first = end;
+        path_id += 1;
+    }
+    let base_count = segments.len();
+    let rotation = crate::Mat3::rotation_x(params.echo_x * std::f32::consts::PI)
+        .then(&crate::Mat3::rotation_y(
+            params.echo_y * std::f32::consts::PI,
+        ))
+        .then(&crate::Mat3::rotation_z(
+            params.echo_z * std::f32::consts::PI,
+        ));
+    let offset = Vec3::new(0.0, 0.0, params.echo_offset * params.scale);
+    for copy in 1..copies {
+        for index in 0..base_count {
+            let mut segment = segments[(copy - 1) * base_count + index];
+            segment.start = rotation.transform(segment.start) * params.echo_scale + offset;
+            segment.end = rotation.transform(segment.end) * params.echo_scale + offset;
+            segment.echo = copy as u32;
+            segments.push(segment);
+        }
+    }
     if params.flatten {
         for segment in &mut segments {
             segment.start.z = 0.0;
@@ -253,6 +332,55 @@ mod tests {
             AudioBands::default(),
             0.0,
         )
+    }
+
+    #[test]
+    fn echoes_repeat_the_object_within_the_budget() {
+        let base = generate(&params(RecursivePattern::Supershape));
+        assert!(base.segments.iter().all(|segment| segment.echo == 0));
+        let mut p = params(RecursivePattern::Supershape);
+        p.echo_copies = 4.0;
+        let echoed = generate(&p);
+        assert!(echoed.segments.len() <= MAX_SEGMENTS);
+        for copy in 0..4 {
+            assert!(echoed.segments.iter().any(|segment| segment.echo == copy));
+        }
+        p.echo_copies = 24.0;
+        p.budget = 1_000;
+        assert!(generate(&p).segments.len() <= 1_000);
+    }
+
+    #[test]
+    fn continuous_paths_carry_monotone_trace_distances() {
+        let geometry = generate(&params(RecursivePattern::ChebyshevCurve));
+        let mut traces: Vec<_> = geometry.segments.iter().map(|s| s.trace).collect();
+        traces.sort_by(|a, b| a[0].total_cmp(&b[0]));
+        assert_eq!(traces.first().unwrap()[0], 0.0);
+        assert!((traces.last().unwrap()[1] - 1.0).abs() < 1e-4);
+        for pair in traces.windows(2) {
+            assert!((pair[0][1] - pair[1][0]).abs() < 1e-4);
+        }
+    }
+
+    #[test]
+    fn advanced_patterns_respond_to_their_controls() {
+        for (pattern, tweak) in [
+            (
+                RecursivePattern::ChebyshevCurve,
+                (|p: &mut GeometryParams| p.degree_x = 7.0) as fn(&mut GeometryParams),
+            ),
+            (RecursivePattern::PolynomialContours, |p| {
+                p.surface_cross = 2.0
+            }),
+            (RecursivePattern::PolynomialContours, |p| p.contours = 8.0),
+            (RecursivePattern::Supershape, |p| p.symmetry = 3.0),
+            (RecursivePattern::Supershape, |p| p.exponent = 0.5),
+        ] {
+            let mut p = params(pattern);
+            let before = generate(&p);
+            tweak(&mut p);
+            assert_ne!(before, generate(&p), "{pattern:?}");
+        }
     }
 
     #[test]

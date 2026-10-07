@@ -1093,6 +1093,8 @@ impl State {
                                     self.ui.crossfader,
                                     self.ui.equal_power,
                                 ),
+                                layer_order: self.ui.layer_order,
+                                pinned_deck: self.ui.pinned_deck.map(|deck| deck.index() as u8),
                                 transforms: self.ui.transforms,
                                 blend_modes: self.ui.blend_modes,
                                 output_aspect: self.ui.composition_extent[0] as f32
@@ -1264,7 +1266,19 @@ fn current_control_value(
             .unwrap_or_default(),
         ControlTarget::DeckRestart(_)
         | ControlTarget::ClipLaunch { .. }
-        | ControlTarget::SceneLaunch(_) => 0.0,
+        | ControlTarget::SceneLaunch(_)
+        | ControlTarget::DeckLayerUp(_)
+        | ControlTarget::DeckLayerDown(_)
+        | ControlTarget::LayerReset
+        | ControlTarget::UiButton(_) => 0.0,
+        ControlTarget::DeckMute(deck) => deck_id(deck)
+            .map(|deck| f32::from(ui.bypassed[deck.index()]))
+            .unwrap_or_default(),
+        ControlTarget::DeckPin(deck) => {
+            f32::from(deck_id(deck).is_some_and(|deck| ui.pinned_deck == Some(deck)))
+        }
+        // Lit while the deck is the top layer.
+        ControlTarget::DeckLayerTop(deck) => f32::from(ui.layer_order[3] == deck),
         ControlTarget::EffectParameter {
             deck,
             effect,
@@ -1297,6 +1311,12 @@ fn current_control_value(
                 0 => f32::from(route.enabled),
                 1 => route.amount,
                 _ => 0.0,
+            })
+            .unwrap_or_default(),
+        ControlTarget::GeneratorParameter { deck, parameter } => deck_id(deck)
+            .and_then(|deck| match &mixer.deck(deck).state {
+                virtual_media::DeckState::Generator(settings) => settings.parameter(parameter),
+                _ => None,
             })
             .unwrap_or_default(),
         ControlTarget::DeckEffectParameter {
@@ -1344,7 +1364,21 @@ fn performance_control_snapshot(
             ControlTarget::DeckFreeze(deck),
             ControlTarget::DeckSpeed(deck),
             ControlTarget::DeckSelect(deck),
+            ControlTarget::DeckMute(deck),
+            ControlTarget::DeckPin(deck),
         ]);
+        if deck_id(deck).is_some_and(|id| {
+            matches!(mixer.deck(id).state, virtual_media::DeckState::Generator(_))
+        }) {
+            targets.extend(
+                virtual_generate::GENERATOR_PARAMETERS
+                    .iter()
+                    .map(|parameter| ControlTarget::GeneratorParameter {
+                        deck,
+                        parameter: parameter.id,
+                    }),
+            );
+        }
         for effect in 0..FIXED_DECK_EFFECT_PARAMETER_COUNT {
             targets.push(ControlTarget::EffectParameter {
                 deck,
@@ -1398,7 +1432,13 @@ fn rollback_update_for_ui_change(
     target: ControlTarget,
     previous: f32,
 ) -> Option<virtual_core::ControlUpdate> {
-    (!matches!(target, ControlTarget::DeckSelect(_))).then_some(virtual_core::ControlUpdate {
+    // One-hot targets: restoring the old value before each edge would make the
+    // result depend on iteration order, so only their changed edge is sent.
+    (!matches!(
+        target,
+        ControlTarget::DeckSelect(_) | ControlTarget::DeckPin(_)
+    ))
+    .then_some(virtual_core::ControlUpdate {
         target,
         value: previous,
     })
@@ -1424,6 +1464,9 @@ fn effect_parameter(effects: DeckEffects, effect: u8) -> f32 {
         15 => effects.bloom_threshold,
         16 => effects.bloom_radius,
         17 => effects.bloom_chroma,
+        18 => effects.spiral_fold,
+        19 => effects.kali_fold,
+        20 => effects.koch_fold,
         _ => 0.0,
     }
 }
@@ -1448,6 +1491,9 @@ fn set_effect_parameter(effects: &mut DeckEffects, effect: u8, value: f32) {
         15 => effects.bloom_threshold = value,
         16 => effects.bloom_radius = value,
         17 => effects.bloom_chroma = value,
+        18 => effects.spiral_fold = value,
+        19 => effects.kali_fold = value,
+        20 => effects.koch_fold = value,
         _ => {}
     }
     *effects = effects.sanitized();
@@ -1471,8 +1517,10 @@ mod output_health_tests {
 
         let snapshot = performance_control_snapshot(&ui, &mixer, &transports);
 
-        assert_eq!(snapshot.len(), 220);
+        assert_eq!(snapshot.len(), 240);
         assert!(snapshot.contains_key(&ControlTarget::Crossfader));
+        assert!(snapshot.contains_key(&ControlTarget::DeckMute(3)));
+        assert!(snapshot.contains_key(&ControlTarget::DeckPin(3)));
         assert!(snapshot.contains_key(&ControlTarget::LfoParameter {
             deck: 3,
             lfo: 2,
@@ -1494,6 +1542,7 @@ mod output_health_tests {
     fn deck_selection_trigger_is_not_rolled_back_during_ui_capture() {
         assert!(rollback_update_for_ui_change(ControlTarget::DeckSelect(1), 0.0).is_none());
         assert!(rollback_update_for_ui_change(ControlTarget::DeckSelect(3), 1.0).is_none());
+        assert!(rollback_update_for_ui_change(ControlTarget::DeckPin(0), 1.0).is_none());
 
         let rollback = rollback_update_for_ui_change(ControlTarget::DeckLevel(1), 0.75)
             .expect("continuous deck controls still need rollback before journaling");

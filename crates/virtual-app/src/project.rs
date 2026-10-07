@@ -55,6 +55,8 @@ pub fn snapshot(
             crossfader: ui.crossfader,
             equal_power: ui.equal_power,
             master_opacity: ui.master_opacity,
+            layer_order: ui.layer_order,
+            pinned_deck: ui.pinned_deck.map(|deck| deck.index() as u8),
             output: OutputProject {
                 enabled: ui.output_enabled,
                 fullscreen: ui.output_fullscreen,
@@ -229,6 +231,27 @@ pub fn generator_from_project(project: &GeneratorProject) -> GeneratorSettings {
         audio_amount: project.audio_amount,
         resolution: project.resolution,
         fps: project.fps,
+        degree_x: project.degree_x,
+        degree_y: project.degree_y,
+        degree_z: project.degree_z,
+        polynomial_mix: project.polynomial_mix,
+        surface_order: project.surface_order,
+        surface_cross: project.surface_cross,
+        contours: project.contours,
+        slice_axis: project.slice_axis,
+        symmetry: project.symmetry,
+        exponent: project.exponent,
+        echo_copies: project.echo_copies,
+        echo_scale: project.echo_scale,
+        echo_x: project.echo_x,
+        echo_y: project.echo_y,
+        echo_z: project.echo_z,
+        echo_offset: project.echo_offset,
+        echo_fade: project.echo_fade,
+        trace_heads: project.trace_heads,
+        trace_length: project.trace_length,
+        trace_speed: project.trace_speed,
+        trace_spread: project.trace_spread,
     }
     .sanitized()
 }
@@ -263,6 +286,27 @@ pub fn generator_to_project(settings: &GeneratorSettings) -> GeneratorProject {
         audio_amount: settings.audio_amount,
         resolution: settings.resolution,
         fps: settings.fps,
+        degree_x: settings.degree_x,
+        degree_y: settings.degree_y,
+        degree_z: settings.degree_z,
+        polynomial_mix: settings.polynomial_mix,
+        surface_order: settings.surface_order,
+        surface_cross: settings.surface_cross,
+        contours: settings.contours,
+        slice_axis: settings.slice_axis,
+        symmetry: settings.symmetry,
+        exponent: settings.exponent,
+        echo_copies: settings.echo_copies,
+        echo_scale: settings.echo_scale,
+        echo_x: settings.echo_x,
+        echo_y: settings.echo_y,
+        echo_z: settings.echo_z,
+        echo_offset: settings.echo_offset,
+        echo_fade: settings.echo_fade,
+        trace_heads: settings.trace_heads,
+        trace_length: settings.trace_length,
+        trace_speed: settings.trace_speed,
+        trace_spread: settings.trace_spread,
     }
 }
 
@@ -309,6 +353,11 @@ pub fn apply_master(project: &ProjectFile, ui: &mut UiState) {
     ui.crossfader = project.settings.crossfader;
     ui.equal_power = project.settings.equal_power;
     ui.master_opacity = project.settings.master_opacity;
+    ui.layer_order = virtual_render::sanitized_layer_order(project.settings.layer_order);
+    ui.pinned_deck = project
+        .settings
+        .pinned_deck
+        .and_then(|deck| DeckId::ALL.get(usize::from(deck)).copied());
     ui.output_enabled = project.settings.output.enabled;
     ui.output_fullscreen = project.settings.output.fullscreen;
     ui.output_display_id = project.settings.output.display_id.clone();
@@ -779,6 +828,9 @@ fn effect_to_project(effect: DeckEffects) -> EffectProject {
         luma_key: effect.luma_key,
         neon: effect.neon,
         fractal: effect.fractal,
+        spiral_fold: effect.spiral_fold,
+        kali_fold: effect.kali_fold,
+        koch_fold: effect.koch_fold,
         jitter: effect.jitter,
         find_edges: effect.find_edges,
         bit_reduction: effect.bit_reduction,
@@ -803,6 +855,9 @@ fn effect_from_project(effect: &EffectProject) -> DeckEffects {
         luma_key: effect.luma_key,
         neon: effect.neon,
         fractal: effect.fractal,
+        spiral_fold: effect.spiral_fold,
+        kali_fold: effect.kali_fold,
+        koch_fold: effect.koch_fold,
         jitter: effect.jitter,
         find_edges: effect.find_edges,
         bit_reduction: effect.bit_reduction,
@@ -892,6 +947,9 @@ fn effect_target_to_project(target: EffectTarget) -> EffectTargetProject {
         EffectTarget::LumaKey => EffectTargetProject::LumaKey,
         EffectTarget::Neon => EffectTargetProject::Neon,
         EffectTarget::Fractal => EffectTargetProject::Fractal,
+        EffectTarget::SpiralFold => EffectTargetProject::SpiralFold,
+        EffectTarget::KaliFold => EffectTargetProject::KaliFold,
+        EffectTarget::KochFold => EffectTargetProject::KochFold,
         EffectTarget::Jitter => EffectTargetProject::Jitter,
         EffectTarget::FindEdges => EffectTargetProject::FindEdges,
         EffectTarget::BitReduction => EffectTargetProject::BitReduction,
@@ -915,6 +973,9 @@ fn effect_target_from_project(target: EffectTargetProject) -> EffectTarget {
         EffectTargetProject::LumaKey => EffectTarget::LumaKey,
         EffectTargetProject::Neon => EffectTarget::Neon,
         EffectTargetProject::Fractal => EffectTarget::Fractal,
+        EffectTargetProject::SpiralFold => EffectTarget::SpiralFold,
+        EffectTargetProject::KaliFold => EffectTarget::KaliFold,
+        EffectTargetProject::KochFold => EffectTarget::KochFold,
         EffectTargetProject::Jitter => EffectTarget::Jitter,
         EffectTargetProject::FindEdges => EffectTarget::FindEdges,
         EffectTargetProject::BitReduction => EffectTarget::BitReduction,
@@ -1033,6 +1094,13 @@ fn target_to_project(target: ControlTarget) -> ControlTargetProject {
         ControlTarget::DeckSpeed(deck) => ControlTargetProject::DeckSpeed { deck },
         ControlTarget::DeckSelect(deck) => ControlTargetProject::DeckSelect { deck },
         ControlTarget::DeckRestart(deck) => ControlTargetProject::DeckRestart { deck },
+        ControlTarget::DeckMute(deck) => ControlTargetProject::DeckMute { deck },
+        ControlTarget::DeckPin(deck) => ControlTargetProject::DeckPin { deck },
+        ControlTarget::DeckLayerTop(deck) => ControlTargetProject::DeckLayerTop { deck },
+        ControlTarget::DeckLayerUp(deck) => ControlTargetProject::DeckLayerUp { deck },
+        ControlTarget::DeckLayerDown(deck) => ControlTargetProject::DeckLayerDown { deck },
+        ControlTarget::LayerReset => ControlTargetProject::LayerReset,
+        ControlTarget::UiButton(key) => ControlTargetProject::UiButton { key },
         ControlTarget::ClipLaunch { deck, slot } => ControlTargetProject::ClipLaunch { deck, slot },
         ControlTarget::SceneLaunch(slot) => ControlTargetProject::SceneLaunch { slot },
         ControlTarget::EffectParameter {
@@ -1062,6 +1130,9 @@ fn target_to_project(target: ControlTarget) -> ControlTargetProject {
             route,
             parameter,
         },
+        ControlTarget::GeneratorParameter { deck, parameter } => {
+            ControlTargetProject::GeneratorParameter { deck, parameter }
+        }
         ControlTarget::DeckEffectParameter {
             deck,
             parameter_key,
@@ -1092,6 +1163,13 @@ fn target_from_project(target: ControlTargetProject) -> ControlTarget {
         ControlTargetProject::DeckSpeed { deck } => ControlTarget::DeckSpeed(deck),
         ControlTargetProject::DeckSelect { deck } => ControlTarget::DeckSelect(deck),
         ControlTargetProject::DeckRestart { deck } => ControlTarget::DeckRestart(deck),
+        ControlTargetProject::DeckMute { deck } => ControlTarget::DeckMute(deck),
+        ControlTargetProject::DeckPin { deck } => ControlTarget::DeckPin(deck),
+        ControlTargetProject::DeckLayerTop { deck } => ControlTarget::DeckLayerTop(deck),
+        ControlTargetProject::DeckLayerUp { deck } => ControlTarget::DeckLayerUp(deck),
+        ControlTargetProject::DeckLayerDown { deck } => ControlTarget::DeckLayerDown(deck),
+        ControlTargetProject::LayerReset => ControlTarget::LayerReset,
+        ControlTargetProject::UiButton { key } => ControlTarget::UiButton(key),
         ControlTargetProject::ClipLaunch { deck, slot } => ControlTarget::ClipLaunch { deck, slot },
         ControlTargetProject::SceneLaunch { slot } => ControlTarget::SceneLaunch(slot),
         ControlTargetProject::EffectParameter {
@@ -1121,6 +1199,9 @@ fn target_from_project(target: ControlTargetProject) -> ControlTarget {
             route,
             parameter,
         },
+        ControlTargetProject::GeneratorParameter { deck, parameter } => {
+            ControlTarget::GeneratorParameter { deck, parameter }
+        }
         ControlTargetProject::DeckEffectParameter {
             deck,
             parameter_key,
@@ -1202,6 +1283,51 @@ mod tests {
         binding.output_range = [-1.0, 1.0];
         binding.soft_takeover = true;
         assert_eq!(midi_from_project(&midi_to_project(&binding)), binding);
+    }
+
+    #[test]
+    fn generator_parameter_mapping_round_trips_and_validates() {
+        assert_eq!(
+            usize::from(virtual_io::GENERATOR_PARAMETER_COUNT),
+            virtual_generate::GENERATOR_PARAMETERS.len()
+        );
+        let binding = MidiBinding::learned(
+            "controller",
+            MidiMessage::ControlChange {
+                channel: 0,
+                controller: 74,
+                value: 0,
+            },
+            ControlTarget::GeneratorParameter {
+                deck: 3,
+                parameter: virtual_io::GENERATOR_PARAMETER_COUNT - 1,
+            },
+        );
+        assert_eq!(midi_from_project(&midi_to_project(&binding)), binding);
+    }
+
+    #[test]
+    fn mute_and_layer_mappings_round_trip() {
+        for target in [
+            ControlTarget::DeckMute(0),
+            ControlTarget::DeckPin(1),
+            ControlTarget::DeckLayerTop(2),
+            ControlTarget::DeckLayerUp(3),
+            ControlTarget::DeckLayerDown(0),
+            ControlTarget::LayerReset,
+            crate::ui::buttons::target("deck.2.eject"),
+        ] {
+            let binding = MidiBinding::learned(
+                "pads",
+                MidiMessage::NoteOn {
+                    channel: 9,
+                    note: 36,
+                    velocity: 127,
+                },
+                target,
+            );
+            assert_eq!(midi_from_project(&midi_to_project(&binding)), binding);
+        }
     }
 
     #[test]

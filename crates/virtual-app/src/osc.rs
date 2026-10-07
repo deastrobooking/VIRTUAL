@@ -447,6 +447,7 @@ pub(crate) fn map_message(message: &OscMessage) -> Option<OscAction> {
         "/master/opacity" => control(ControlTarget::MasterOpacity, 0.0),
         "/master/blackout" => control(ControlTarget::MasterBlackout, 1.0),
         "/master/freeze" => control(ControlTarget::MasterFreeze, 1.0),
+        "/layers/reset" => control(ControlTarget::LayerReset, 1.0),
         "/tempo" => value
             .and_then(OscArgument::number)
             .filter(|bpm| bpm.is_finite())
@@ -457,7 +458,13 @@ pub(crate) fn map_message(message: &OscMessage) -> Option<OscAction> {
         "/output/fullscreen" => value
             .and_then(OscArgument::boolean)
             .map(OscAction::OutputFullscreen),
-        route => map_indexed_route(route, value),
+        route => {
+            if let Some(key) = route.strip_prefix("/button/") {
+                let key = u64::from_str_radix(key, 16).ok()?;
+                return control(ControlTarget::UiButton(key), 1.0);
+            }
+            map_indexed_route(route, value)
+        }
     }
 }
 
@@ -473,10 +480,20 @@ pub(crate) fn feedback_for_control(update: ControlUpdate) -> Option<(String, f32
         ControlTarget::DeckSpeed(deck) => format!("{OSC_ROOT}/deck/{}/speed", deck + 1),
         ControlTarget::DeckSelect(deck) => format!("{OSC_ROOT}/deck/{}/select", deck + 1),
         ControlTarget::DeckRestart(deck) => format!("{OSC_ROOT}/deck/{}/restart", deck + 1),
+        ControlTarget::DeckMute(deck) => format!("{OSC_ROOT}/deck/{}/mute", deck + 1),
+        ControlTarget::DeckPin(deck) => format!("{OSC_ROOT}/deck/{}/layer/pin", deck + 1),
+        ControlTarget::DeckLayerTop(deck) => format!("{OSC_ROOT}/deck/{}/layer/top", deck + 1),
+        ControlTarget::DeckLayerUp(deck) => format!("{OSC_ROOT}/deck/{}/layer/up", deck + 1),
+        ControlTarget::DeckLayerDown(deck) => format!("{OSC_ROOT}/deck/{}/layer/down", deck + 1),
+        ControlTarget::LayerReset => osc_address("/layers/reset"),
+        ControlTarget::UiButton(key) => format!("{OSC_ROOT}/button/{key:016x}"),
         ControlTarget::ClipLaunch { deck, slot } => {
             format!("{OSC_ROOT}/deck/{}/clip/{}/launch", deck + 1, slot + 1)
         }
         ControlTarget::SceneLaunch(slot) => format!("{OSC_ROOT}/scene/{}/launch", slot + 1),
+        ControlTarget::GeneratorParameter { deck, parameter } => {
+            format!("{OSC_ROOT}/deck/{}/generator/{parameter}", deck + 1)
+        }
         ControlTarget::DeckEffectParameter {
             deck,
             parameter_key,
@@ -499,6 +516,19 @@ fn map_indexed_route(route: &str, value: Option<&OscArgument>) -> Option<OscActi
         return None;
     };
     let deck = one_based_index(deck, 4)?;
+    if let ["generator", parameter] = tail {
+        let parameter = parameter.parse::<u8>().ok()?;
+        if parameter as usize >= virtual_generate::GENERATOR_PARAMETERS.len() {
+            return None;
+        }
+        let value = value.and_then(OscArgument::number)? as f32;
+        return value
+            .is_finite()
+            .then_some(OscAction::Control(ControlUpdate {
+                target: ControlTarget::GeneratorParameter { deck, parameter },
+                value: value.clamp(0.0, 1.0),
+            }));
+    }
     match tail {
         ["level"] => continuous(ControlTarget::DeckLevel(deck), value),
         ["play"] => continuous(ControlTarget::DeckPlay(deck), value),
@@ -506,6 +536,11 @@ fn map_indexed_route(route: &str, value: Option<&OscArgument>) -> Option<OscActi
         ["speed"] => continuous(ControlTarget::DeckSpeed(deck), value),
         ["select"] => trigger(ControlTarget::DeckSelect(deck), value),
         ["restart"] => trigger(ControlTarget::DeckRestart(deck), value),
+        ["mute"] => continuous(ControlTarget::DeckMute(deck), value),
+        ["layer", "pin"] => continuous(ControlTarget::DeckPin(deck), value),
+        ["layer", "top"] => trigger(ControlTarget::DeckLayerTop(deck), value),
+        ["layer", "up"] => trigger(ControlTarget::DeckLayerUp(deck), value),
+        ["layer", "down"] => trigger(ControlTarget::DeckLayerDown(deck), value),
         ["clip", slot, "launch"] => trigger(
             ControlTarget::ClipLaunch {
                 deck,
@@ -628,6 +663,70 @@ mod tests {
             feedback_for_control(update),
             Some((message.address, update.value))
         );
+    }
+
+    #[test]
+    fn maps_and_feeds_back_generator_parameters_by_stable_id() {
+        let message = |address: &str| OscMessage {
+            address: address.to_owned(),
+            arguments: vec![OscArgument::Float(0.25)],
+            timetag: None,
+        };
+        let update = ControlUpdate {
+            target: ControlTarget::GeneratorParameter {
+                deck: 1,
+                parameter: 32,
+            },
+            value: 0.25,
+        };
+        let address = "/virtual/deck/2/generator/32";
+        assert_eq!(
+            map_message(&message(address)),
+            Some(OscAction::Control(update))
+        );
+        assert_eq!(
+            feedback_for_control(update),
+            Some((address.to_owned(), 0.25))
+        );
+        let unknown = format!(
+            "/virtual/deck/2/generator/{}",
+            virtual_generate::GENERATOR_PARAMETERS.len()
+        );
+        assert_eq!(map_message(&message(&unknown)), None);
+    }
+
+    #[test]
+    fn maps_and_feeds_back_mute_and_layer_routes() {
+        let message = |address: &str| OscMessage {
+            address: address.to_owned(),
+            arguments: vec![OscArgument::Float(1.0)],
+            timetag: None,
+        };
+        for (address, target) in [
+            ("/virtual/deck/1/mute", ControlTarget::DeckMute(0)),
+            ("/virtual/deck/2/layer/pin", ControlTarget::DeckPin(1)),
+            ("/virtual/deck/3/layer/top", ControlTarget::DeckLayerTop(2)),
+            ("/virtual/deck/4/layer/up", ControlTarget::DeckLayerUp(3)),
+            (
+                "/virtual/deck/4/layer/down",
+                ControlTarget::DeckLayerDown(3),
+            ),
+            ("/virtual/layers/reset", ControlTarget::LayerReset),
+            (
+                "/virtual/button/00000000000000ff",
+                ControlTarget::UiButton(0xff),
+            ),
+        ] {
+            let update = ControlUpdate { target, value: 1.0 };
+            assert_eq!(
+                map_message(&message(address)),
+                Some(OscAction::Control(update))
+            );
+            assert_eq!(
+                feedback_for_control(update),
+                Some((address.to_owned(), 1.0))
+            );
+        }
     }
 
     #[test]

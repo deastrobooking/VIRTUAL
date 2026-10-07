@@ -78,20 +78,27 @@ pub(super) fn draw_deck(
             ui.allocate_exact_size(egui::vec2(ui.available_width(), 4.0), egui::Sense::hover());
         ui.painter().rect_filled(band, 2.0, accent);
         ui.horizontal(|ui| {
-            if ui
-                .add(
-                    egui::Button::new(
-                        egui::RichText::new(format!("DECK {}", id.label()))
-                            .strong()
-                            .color(if selected {
-                                accent
-                            } else {
-                                ui.visuals().text_color()
-                            }),
+            if mappable(
+                ui,
+                midi_map,
+                ControlTarget::DeckSelect(id.index() as u8),
+                actions,
+                |ui| {
+                    ui.add(
+                        egui::Button::new(
+                            egui::RichText::new(format!("DECK {}", id.label()))
+                                .strong()
+                                .color(if selected {
+                                    accent
+                                } else {
+                                    ui.visuals().text_color()
+                                }),
+                        )
+                        .selected(selected),
                     )
-                    .selected(selected),
-                )
-                .clicked()
+                },
+            )
+            .clicked()
             {
                 mixer.select(id);
             }
@@ -101,9 +108,10 @@ pub(super) fn draw_deck(
                 "click to target"
             });
             let eject_enabled = !show_mode && !matches!(mixer.deck(id).state, DeckState::Empty);
-            if ui
-                .add_enabled(eject_enabled, egui::Button::new("Eject"))
-                .clicked()
+            if buttons::midi_button(ui, &format!("deck.{}.eject", id.index()), &format!("Deck {} · Eject", id.label()), |ui| {
+                ui.add_enabled(eject_enabled, egui::Button::new("Eject"))
+            })
+            .clicked()
             {
                 actions.push(UiAction::Eject(id));
             }
@@ -171,6 +179,7 @@ pub(super) fn draw_deck(
             DeckState::Generator(settings) => {
                 super::generator::draw_generator_summary(
                     ui,
+                    id,
                     settings,
                     generator,
                     palette,
@@ -209,15 +218,41 @@ pub(super) fn draw_deck(
                     CrossfadeBus::Right => "Bus B",
                 });
             } else {
-                ui.selectable_value(&mut deck.bus, CrossfadeBus::Left, "Bus A");
-                ui.selectable_value(&mut deck.bus, CrossfadeBus::Right, "Bus B");
+                buttons::midi_select(
+                    ui,
+                    &format!("deck.{}.bus_a", id.index()),
+                    &format!("Deck {} · Bus A", id.label()),
+                    &mut deck.bus,
+                    CrossfadeBus::Left,
+                    "Bus A",
+                );
+                buttons::midi_select(
+                    ui,
+                    &format!("deck.{}.bus_b", id.index()),
+                    &format!("Deck {} · Bus B", id.label()),
+                    &mut deck.bus,
+                    CrossfadeBus::Right,
+                    "Bus B",
+                );
             }
         });
         ui.horizontal(|ui| {
-            if ui.selectable_label(*solo, "Solo").clicked() {
+            if buttons::midi_button(ui, &format!("deck.{}.solo", id.index()), &format!("Deck {} · Solo", id.label()), |ui| {
+                ui.selectable_label(*solo, "Solo")
+            })
+            .clicked()
+            {
                 *solo = !*solo;
             }
-            if ui.selectable_label(*bypassed, "Bypass").clicked() {
+            if mappable(
+                ui,
+                midi_map,
+                ControlTarget::DeckMute(id.index() as u8),
+                actions,
+                |ui| ui.selectable_label(*bypassed, "Bypass"),
+            )
+            .clicked()
+            {
                 *bypassed = !*bypassed;
             }
             if show_mode {
@@ -233,12 +268,32 @@ pub(super) fn draw_deck(
                                 .into_iter()
                                 .filter(|mode| mode.group() == group)
                             {
-                                ui.selectable_value(blend_mode, mode, blend_mode_label(mode))
-                                    .on_hover_text(mode.hint());
+                                buttons::midi_select(
+                                    ui,
+                                    &format!("deck.{}.blend.{}", id.index(), mode.code()),
+                                    &format!(
+                                        "Deck {} · Blend {}",
+                                        id.label(),
+                                        blend_mode_label(mode)
+                                    ),
+                                    blend_mode,
+                                    mode,
+                                    blend_mode_label(mode),
+                                )
+                                .on_hover_text(mode.hint());
                             }
                             ui.separator();
                         }
                     });
+                // Blend modes stay mappable while the picker is closed.
+                for mode in LayerBlendMode::ALL {
+                    if buttons::pressed(
+                        &format!("deck.{}.blend.{}", id.index(), mode.code()),
+                        &format!("Deck {} · Blend {}", id.label(), blend_mode_label(mode)),
+                    ) {
+                        *blend_mode = mode;
+                    }
+                }
             }
             if *bypassed {
                 ui.weak("Layer excluded from composition");
@@ -250,7 +305,13 @@ pub(super) fn draw_deck(
         let generated = matches!(mixer.deck(id).state, DeckState::Generator(_));
         if live || generated {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut transport.frozen, "Freeze live frame");
+                mappable(
+                    ui,
+                    midi_map,
+                    ControlTarget::DeckFreeze(id.index() as u8),
+                    actions,
+                    |ui| ui.checkbox(&mut transport.frozen, "Freeze live frame"),
+                );
                 ui.weak(if generated {
                     "generator runs live; seek, loop and speed don't apply"
                 } else {
@@ -287,14 +348,24 @@ pub(super) fn draw_deck(
                     actions,
                     |ui| ui.checkbox(&mut transport.frozen, "Freeze"),
                 );
-                let mut looping = transport.end_mode == EndMode::Loop;
-                if ui.checkbox(&mut looping, "Loop").changed() {
-                    transport.end_mode = if looping {
-                        EndMode::Loop
-                    } else {
-                        EndMode::OneShot
-                    };
-                }
+                buttons::midi_select(
+                    ui,
+                    &format!("deck.{}.loop", id.index()),
+                    &format!("Deck {} · Loop", id.label()),
+                    &mut transport.end_mode,
+                    EndMode::Loop,
+                    "Loop",
+                )
+                .on_hover_text("Repeat the clip between its In and Out points");
+                buttons::midi_select(
+                    ui,
+                    &format!("deck.{}.play_once", id.index()),
+                    &format!("Deck {} · Play once", id.label()),
+                    &mut transport.end_mode,
+                    EndMode::OneShot,
+                    "Play once",
+                )
+                .on_hover_text("Stop at the end of the clip");
                 mappable(
                     ui,
                     midi_map,
@@ -310,15 +381,54 @@ pub(super) fn draw_deck(
                 );
             });
         }
-        if let Some(duration) = transport.duration.filter(|duration| *duration > 0.0) {
-            let range = (duration - transport.in_point).max(f64::EPSILON);
-            let mut progress =
-                ((transport.position - transport.in_point) / range).clamp(0.0, 1.0) as f32;
-            if ui
-                .add(egui::Slider::new(&mut progress, 0.0..=1.0).text("playhead"))
-                .changed()
-            {
-                transport.seek_normalized(progress);
+        if !live && !generated
+            && let Some(end) = transport.duration.filter(|end| end.is_finite() && *end > transport.in_point)
+        {
+            let start = transport.in_point;
+            let mut position = transport.position.clamp(start, end);
+            let mut seek = false;
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("PLAYHEAD");
+                ui.monospace(format!(
+                    "{} / {}",
+                    transport_time(position - start),
+                    transport_time(end - start),
+                ));
+                if buttons::midi_button(ui, &format!("deck.{}.seek_back", id.index()), &format!("Deck {} · Seek −10 s", id.label()), |ui| {
+                    ui.button("−10 s").on_hover_text("Seek back ten seconds")
+                })
+                .clicked()
+                {
+                    position = (position - 10.0).max(start);
+                    seek = true;
+                }
+                if buttons::midi_button(ui, &format!("deck.{}.seek_forward", id.index()), &format!("Deck {} · Seek +10 s", id.label()), |ui| {
+                    ui.button("+10 s").on_hover_text("Seek forward ten seconds")
+                })
+                .clicked()
+                {
+                    position = (position + 10.0).min(end);
+                    seek = true;
+                }
+                seek |= ui.add(
+                    egui::DragValue::new(&mut position)
+                        .range(start..=end)
+                        .speed(0.1)
+                        .max_decimals(3)
+                        .prefix("Position ")
+                        .suffix(" s"),
+                ).on_hover_text("Click to type an exact position in seconds, or drag to scrub").changed();
+            });
+            ui.scope(|ui| {
+                ui.spacing_mut().slider_width = ui.available_width();
+                seek |= ui.add(
+                    egui::Slider::new(&mut position, start..=end)
+                        .show_value(false)
+                        .trailing_fill(true),
+                ).on_hover_text("Click or drag to seek within the clip's In/Out range").changed();
+            });
+            if seek {
+                transport.position = position.clamp(start, end);
                 actions.push(UiAction::Seek(id));
             }
         }
@@ -328,9 +438,26 @@ pub(super) fn draw_deck(
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Source mode");
-                        ui.selectable_value(&mut transform.source_mode, SourceMode::Fit, "Fit");
-                        ui.selectable_value(&mut transform.source_mode, SourceMode::Fill, "Fill");
-                        ui.selectable_value(
+                        buttons::midi_select(
+                            ui,
+                            &format!("deck.{}.source_fit", id.index()),
+                            &format!("Deck {} · Source Fit", id.label()),
+                            &mut transform.source_mode,
+                            SourceMode::Fit,
+                            "Fit",
+                        );
+                        buttons::midi_select(
+                            ui,
+                            &format!("deck.{}.source_fill", id.index()),
+                            &format!("Deck {} · Source Fill", id.label()),
+                            &mut transform.source_mode,
+                            SourceMode::Fill,
+                            "Fill",
+                        );
+                        buttons::midi_select(
+                            ui,
+                            &format!("deck.{}.source_stretch", id.index()),
+                            &format!("Deck {} · Source Stretch", id.label()),
                             &mut transform.source_mode,
                             SourceMode::Stretch,
                             "Stretch",
@@ -359,9 +486,28 @@ pub(super) fn draw_deck(
                         transform.rotation = degrees / 360.0;
                     }
                     ui.horizontal(|ui| {
-                        ui.checkbox(&mut transform.flip_horizontal, "Flip horizontal");
-                        ui.checkbox(&mut transform.flip_vertical, "Flip vertical");
-                        if ui.button("Reset transform").clicked() {
+                        buttons::midi_toggle(
+                            ui,
+                            &format!("deck.{}.flip_horizontal", id.index()),
+                            &format!("Deck {} · Flip horizontal", id.label()),
+                            &mut transform.flip_horizontal,
+                            |ui, value| ui.checkbox(value, "Flip horizontal"),
+                        );
+                        buttons::midi_toggle(
+                            ui,
+                            &format!("deck.{}.flip_vertical", id.index()),
+                            &format!("Deck {} · Flip vertical", id.label()),
+                            &mut transform.flip_vertical,
+                            |ui, value| ui.checkbox(value, "Flip vertical"),
+                        );
+                        if buttons::midi_button(
+                            ui,
+                            &format!("deck.{}.reset_transform", id.index()),
+                            &format!("Deck {} · Reset transform", id.label()),
+                            |ui| ui.button("Reset transform"),
+                        )
+                        .clicked()
+                        {
                             *transform = DeckTransform::default();
                         }
                     });
@@ -400,24 +546,42 @@ pub(super) fn draw_deck(
                     let slot = &mut effects.slots[index];
                     ui.monospace(format!("{}", index + 1));
                     ui.label(slot.group.label());
-                    ui.checkbox(&mut slot.bypassed, "Bypass");
+                    buttons::midi_toggle(
+                        ui,
+                        &format!("deck.{}.fx_slot.{index}.bypass", id.index()),
+                        &format!("Deck {} · FX slot {} bypass", id.label(), index + 1),
+                        &mut slot.bypassed,
+                        |ui, value| ui.checkbox(value, "Bypass"),
+                    );
                     ui.add(
                         egui::Slider::new(&mut slot.mix, 0.0..=1.0)
                             .text("wet")
                             .show_value(true),
                     );
                     if !show_mode {
-                        if ui
-                            .add_enabled(index > 0, egui::Button::new("↑"))
-                            .on_hover_text("Move earlier")
-                            .clicked()
+                        if buttons::midi_button(
+                            ui,
+                            &format!("deck.{}.fx_slot.{index}.up", id.index()),
+                            &format!("Deck {} · FX slot {} earlier", id.label(), index + 1),
+                            |ui| {
+                                ui.add_enabled(index > 0, egui::Button::new("↑"))
+                                    .on_hover_text("Move earlier")
+                            },
+                        )
+                        .clicked()
                         {
                             reorder = Some((index, index - 1));
                         }
-                        if ui
-                            .add_enabled(index + 1 < slot_count, egui::Button::new("↓"))
-                            .on_hover_text("Move later")
-                            .clicked()
+                        if buttons::midi_button(
+                            ui,
+                            &format!("deck.{}.fx_slot.{index}.down", id.index()),
+                            &format!("Deck {} · FX slot {} later", id.label(), index + 1),
+                            |ui| {
+                                ui.add_enabled(index + 1 < slot_count, egui::Button::new("↓"))
+                                    .on_hover_text("Move later")
+                            },
+                        )
+                        .clicked()
                         {
                             reorder = Some((index, index + 1));
                         }
@@ -429,15 +593,37 @@ pub(super) fn draw_deck(
             }
             if !show_mode {
                 ui.horizontal(|ui| {
+                    let preset_key = |preset: EffectPreset| {
+                        (
+                            format!("deck.{}.preset.{}", id.index(), preset.label()),
+                            format!("Deck {} · FX preset {}", id.label(), preset.label()),
+                        )
+                    };
                     ui.menu_button("Load preset", |ui| {
                         for preset in EffectPreset::ALL {
-                            if ui.button(preset.label()).clicked() {
+                            let (key, label) = preset_key(preset);
+                            if buttons::midi_button(ui, &key, &label, |ui| {
+                                ui.button(preset.label())
+                            })
+                            .clicked()
+                            {
                                 *effects = DeckEffects::preset(preset);
                                 ui.close();
                             }
                         }
                     });
-                    if ui.button("Reset chain").clicked() {
+                    // Presets stay mappable while the menu is closed.
+                    for preset in EffectPreset::ALL {
+                        let (key, label) = preset_key(preset);
+                        if buttons::pressed(&key, &label) {
+                            *effects = DeckEffects::preset(preset);
+                        }
+                    }
+                    if buttons::midi_button(ui, &format!("deck.{}.reset_chain", id.index()), &format!("Deck {} · Reset FX chain", id.label()), |ui| {
+                        ui.button("Reset chain")
+                    })
+                    .clicked()
+                    {
                         *effects = DeckEffects::default();
                     }
                     ui.weak(
@@ -511,7 +697,13 @@ pub(super) fn draw_deck(
                 );
 
                 columns[1].label("Geometry / stylize");
-                columns[1].checkbox(&mut effects.mirror, "mirror");
+                buttons::midi_toggle(
+                    &mut columns[1],
+                    &format!("deck.{}.mirror", id.index()),
+                    &format!("Deck {} · Mirror", id.label()),
+                    &mut effects.mirror,
+                    |ui, value| ui.checkbox(value, "mirror"),
+                );
                 fx(
                     &mut columns[1],
                     8,
@@ -521,6 +713,21 @@ pub(super) fn draw_deck(
                     &mut columns[1],
                     9,
                     egui::Slider::new(&mut effects.fractal, 0.0..=1.0).text("fractal fold"),
+                );
+                fx(
+                    &mut columns[1],
+                    18,
+                    egui::Slider::new(&mut effects.spiral_fold, 0.0..=1.0).text("spiral fold"),
+                );
+                fx(
+                    &mut columns[1],
+                    19,
+                    egui::Slider::new(&mut effects.kali_fold, 0.0..=1.0).text("kali fold"),
+                );
+                fx(
+                    &mut columns[1],
+                    20,
+                    egui::Slider::new(&mut effects.koch_fold, 0.0..=1.0).text("koch fold"),
                 );
                 fx(
                     &mut columns[1],
@@ -572,7 +779,15 @@ pub(super) fn draw_deck(
                 );
             });
             ui.horizontal(|ui| {
-                if !show_mode && ui.button("Reset effects").clicked() {
+                if !show_mode
+                    && buttons::midi_button(
+                        ui,
+                        &format!("deck.{}.reset_effects", id.index()),
+                        &format!("Deck {} · Reset effects", id.label()),
+                        |ui| ui.button("Reset effects"),
+                    )
+                    .clicked()
+                {
                     *effects = DeckEffects::default();
                 }
                 ui.weak("Effects run independently on this deck before mixing.");
@@ -598,9 +813,25 @@ pub(super) fn draw_deck(
                     let mut add_route = None;
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
-                            ui.checkbox(&mut lfo.enabled, format!("LFO {}", index + 1));
-                            ui.checkbox(&mut lfo.direct_enabled, "Direct")
-                                .on_hover_text("Drive the destination below without a matrix route");
+                            mappable(
+                                ui,
+                                midi_map,
+                                ControlTarget::LfoParameter {
+                                    deck: id.index() as u8,
+                                    lfo: index as u8,
+                                    parameter: 0,
+                                },
+                                actions,
+                                |ui| ui.checkbox(&mut lfo.enabled, format!("LFO {}", index + 1)),
+                            );
+                            buttons::midi_toggle(
+                                ui,
+                                &format!("deck.{}.lfo.{index}.direct", id.index()),
+                                &format!("Deck {} · LFO {} direct", id.label(), index + 1),
+                                &mut lfo.direct_enabled,
+                                |ui, value| ui.checkbox(value, "Direct"),
+                            )
+                            .on_hover_text("Drive the destination below without a matrix route");
                             ui.add_enabled_ui(lfo.direct_enabled, |ui| {
                                 egui::ComboBox::from_id_salt(format!(
                                     "lfo-target-{}-{index}",
@@ -617,14 +848,28 @@ pub(super) fn draw_deck(
                                     }
                                 });
                             });
-                            if ui
-                                .small_button("+ Route")
-                                .on_hover_text("Send this LFO to another destination through the matrix")
-                                .clicked()
+                            if buttons::midi_button(
+                                ui,
+                                &format!("deck.{}.lfo.{index}.add_route", id.index()),
+                                &format!("Deck {} · LFO {} add route", id.label(), index + 1),
+                                |ui| {
+                                    ui.small_button("+ Route").on_hover_text(
+                                        "Send this LFO to another destination through the matrix",
+                                    )
+                                },
+                            )
+                            .clicked()
                             {
                                 add_route = Some(lfo.target);
                             }
-                            if ui.small_button("Reset").clicked() {
+                            if buttons::midi_button(
+                                ui,
+                                &format!("deck.{}.lfo.{index}.reset", id.index()),
+                                &format!("Deck {} · LFO {} reset", id.label(), index + 1),
+                                |ui| ui.small_button("Reset"),
+                            )
+                            .clicked()
+                            {
                                 *lfo = EffectLfo {
                                     enabled: lfo.enabled,
                                     target: lfo.target,
@@ -635,6 +880,8 @@ pub(super) fn draw_deck(
                         draw_lfo_shape(
                             ui,
                             egui::Id::new(("deck-lfo", id.index(), index)),
+                            &format!("deck.{}.lfo.{index}", id.index()),
+                            &format!("Deck {} · LFO {}", id.label(), index + 1),
                             accent,
                             lfo.enabled,
                             mod_sources[index],
@@ -669,27 +916,54 @@ pub(super) fn draw_deck(
                     ui.weak("One source can drive multiple destinations; negative amounts invert.");
                 });
                 ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(
-                            lfos.routes.iter().any(|route| !route.enabled),
-                            egui::Button::new("Add route"),
-                        )
-                        .clicked()
+                    if buttons::midi_button(
+                        ui,
+                        &format!("deck.{}.routes.add", id.index()),
+                        &format!("Deck {} · Add mod route", id.label()),
+                        |ui| {
+                            ui.add_enabled(
+                                lfos.routes.iter().any(|route| !route.enabled),
+                                egui::Button::new("Add route"),
+                            )
+                        },
+                    )
+                    .clicked()
                         && let Some(route) = lfos.routes.iter_mut().find(|route| !route.enabled)
                     {
                         route.enabled = true;
                     }
-                    if ui.button("Enable all").clicked() {
+                    if buttons::midi_button(
+                        ui,
+                        &format!("deck.{}.routes.enable_all", id.index()),
+                        &format!("Deck {} · Enable all mod routes", id.label()),
+                        |ui| ui.button("Enable all"),
+                    )
+                    .clicked()
+                    {
                         for route in &mut lfos.routes {
                             route.enabled = true;
                         }
                     }
-                    if ui.button("Mute all").clicked() {
+                    if buttons::midi_button(
+                        ui,
+                        &format!("deck.{}.routes.mute_all", id.index()),
+                        &format!("Deck {} · Mute all mod routes", id.label()),
+                        |ui| ui.button("Mute all"),
+                    )
+                    .clicked()
+                    {
                         for route in &mut lfos.routes {
                             route.enabled = false;
                         }
                     }
-                    if ui.button("Clear routes").clicked() {
+                    if buttons::midi_button(
+                        ui,
+                        &format!("deck.{}.routes.clear", id.index()),
+                        &format!("Deck {} · Clear mod routes", id.label()),
+                        |ui| ui.button("Clear routes"),
+                    )
+                    .clicked()
+                    {
                         lfos.routes.fill(Default::default());
                     }
                 });
@@ -706,7 +980,17 @@ pub(super) fn draw_deck(
                         ui.strong("");
                         ui.end_row();
                         for (index, route) in lfos.routes.iter_mut().enumerate() {
-                            ui.checkbox(&mut route.enabled, format!("{}", index + 1));
+                            mappable(
+                                ui,
+                                midi_map,
+                                ControlTarget::ModRouteParameter {
+                                    deck: id.index() as u8,
+                                    route: index as u8,
+                                    parameter: 0,
+                                },
+                                actions,
+                                |ui| ui.checkbox(&mut route.enabled, format!("{}", index + 1)),
+                            );
                             mod_source_combo(
                                 ui,
                                 format!("mod-source-{}-{index}", id.label()),
@@ -730,10 +1014,13 @@ pub(super) fn draw_deck(
                                 egui::Slider::new(&mut route.amount, -1.0..=1.0)
                                     .show_value(true),
                             );
-                            if ui
-                                .small_button("±")
-                                .on_hover_text("Invert this route")
-                                .clicked()
+                            if buttons::midi_button(
+                                ui,
+                                &format!("deck.{}.route.{index}.invert", id.index()),
+                                &format!("Deck {} · Route {} invert", id.label(), index + 1),
+                                |ui| ui.small_button("±").on_hover_text("Invert this route"),
+                            )
+                            .clicked()
                             {
                                 route.amount = -route.amount;
                             }
@@ -748,10 +1035,13 @@ pub(super) fn draw_deck(
                                 accent,
                                 70.0,
                             );
-                            if ui
-                                .small_button("✕")
-                                .on_hover_text("Clear this route")
-                                .clicked()
+                            if buttons::midi_button(
+                                ui,
+                                &format!("deck.{}.route.{index}.clear", id.index()),
+                                &format!("Deck {} · Route {} clear", id.label(), index + 1),
+                                |ui| ui.small_button("✕").on_hover_text("Clear this route"),
+                            )
+                            .clicked()
                             {
                                 *route = ModulationRoute::default();
                             }
@@ -776,9 +1066,13 @@ pub(super) struct LfoFields<'a> {
 }
 
 /// Waveform, rate and output-shaping controls shared by deck and master LFOs.
+/// `key` and `label` prefix this LFO's MIDI-mappable buttons.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_lfo_shape(
     ui: &mut egui::Ui,
     id: egui::Id,
+    key: &str,
+    label: &str,
     color: egui::Color32,
     enabled: bool,
     live: f32,
@@ -819,16 +1113,34 @@ pub(super) fn draw_lfo_shape(
                     }
                 });
             ui.horizontal(|ui| {
-                ui.toggle_value(unipolar, "Unipolar")
-                    .on_hover_text("Output 0…1 instead of −1…1, so it only pushes one way");
-                ui.toggle_value(invert, "Invert");
+                buttons::midi_toggle(
+                    ui,
+                    &format!("{key}.unipolar"),
+                    &format!("{label} unipolar"),
+                    unipolar,
+                    |ui, value| ui.toggle_value(value, "Unipolar"),
+                )
+                .on_hover_text("Output 0…1 instead of −1…1, so it only pushes one way");
+                buttons::midi_toggle(
+                    ui,
+                    &format!("{key}.invert"),
+                    &format!("{label} invert"),
+                    invert,
+                    |ui, value| ui.toggle_value(value, "Invert"),
+                );
             });
             modulation_meter(ui, if enabled { live } else { 0.0 }, color, 120.0);
         });
     });
     ui.horizontal(|ui| {
-        ui.toggle_value(tempo_sync, "Sync")
-            .on_hover_text("Lock the cycle to the tempo clock");
+        buttons::midi_toggle(
+            ui,
+            &format!("{key}.sync"),
+            &format!("{label} tempo sync"),
+            tempo_sync,
+            |ui, value| ui.toggle_value(value, "Sync"),
+        )
+        .on_hover_text("Lock the cycle to the tempo clock");
         if *tempo_sync {
             egui::ComboBox::from_id_salt(id.with("division"))
                 .selected_text(beat_division_label(*beats_per_cycle))
@@ -844,17 +1156,27 @@ pub(super) fn draw_lfo_shape(
                     .text("Hz"),
             );
         }
-        if ui.small_button("÷2").on_hover_text("Half speed").clicked() {
+        if buttons::midi_button(
+            ui,
+            &format!("{key}.half"),
+            &format!("{label} half speed"),
+            |ui| ui.small_button("÷2").on_hover_text("Half speed"),
+        )
+        .clicked()
+        {
             if *tempo_sync {
                 *beats_per_cycle = (*beats_per_cycle * 2.0).min(8.0);
             } else {
                 *rate_hz = (*rate_hz * 0.5).max(0.01);
             }
         }
-        if ui
-            .small_button("×2")
-            .on_hover_text("Double speed")
-            .clicked()
+        if buttons::midi_button(
+            ui,
+            &format!("{key}.double"),
+            &format!("{label} double speed"),
+            |ui| ui.small_button("×2").on_hover_text("Double speed"),
+        )
+        .clicked()
         {
             if *tempo_sync {
                 *beats_per_cycle = (*beats_per_cycle * 0.5).max(0.0625);
@@ -955,8 +1277,12 @@ pub(super) fn modulation_meter(ui: &mut egui::Ui, value: f32, color: egui::Color
 
 /// Large selectable tiles for picking an algorithmic effect package.
 /// Returns true when the selection changed.
+/// `key` and `label` prefix each tile's MIDI-mappable button.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn algorithm_tiles(
     ui: &mut egui::Ui,
+    key: &str,
+    label: &str,
     selected_id: &mut String,
     packages: &[EffectDescriptor],
     palette: ThemePalette,
@@ -968,20 +1294,29 @@ pub(super) fn algorithm_tiles(
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing = egui::vec2(6.0, 6.0);
         if allow_none
-            && algorithm_tile(ui, "Off", selected_id.is_empty(), palette, accent, enabled)
-                .on_hover_text("No algorithmic effect")
-                .clicked()
+            && buttons::midi_button(ui, &format!("{key}.off"), &format!("{label} off"), |ui| {
+                algorithm_tile(ui, "Off", selected_id.is_empty(), palette, accent, enabled)
+                    .on_hover_text("No algorithmic effect")
+            })
+            .clicked()
         {
             selected_id.clear();
         }
         for package in packages {
-            let response = algorithm_tile(
+            let response = buttons::midi_button(
                 ui,
-                &package.name,
-                *selected_id == package.id,
-                palette,
-                accent,
-                enabled,
+                &format!("{key}.package.{}", package.id),
+                &format!("{label} {}", package.name),
+                |ui| {
+                    algorithm_tile(
+                        ui,
+                        &package.name,
+                        *selected_id == package.id,
+                        palette,
+                        accent,
+                        enabled,
+                    )
+                },
             );
             let response = if package.description.is_empty() {
                 response
@@ -1084,6 +1419,8 @@ fn draw_deck_package_body(
         ui.weak("Algorithm choice is locked in Show Mode.");
     } else if algorithm_tiles(
         ui,
+        &format!("deck.{}.algorithm", id.index()),
+        &format!("Deck {} · Algorithm", id.label()),
         &mut slot.package_id,
         packages,
         palette,
@@ -1125,10 +1462,16 @@ fn draw_deck_package_body(
         } else {
             palette.control_tint(palette.success, 0.35)
         });
-        if ui
-            .add(bypass)
-            .on_hover_text("Toggle the algorithm without losing its settings")
-            .clicked()
+        if buttons::midi_button(
+            ui,
+            &format!("deck.{}.algorithm.bypass", id.index()),
+            &format!("Deck {} · Algorithm bypass", id.label()),
+            |ui| {
+                ui.add(bypass)
+                    .on_hover_text("Toggle the algorithm without losing its settings")
+            },
+        )
+        .clicked()
         {
             slot.bypassed = !slot.bypassed;
         }
@@ -1155,9 +1498,16 @@ fn draw_deck_package_body(
         ui.horizontal_wrapped(|ui| {
             ui.strong("Looks");
             for preset in &package.presets {
-                let response = ui.add(
-                    egui::Button::new(egui::RichText::new(&preset.label).size(14.0))
-                        .min_size(egui::vec2(0.0, 28.0)),
+                let response = buttons::midi_button(
+                    ui,
+                    &format!("deck.{}.look.{}", id.index(), preset.label),
+                    &format!("Deck {} · Look {}", id.label(), preset.label),
+                    |ui| {
+                        ui.add(
+                            egui::Button::new(egui::RichText::new(&preset.label).size(14.0))
+                                .min_size(egui::vec2(0.0, 28.0)),
+                        )
+                    },
                 );
                 let response = if preset.description.is_empty() {
                     response
@@ -1264,7 +1614,13 @@ fn draw_deck_package_body(
             .show(ui, |ui| {
                 for (route_index, route) in slot.modulation.iter_mut().enumerate() {
                     ui.horizontal_wrapped(|ui| {
-                        ui.checkbox(&mut route.enabled, format!("Route {}", route_index + 1));
+                        buttons::midi_toggle(
+                            ui,
+                            &format!("deck.{}.package_route.{route_index}", id.index()),
+                            &format!("Deck {} · Package route {}", id.label(), route_index + 1),
+                            &mut route.enabled,
+                            |ui, value| ui.checkbox(value, format!("Route {}", route_index + 1)),
+                        );
                         mod_source_combo(
                             ui,
                             ("deck-package-mod-source", id.index(), route_index),
@@ -1301,7 +1657,7 @@ fn draw_deck_package_body(
     slot.sanitize();
 }
 
-pub(super) const EFFECT_TARGETS: [EffectTarget; 18] = [
+pub(super) const EFFECT_TARGETS: [EffectTarget; 21] = [
     EffectTarget::Hue,
     EffectTarget::Contrast,
     EffectTarget::Saturation,
@@ -1312,6 +1668,9 @@ pub(super) const EFFECT_TARGETS: [EffectTarget; 18] = [
     EffectTarget::LumaKey,
     EffectTarget::Neon,
     EffectTarget::Fractal,
+    EffectTarget::SpiralFold,
+    EffectTarget::KaliFold,
+    EffectTarget::KochFold,
     EffectTarget::Jitter,
     EffectTarget::FindEdges,
     EffectTarget::BitReduction,
@@ -1351,6 +1710,9 @@ pub(super) fn effect_target_label(target: EffectTarget) -> &'static str {
         EffectTarget::LumaKey => "Luma key",
         EffectTarget::Neon => "Neon",
         EffectTarget::Fractal => "Fractal",
+        EffectTarget::SpiralFold => "Spiral fold",
+        EffectTarget::KaliFold => "Kali fold",
+        EffectTarget::KochFold => "Koch fold",
         EffectTarget::Jitter => "Jitter",
         EffectTarget::FindEdges => "Find edges",
         EffectTarget::BitReduction => "Bit reduction",
@@ -1419,4 +1781,15 @@ pub(super) fn beat_division_label(beats: f32) -> &'static str {
         .iter()
         .find(|(candidate, _)| (*candidate - beats).abs() < 1.0e-4)
         .map_or("Custom", |(_, label)| *label)
+}
+
+fn transport_time(seconds: f64) -> String {
+    let millis = (seconds.max(0.0) * 1000.0).round() as u64;
+    format!(
+        "{:02}:{:02}:{:02}.{:03}",
+        millis / 3_600_000,
+        (millis / 60_000) % 60,
+        (millis / 1000) % 60,
+        millis % 1000,
+    )
 }

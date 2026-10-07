@@ -47,6 +47,9 @@ a camera, so deck effects, blend modes, transforms, modulation, Freeze and
 | Geodesic Sphere | 3D | centre → edge | fractal spikes · spike phase |
 | Spirograph | 2D | along the path | lobe count · loop size |
 | Torus Knot | 3D | along the path | winding count · tube radius |
+| Chebyshev Curve | 3D | along the path | y phase · z phase (shape comes from degree x/y/z and polynomial mix) |
+| Polynomial Contours | 3D | along the path | unused (shape comes from surface order, cross, contours and slice axis) |
+| Supershape | 3D | along the path | unused (shape comes from symmetry and exponent) |
 
 The first six patterns follow the formulas in the earlier generator. Three
 deliberate changes were made:
@@ -64,6 +67,9 @@ deliberate changes were made:
 |---|---|
 | Shape | depth (3–11 levels; each pattern maps this to its own useful range), scale, spread, twist, randomness, seed / New seed, **Flatten to 2D** |
 | Motion & camera | rotate (turntable), tilt, spin (about the view axis), zoom, perspective, reveal, grow loop, Stop motion |
+| Polynomial & surface | degree x/y/z (1–12), polynomial mix, surface order (even, 2–12), surface cross, contours (4–64), slice axis, symmetry, exponent |
+| Recursive object echoes | echo copies (1–24), echo scale, echo x/y/z rotation, echo offset, echo fade |
+| Line tracing | trace heads (1–8), trace length, trace speed, trace spread |
 | Color & light | hue, hue range, hue drift, saturation, lightness, brightness, line width, depth fade, trails, transparent background |
 | Audio | audio amount: bass, mid and high bend the geometry (tree angle, length and roll; Koch bumps; web wobble and Z displacement; geodesic spikes) and shift hue, saturation and lightness |
 | Output | 540p / 720p / 1080p / square 1080 / portrait 720 / portrait 1080, at 24, 30, 50 or 60 fps (hidden in Show Mode) |
@@ -72,6 +78,65 @@ deliberate changes were made:
 hue drift; shape, motion and output settings are preserved. Hue drift can be
 enabled again after choosing a preset. Spirograph and Torus Knot use depth
 for curve detail, with seeded randomness and continuous closed seams.
+
+**Chebyshev Curve** evaluates Tₙ(cos t) on each axis with its own degree;
+polynomial mix blends toward a plain Lissajous. **Polynomial Contours**
+slices the closed surface xⁿ + yⁿ + zⁿ + c·(x²y² + y²z² + z²x²) = 1 into
+contour rings, finding each ring's radius by bisection; slice axis picks
+which axis the rings stack along. **Supershape** draws latitude and
+longitude lines of a superformula solid.
+
+**Echoes** repeat the whole object. Each copy is the previous copy rotated
+by echo x/y/z (±180°), scaled by echo scale, offset along Z and dimmed by
+echo fade. The segment budget is shared by all copies, so high copy counts
+lower the effective depth.
+
+**Tracing** draws only moving windows of each continuous path. Every path
+carries its arc length, so heads travel at the same speed regardless of
+segment density, partial segments are clipped exactly, and tails wrap around
+closed curves. Trace spread staggers heads between separate paths. A trace
+length of 1 (the default) draws the full wireframe.
+
+**Traced sculpture** sets up 8 echoes with three moving trace heads and
+trails; **Full wireframe** turns tracing back off. Defaults for every new
+control (1 echo copy, trace length 1) leave existing projects looking exactly
+as before.
+
+## MIDI and OSC
+
+Every slider and toggle in the generator window is a mappable target. Turn on
+**MIDI Map** in the main window, click a generator control, then move a
+controller; right-click a control to clear its mapping. Mappings are saved
+with the project as `GeneratorParameter { deck, parameter }`.
+
+Parameters have stable, append-only numeric IDs (listed in
+`crates/virtual-generate/src/parameters.rs`). New controls are only ever
+added at the end, so saved mappings keep pointing at the same control.
+Values use the normalized 0–1 range and are scaled to each control's range.
+Toggles switch at 0.5, and **pattern** (ID 45) steps through all patterns in
+gallery order, which allows MIDI pattern switching.
+
+| ID | Control | ID | Control | ID | Control |
+|---|---|---|---|---|---|
+| 0 | depth | 16 | lightness | 32 | echo copies |
+| 1 | scale | 17 | brightness | 33 | echo scale |
+| 2 | spread | 18 | line width | 34 | echo x |
+| 3 | twist | 19 | depth fade | 35 | echo y |
+| 4 | randomness | 20 | trails | 36 | echo z |
+| 5 | rotate speed | 21 | audio amount | 37 | echo offset |
+| 6 | tilt | 22 | degree x | 38 | echo fade |
+| 7 | spin speed | 23 | degree y | 39 | trace heads |
+| 8 | zoom | 24 | degree z | 40 | trace length |
+| 9 | perspective | 25 | polynomial mix | 41 | trace speed |
+| 10 | reveal | 26 | surface order | 42 | trace spread |
+| 11 | grow speed | 27 | surface cross | 43 | flatten |
+| 12 | hue | 28 | contours | 44 | transparent |
+| 13 | hue range | 29 | slice axis | 45 | pattern |
+| 14 | color speed | 30 | symmetry | | |
+| 15 | saturation | 31 | exponent | | |
+
+OSC uses the same IDs: `/virtual/deck/{1-4}/generator/{id}` with a float 0–1.
+Mapped generator controls are included in MIDI feedback and OSC feedback.
 
 Framing fits the shorter output dimension, including portrait formats.
 Trail decay and incoming brightness use elapsed time, keeping their 60 fps
@@ -118,9 +183,10 @@ DeckDecoder::update_generator ──► deck worker thread
 
 ## Not yet
 
-- MIDI learn, OSC and LFO routes do not reach generator parameters yet. The
-  deck's own effects, transforms and LFO routes do apply on top of the
-  generator.
+- LFO and modulation routes do not reach generator parameters yet (MIDI and
+  OSC do). The deck's own effects, transforms and LFO routes do apply on top
+  of the generator.
+- Seed, resolution and frame rate are not mappable.
 - Generator decks are not included in session-journal crash recovery
   (camera decks aren't either). Project autosave does include them.
 
@@ -142,6 +208,6 @@ about 1–2.6 ms/frame at default depth, and 1–9.7 ms at maximum depth. Maximu
 Mandala geometry generation took 13.2 ms separately. These are single-generator
 CPU timings, not guarantees for a four-deck show with effects and video.
 
-Next useful additions are generator MIDI/OSC parameter routing, tempo-synced
+Next useful additions are LFO routing to generator parameters, tempo-synced
 motion, and GPU line rendering for heavy multi-generator shows. These remain
 future work.

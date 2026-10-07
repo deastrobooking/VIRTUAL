@@ -19,6 +19,8 @@ pub const PROJECT_VERSION: u32 = 6;
 pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
 /// Enabled, rate, depth, phase and offset.
 pub const LFO_CONTROL_PARAMETERS: u8 = 5;
+/// Length of `virtual_generate::GENERATOR_PARAMETERS`; ids are append-only.
+pub const GENERATOR_PARAMETER_COUNT: u8 = 46;
 const MINIMUM_PROJECT_VERSION: u32 = 1;
 pub const DECK_COUNT: usize = 4;
 pub const CLIPS_PER_DECK: usize = 8;
@@ -264,6 +266,9 @@ impl ProjectFile {
                 ),
                 ("effects.neon", !unit(deck.effects.neon)),
                 ("effects.fractal", !unit(deck.effects.fractal)),
+                ("effects.spiral_fold", !unit(deck.effects.spiral_fold)),
+                ("effects.kali_fold", !unit(deck.effects.kali_fold)),
+                ("effects.koch_fold", !unit(deck.effects.koch_fold)),
                 ("effects.jitter", !unit(deck.effects.jitter)),
                 ("effects.find_edges", !unit(deck.effects.find_edges)),
                 ("effects.bit_reduction", !unit(deck.effects.bit_reduction)),
@@ -534,7 +539,13 @@ fn valid_control_target(target: ControlTargetProject) -> bool {
         | ControlTargetProject::DeckFreeze { deck }
         | ControlTargetProject::DeckSpeed { deck }
         | ControlTargetProject::DeckSelect { deck }
-        | ControlTargetProject::DeckRestart { deck } => deck < 4,
+        | ControlTargetProject::DeckRestart { deck }
+        | ControlTargetProject::DeckMute { deck }
+        | ControlTargetProject::DeckPin { deck }
+        | ControlTargetProject::DeckLayerTop { deck }
+        | ControlTargetProject::DeckLayerUp { deck }
+        | ControlTargetProject::DeckLayerDown { deck } => deck < 4,
+        ControlTargetProject::LayerReset | ControlTargetProject::UiButton { .. } => true,
         ControlTargetProject::ClipLaunch { deck, slot } => deck < 4 && slot < 8,
         ControlTargetProject::SceneLaunch { slot } => slot < 8,
         ControlTargetProject::EffectParameter {
@@ -552,6 +563,9 @@ fn valid_control_target(target: ControlTargetProject) -> bool {
             route,
             parameter,
         } => deck < 4 && route < 8 && parameter < 2,
+        ControlTargetProject::GeneratorParameter { deck, parameter } => {
+            deck < 4 && parameter < GENERATOR_PARAMETER_COUNT
+        }
         ControlTargetProject::DeckEffectParameter {
             deck,
             parameter_key,
@@ -588,6 +602,16 @@ pub struct ProjectSettings {
     /// Beat-clock sync, in and out.
     #[serde(default)]
     pub midi_clock: MidiClockProject,
+    /// Deck indices from bottom to top within each crossfade bus.
+    #[serde(default = "default_layer_order")]
+    pub layer_order: [u8; 4],
+    /// Deck drawn over the crossfaded mix.
+    #[serde(default)]
+    pub pinned_deck: Option<u8>,
+}
+
+fn default_layer_order() -> [u8; 4] {
+    [0, 1, 2, 3]
 }
 
 impl Default for ProjectSettings {
@@ -606,6 +630,8 @@ impl Default for ProjectSettings {
             theme: ThemeProject::default(),
             midi_devices: Vec::new(),
             midi_clock: MidiClockProject::default(),
+            layer_order: default_layer_order(),
+            pinned_deck: None,
         }
     }
 }
@@ -1288,6 +1314,12 @@ pub struct EffectProject {
     #[serde(default)]
     pub fractal: f32,
     #[serde(default)]
+    pub spiral_fold: f32,
+    #[serde(default)]
+    pub kali_fold: f32,
+    #[serde(default)]
+    pub koch_fold: f32,
+    #[serde(default)]
     pub jitter: f32,
     #[serde(default)]
     pub find_edges: f32,
@@ -1371,6 +1403,9 @@ pub enum EffectTargetProject {
     LumaKey,
     Neon,
     Fractal,
+    SpiralFold,
+    KaliFold,
+    KochFold,
     Jitter,
     FindEdges,
     BitReduction,
@@ -1500,6 +1535,27 @@ pub struct GeneratorProject {
     pub audio_amount: f32,
     pub resolution: [u32; 2],
     pub fps: u32,
+    pub degree_x: f32,
+    pub degree_y: f32,
+    pub degree_z: f32,
+    pub polynomial_mix: f32,
+    pub surface_order: f32,
+    pub surface_cross: f32,
+    pub contours: f32,
+    pub slice_axis: f32,
+    pub symmetry: f32,
+    pub exponent: f32,
+    pub echo_copies: f32,
+    pub echo_scale: f32,
+    pub echo_x: f32,
+    pub echo_y: f32,
+    pub echo_z: f32,
+    pub echo_offset: f32,
+    pub echo_fade: f32,
+    pub trace_heads: f32,
+    pub trace_length: f32,
+    pub trace_speed: f32,
+    pub trace_spread: f32,
 }
 
 impl Default for GeneratorProject {
@@ -1535,6 +1591,27 @@ impl Default for GeneratorProject {
             audio_amount: 0.0,
             resolution: [1280, 720],
             fps: 60,
+            degree_x: 3.0,
+            degree_y: 4.0,
+            degree_z: 5.0,
+            polynomial_mix: 0.25,
+            surface_order: 4.0,
+            surface_cross: 0.0,
+            contours: 24.0,
+            slice_axis: 2.0,
+            symmetry: 6.0,
+            exponent: 1.0,
+            echo_copies: 1.0,
+            echo_scale: 0.88,
+            echo_x: 0.08,
+            echo_y: 0.12,
+            echo_z: 0.04,
+            echo_offset: 0.0,
+            echo_fade: 0.85,
+            trace_heads: 1.0,
+            trace_length: 1.0,
+            trace_speed: 0.0,
+            trace_spread: 0.0,
         }
     }
 }
@@ -1598,8 +1675,16 @@ pub enum ControlTargetProject {
     EffectParameter { deck: u8, effect: u8, parameter: u8 },
     LfoParameter { deck: u8, lfo: u8, parameter: u8 },
     ModRouteParameter { deck: u8, route: u8, parameter: u8 },
+    GeneratorParameter { deck: u8, parameter: u8 },
     DeckEffectParameter { deck: u8, parameter_key: u64 },
     MasterEffectParameter { slot: u8, parameter_key: u64 },
+    DeckMute { deck: u8 },
+    DeckPin { deck: u8 },
+    DeckLayerTop { deck: u8 },
+    DeckLayerUp { deck: u8 },
+    DeckLayerDown { deck: u8 },
+    LayerReset,
+    UiButton { key: u64 },
 }
 
 impl Default for EffectProject {
@@ -1616,6 +1701,9 @@ impl Default for EffectProject {
             luma_key: 0.0,
             neon: 0.0,
             fractal: 0.0,
+            spiral_fold: 0.0,
+            kali_fold: 0.0,
+            koch_fold: 0.0,
             jitter: 0.0,
             find_edges: 0.0,
             bit_reduction: 0.0,
@@ -2273,6 +2361,13 @@ mod tests {
             .unwrap()
             .remove("master_effects")
             .unwrap();
+        for field in ["layer_order", "pinned_deck"] {
+            value["settings"]
+                .as_object_mut()
+                .unwrap()
+                .remove(field)
+                .unwrap();
+        }
         value
             .as_object_mut()
             .unwrap()
@@ -2306,6 +2401,8 @@ mod tests {
         }
         let project: ProjectFile = serde_json::from_value(value).unwrap();
         assert!(project.midi_mappings.is_empty());
+        assert_eq!(project.settings.layer_order, [0, 1, 2, 3]);
+        assert_eq!(project.settings.pinned_deck, None);
         assert!(
             project
                 .decks

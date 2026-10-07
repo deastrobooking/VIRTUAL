@@ -11,6 +11,9 @@ struct MixerGlobals {
     luma_key: vec4<f32>,
     neon: vec4<f32>,
     fractal: vec4<f32>,
+    spiral_fold: vec4<f32>,
+    kali_fold: vec4<f32>,
+    koch_fold: vec4<f32>,
     jitter: vec4<f32>,
     find_edges: vec4<f32>,
     bit_reduction: vec4<f32>,
@@ -47,9 +50,10 @@ struct MixerGlobals {
     time_seconds: f32,
     output_aspect: f32,
     blackout: u32,
-    _padding_a: u32,
+    pinned_deck: u32,
     _padding_b: u32,
     deck_override_mask: vec4<u32>,
+    layer_order: vec4<u32>,
 }
 
 struct EffectConfig {
@@ -63,6 +67,9 @@ struct EffectConfig {
     luma_key: f32,
     neon: f32,
     fractal: f32,
+    spiral_fold: f32,
+    kali_fold: f32,
+    koch_fold: f32,
     jitter: f32,
     find_edges: f32,
     bit_reduction: f32,
@@ -452,6 +459,63 @@ fn layer_uv(
     return vec3(crop_min + uv * crop_size, 1.0);
 }
 
+// Triangle-wave repeat into 0..1, so folded coordinates that leave the frame
+// reflect back into the image instead of clamping to its edge.
+fn mirror_wrap(v: vec2<f32>) -> vec2<f32> {
+    return vec2(1.0) - abs(fract(v * 0.5) * 2.0 - 1.0);
+}
+
+// Log-polar kaleidoscope: the fold seam twists with log radius and drifts in
+// time, so wedges spiral into the centre instead of radiating straight out.
+fn spiral_fold_uv(uv: vec2<f32>, amount: f32) -> vec2<f32> {
+    let centered = uv - vec2(0.5);
+    let radius = max(length(centered), 0.0001);
+    let angle = atan2(centered.y, centered.x) / 6.2831853;
+    let segments = mix(3.0, 10.0, amount);
+    let twist = log(radius) * mix(0.25, 1.5, amount) + globals.time_seconds * 0.05;
+    let wedge = abs(fract((angle + twist) * segments + 0.5) - 0.5) / segments * 6.2831853;
+    return vec2(cos(wedge), sin(wedge)) * radius + vec2(0.5);
+}
+
+// Kaliset inversion fold, p = |p| / dot(p, p) - c. Amount sets a fractional
+// iteration depth; neighbouring depths are blended so sweeps never pop.
+fn kali_fold_uv(uv: vec2<f32>, amount: f32) -> vec2<f32> {
+    let depth = mix(1.0, 8.0, amount);
+    let whole = u32(floor(depth));
+    let drift = vec2(sin(globals.time_seconds * 0.13), cos(globals.time_seconds * 0.11)) * 0.02;
+    let c = vec2(mix(0.95, 0.6, amount), mix(0.8, 0.5, amount)) + drift;
+    var p = (uv - vec2(0.5)) * 2.0;
+    var previous = p;
+    for (var i = 0u; i <= whole; i = i + 1u) {
+        previous = p;
+        p = abs(p) / max(dot(p, p), 0.02) - c;
+    }
+    return mirror_wrap(mix(previous, p, fract(depth)) * 0.5 + vec2(0.5));
+}
+
+// Koch snowflake fold: mirror into one sixth, then repeatedly scale by three
+// and reflect across the 120 degree edge normal. Local cell coordinates tile
+// the image along the curve, blended between depths like the Kali fold.
+fn koch_fold_uv(uv: vec2<f32>, amount: f32) -> vec2<f32> {
+    let depth = mix(1.0, 5.0, amount);
+    let whole = u32(floor(depth));
+    var p = (uv - vec2(0.5)) * 2.4;
+    p.x = abs(p.x);
+    let edge = vec2(0.5, -0.8660254);
+    p.y += 0.2886751;
+    p -= edge * max(0.0, dot(p - vec2(0.5, 0.0), edge)) * 2.0;
+    let normal = vec2(0.8660254, -0.5);
+    p.x += 0.5;
+    var previous = p;
+    for (var i = 0u; i <= whole; i = i + 1u) {
+        previous = p;
+        p *= 3.0;
+        p.x = abs(p.x - 1.5) - 0.5;
+        p -= normal * min(0.0, dot(p, normal)) * 2.0;
+    }
+    return mirror_wrap(mix(previous, p, fract(depth)) * 0.5 + vec2(0.5));
+}
+
 fn geometry_effect_uv(input_uv: vec2<f32>, effect: EffectConfig) -> vec2<f32> {
     var uv = input_uv;
     if effect.mirror != 0u {
@@ -466,6 +530,15 @@ fn geometry_effect_uv(input_uv: vec2<f32>, effect: EffectConfig) -> vec2<f32> {
         let kaleidoscope = vec2(cos(folded * 6.2831853), sin(folded * 6.2831853))
             * radius + vec2(0.5);
         uv = mix(uv, kaleidoscope, effect.fractal);
+    }
+    if effect.spiral_fold > 0.0001 {
+        uv = mix(uv, spiral_fold_uv(uv, effect.spiral_fold), effect.spiral_fold);
+    }
+    if effect.kali_fold > 0.0001 {
+        uv = mix(uv, kali_fold_uv(uv, effect.kali_fold), effect.kali_fold);
+    }
+    if effect.koch_fold > 0.0001 {
+        uv = mix(uv, koch_fold_uv(uv, effect.koch_fold), effect.koch_fold);
     }
     if effect.jitter > 0.0001 {
         let row = floor(uv.y * mix(24.0, 240.0, effect.jitter));
@@ -714,7 +787,8 @@ fn effect_config(index: u32) -> EffectConfig {
         globals.contrast[index], globals.saturation[index], globals.hue[index],
         globals.black_level[index], globals.white_level[index], globals.gamma[index],
         globals.pixelate[index], globals.luma_key[index], globals.neon[index],
-        globals.fractal[index], globals.jitter[index], globals.find_edges[index],
+        globals.fractal[index], globals.spiral_fold[index], globals.kali_fold[index],
+        globals.koch_fold[index], globals.jitter[index], globals.find_edges[index],
         globals.bit_reduction[index], globals.blacklight[index], globals.bloom[index],
         globals.bloom_threshold[index], globals.bloom_radius[index], globals.bloom_chroma[index],
         globals.mirror[index],
@@ -763,30 +837,28 @@ fn process_deck_d(input_uv: vec2<f32>) -> vec4<f32> {
 }
 
 fn composite_layers(a: vec4<f32>, b: vec4<f32>, c: vec4<f32>, d: vec4<f32>) -> vec4<f32> {
+    var layers = array<vec4<f32>, 4>(a, b, c, d);
     var bus_a = vec4(0.0);
     var bus_b = vec4(0.0);
-    if globals.bus_assignments.x == 0u {
-        bus_a = composite(bus_a, a, globals.levels.x, globals.blend_modes.x);
-    } else {
-        bus_b = composite(bus_b, a, globals.levels.x, globals.blend_modes.x);
-    }
-    if globals.bus_assignments.y == 0u {
-        bus_a = composite(bus_a, b, globals.levels.y, globals.blend_modes.y);
-    } else {
-        bus_b = composite(bus_b, b, globals.levels.y, globals.blend_modes.y);
-    }
-    if globals.bus_assignments.z == 0u {
-        bus_a = composite(bus_a, c, globals.levels.z, globals.blend_modes.z);
-    } else {
-        bus_b = composite(bus_b, c, globals.levels.z, globals.blend_modes.z);
-    }
-    if globals.bus_assignments.w == 0u {
-        bus_a = composite(bus_a, d, globals.levels.w, globals.blend_modes.w);
-    } else {
-        bus_b = composite(bus_b, d, globals.levels.w, globals.blend_modes.w);
+    // layer_order lists deck indices bottom to top; the pinned deck is
+    // skipped here and drawn over the crossfaded result instead.
+    for (var slot = 0u; slot < 4u; slot = slot + 1u) {
+        let deck = globals.layer_order[slot];
+        if deck == globals.pinned_deck {
+            continue;
+        }
+        if globals.bus_assignments[deck] == 0u {
+            bus_a = composite(bus_a, layers[deck], globals.levels[deck], globals.blend_modes[deck]);
+        } else {
+            bus_b = composite(bus_b, layers[deck], globals.levels[deck], globals.blend_modes[deck]);
+        }
     }
     var mixed = bus_a * globals.crossfade_gains.x
         + bus_b * globals.crossfade_gains.y;
+    if globals.pinned_deck < 4u {
+        let deck = globals.pinned_deck;
+        mixed = composite(mixed, layers[deck], globals.levels[deck], globals.blend_modes[deck]);
+    }
     mixed *= globals.master_opacity;
     return vec4(mixed.rgb, 1.0);
 }

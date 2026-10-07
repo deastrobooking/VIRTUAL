@@ -58,9 +58,16 @@ impl AudioMapMode {
             | ControlTarget::DeckRestart(_)
             | ControlTarget::DeckSelect(_)
             | ControlTarget::ClipLaunch { .. }
-            | ControlTarget::SceneLaunch(_) => Self::Trigger,
+            | ControlTarget::SceneLaunch(_)
+            | ControlTarget::DeckLayerTop(_)
+            | ControlTarget::DeckLayerUp(_)
+            | ControlTarget::DeckLayerDown(_)
+            | ControlTarget::LayerReset
+            | ControlTarget::UiButton(_) => Self::Trigger,
             ControlTarget::MasterBlackout
             | ControlTarget::MasterFreeze
+            | ControlTarget::DeckMute(_)
+            | ControlTarget::DeckPin(_)
             | ControlTarget::DeckPlay(_)
             | ControlTarget::DeckFreeze(_) => Self::Gate,
             _ => Self::Continuous,

@@ -16,7 +16,7 @@ This matrix reflects the current source tree, not the aspirational MVP notes.
 | Triggering | Immediate, next-beat and next-bar clip/scene launches, per-slot restart/resume and BPM-relative beat duration |
 | Mixing | Independent A/B composites, 35 blend modes, Solo/Bypass, transforms, crop/source modes, linear/equal-power crossfade, master opacity and blackout |
 | Output | Offscreen preset/custom program target, clean second window, display selection, aspect preservation, enable/fullscreen, calibration overlays and surface-health diagnostics |
-| Built-in deck effects | Fused Geometry UV prepass plus Color + Levels and Stylize + Key groups; only Color/Stylize change relative pixel order. Includes grading, mirror, fractal fold, neon, jitter, edges, bit reduction, black light, pixelate, luma key and bloom |
+| Built-in deck effects | Fused Geometry UV prepass plus Color + Levels and Stylize + Key groups; only Color/Stylize change relative pixel order. Includes grading, mirror, fractal fold (plus spiral, Kali and Koch fold variants), neon, jitter, edges, bit reduction, black light, pixelate, luma key and bloom |
 | Master effects and packages | Two reorderable slots with separable blur, persistent feedback/trails or registry-discovered one/two-pass WGSL packages; grouped controls, one-click looks, stable parameter identity, last-known-good reload and Recursive 2D, Fractal Volume 3D and Hyper Recursion 4D+ packages |
 | Modulation | Three LFOs and eight bipolar routes per deck across 18 continuous effect destinations |
 | OSC | Bounded OSC 1.0 UDP input/output, nested bundles, NTP-timetag scheduling, initial state snapshots, live health counters and origin-aware routes for mixer, decks, clips, scenes, tempo and output |

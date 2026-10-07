@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This is part of the persisted MIDI target contract. Keep the parameter
 /// indices stable and update this bound whenever a parameter is appended.
-pub const FIXED_DECK_EFFECT_PARAMETER_COUNT: u8 = 18;
+pub const FIXED_DECK_EFFECT_PARAMETER_COUNT: u8 = 21;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum MidiMessageKind {
@@ -79,13 +79,50 @@ pub enum ControlTarget {
     DeckSpeed(u8),
     DeckSelect(u8),
     DeckRestart(u8),
-    ClipLaunch { deck: u8, slot: u8 },
+    ClipLaunch {
+        deck: u8,
+        slot: u8,
+    },
     SceneLaunch(u8),
-    EffectParameter { deck: u8, effect: u8, parameter: u8 },
-    LfoParameter { deck: u8, lfo: u8, parameter: u8 },
-    ModRouteParameter { deck: u8, route: u8, parameter: u8 },
-    DeckEffectParameter { deck: u8, parameter_key: u64 },
-    MasterEffectParameter { slot: u8, parameter_key: u64 },
+    EffectParameter {
+        deck: u8,
+        effect: u8,
+        parameter: u8,
+    },
+    LfoParameter {
+        deck: u8,
+        lfo: u8,
+        parameter: u8,
+    },
+    ModRouteParameter {
+        deck: u8,
+        route: u8,
+        parameter: u8,
+    },
+    GeneratorParameter {
+        deck: u8,
+        parameter: u8,
+    },
+    DeckEffectParameter {
+        deck: u8,
+        parameter_key: u64,
+    },
+    MasterEffectParameter {
+        slot: u8,
+        parameter_key: u64,
+    },
+    /// Removes the deck from the program mix without changing its level.
+    DeckMute(u8),
+    /// Draws the deck over the crossfaded mix; releasing unpins it.
+    DeckPin(u8),
+    /// Triggers that reorder the bottom-to-top layer stack.
+    DeckLayerTop(u8),
+    DeckLayerUp(u8),
+    DeckLayerDown(u8),
+    /// Restores A–D stacking and unpins.
+    LayerReset,
+    /// Any on-screen button, by the stable hash of its UI key.
+    UiButton(u64),
 }
 
 /// Stable identity for a package parameter across manifest reordering.
@@ -266,9 +303,16 @@ fn note_mode_for(target: ControlTarget) -> MappingMode {
         | ControlTarget::DeckRestart(_)
         | ControlTarget::DeckSelect(_)
         | ControlTarget::ClipLaunch { .. }
-        | ControlTarget::SceneLaunch(_) => MappingMode::Momentary,
+        | ControlTarget::SceneLaunch(_)
+        | ControlTarget::DeckLayerTop(_)
+        | ControlTarget::DeckLayerUp(_)
+        | ControlTarget::DeckLayerDown(_)
+        | ControlTarget::LayerReset
+        | ControlTarget::UiButton(_) => MappingMode::Momentary,
         ControlTarget::MasterBlackout
         | ControlTarget::MasterFreeze
+        | ControlTarget::DeckMute(_)
+        | ControlTarget::DeckPin(_)
         | ControlTarget::DeckPlay(_)
         | ControlTarget::DeckFreeze(_)
         | ControlTarget::LfoParameter { parameter: 0, .. }

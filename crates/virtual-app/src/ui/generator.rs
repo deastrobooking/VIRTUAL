@@ -12,7 +12,7 @@ use virtual_generate::{
 use virtual_media::{DeckId, DeckState, FourDeckMixer};
 
 use super::theme::ThemePalette;
-use super::{UiAction, UiState};
+use super::{UiAction, UiState, buttons};
 
 /// Pattern picker grouped by dimensionality, for the compact source loader.
 fn pattern_combo(ui: &mut egui::Ui, id: &str, pattern: &mut RecursivePattern) {
@@ -45,13 +45,19 @@ pub(super) fn draw_generator_source(
         ui.horizontal_wrapped(|ui| {
             ui.strong("Generator · recursive geometry");
             pattern_combo(ui, "pattern", &mut state.generator_pattern);
-            if ui
-                .button(format!("Load to Deck {}", deck.label()))
-                .on_hover_text(
-                    "Replaces this deck's clip or video input with a live generator \
-                     and opens its controls",
-                )
-                .clicked()
+            if buttons::midi_button(
+                ui,
+                &format!("generator.{}.load", deck.index()),
+                &format!("Deck {} · Load generator", deck.label()),
+                |ui| {
+                    ui.button(format!("Load to Deck {}", deck.label()))
+                        .on_hover_text(
+                            "Replaces this deck's clip or video input with a live generator \
+                             and opens its controls",
+                        )
+                },
+            )
+            .clicked()
             {
                 actions.push(UiAction::ConnectGenerator {
                     deck,
@@ -105,6 +111,7 @@ fn stats_line(
 /// toggle for its window. No parameters are edited here.
 pub(super) fn draw_generator_summary(
     ui: &mut egui::Ui,
+    deck: DeckId,
     settings: &GeneratorSettings,
     stats: GeneratorStats,
     palette: ThemePalette,
@@ -113,10 +120,16 @@ pub(super) fn draw_generator_summary(
     ui.horizontal_wrapped(|ui| {
         ui.colored_label(palette.success, "◆ GENERATOR");
         ui.strong(settings.pattern.label());
-        if ui
-            .selectable_label(*window_open, "Generator controls…")
-            .on_hover_text("Show or hide this deck's generator window")
-            .clicked()
+        if buttons::midi_button(
+            ui,
+            &format!("generator.{}.window", deck.index()),
+            &format!("Deck {} · Generator window", deck.label()),
+            |ui| {
+                ui.selectable_label(*window_open, "Generator controls…")
+                    .on_hover_text("Show or hide this deck's generator window")
+            },
+        )
+        .clicked()
         {
             *window_open = !*window_open;
         }
@@ -131,6 +144,8 @@ pub(super) fn draw_generator_windows(
     mixer: &mut FourDeckMixer,
     stats: [GeneratorStats; 4],
     palette: ThemePalette,
+    midi_map: &super::MidiMapUi,
+    actions: &mut Vec<UiAction>,
 ) {
     for deck in DeckId::ALL {
         let index = deck.index();
@@ -166,23 +181,99 @@ pub(super) fn draw_generator_windows(
         .resizable(true)
         .vscroll(true)
         .show(ctx, |ui| {
-            draw_window_body(ui, deck, settings, stats[index], palette, state.show_mode);
+            draw_window_body(
+                ui,
+                deck,
+                settings,
+                stats[index],
+                palette,
+                state.show_mode,
+                midi_map,
+                actions,
+            );
         });
         state.generator_windows[index] = open;
     }
 }
 
-fn slider(
+fn parameter_slider(
     ui: &mut egui::Ui,
-    value: &mut f32,
-    range: std::ops::RangeInclusive<f32>,
-    label: &str,
-) -> egui::Response {
-    ui.add(
-        egui::Slider::new(value, range)
-            .text(label)
-            .clamping(egui::SliderClamping::Always),
-    )
+    settings: &mut GeneratorSettings,
+    deck: DeckId,
+    id: u8,
+    map: &super::MidiMapUi,
+    actions: &mut Vec<UiAction>,
+) {
+    let p = &virtual_generate::GENERATOR_PARAMETERS[id as usize];
+    let mut value = p.min + settings.parameter(id).unwrap_or_default() * (p.max - p.min);
+    let response = super::mappable(
+        ui,
+        map,
+        virtual_core::ControlTarget::GeneratorParameter {
+            deck: deck.index() as u8,
+            parameter: id,
+        },
+        actions,
+        |ui| {
+            if id == 43 || id == 44 {
+                let mut enabled = value >= 0.5;
+                let response = ui.checkbox(&mut enabled, p.name);
+                value = f32::from(enabled);
+                response
+            } else if id == 45 {
+                let mut index = (value * (RecursivePattern::ALL.len() - 1) as f32).round() as usize;
+                let response = ui.add(
+                    egui::Slider::new(&mut index, 0..=RecursivePattern::ALL.len() - 1)
+                        .text("pattern")
+                        .custom_formatter(|v, _| {
+                            RecursivePattern::ALL[v.round() as usize].label().to_owned()
+                        }),
+                );
+                value = index as f32 / (RecursivePattern::ALL.len() - 1) as f32;
+                response
+            } else {
+                let mut slider = egui::Slider::new(&mut value, p.min..=p.max).text(p.name);
+                match id {
+                    // Depth renders in whole levels (3–11).
+                    0 => slider = slider.step_by(0.125),
+                    8 => slider = slider.logarithmic(true),
+                    26 => slider = slider.step_by(2.0),
+                    22..=24 | 28..=30 | 32 | 39 => slider = slider.step_by(1.0),
+                    _ => {}
+                }
+                ui.add(slider)
+            }
+        },
+    );
+    let response = match parameter_hint(id) {
+        Some(hint) => response.on_hover_text(hint),
+        None => response,
+    };
+    if response.changed() {
+        settings.set_parameter(id, (value - p.min) / (p.max - p.min));
+    }
+}
+
+fn parameter_hint(id: u8) -> Option<&'static str> {
+    Some(match id {
+        11 => "Above zero, the reveal replays from trunk to tips",
+        14 => "Hue drift speed",
+        22..=25 => {
+            "Chebyshev Curve: per-axis polynomial degree; mix blends toward a plain Lissajous"
+        }
+        26..=29 => {
+            "Polynomial Contours: even surface order, cross-term bulge, slice count and axis"
+        }
+        30 | 31 => "Supershape: rotational symmetry and superellipse exponent",
+        32..=38 => {
+            "Repeats the whole object, each copy rotated, scaled, offset and faded from the last"
+        }
+        39..=42 => "Draws moving heads along each path; length 1 shows the full wireframe",
+        43 => "Projects 3D patterns onto the flat XY plane",
+        44 => "Lines layer over lower decks; off draws on black",
+        45 => "Selects the pattern; useful for MIDI pattern switching",
+        _ => return None,
+    })
 }
 
 fn pattern_tile(
@@ -232,6 +323,7 @@ fn section(ui: &mut egui::Ui, title: &str, palette: ThemePalette, add: impl FnOn
         });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_window_body(
     ui: &mut egui::Ui,
     deck: DeckId,
@@ -239,6 +331,8 @@ fn draw_window_body(
     stats: GeneratorStats,
     palette: ThemePalette,
     show_mode: bool,
+    midi_map: &super::MidiMapUi,
+    actions: &mut Vec<UiAction>,
 ) {
     let accent = palette.deck_color(deck);
     ui.horizontal_wrapped(|ui| {
@@ -248,123 +342,172 @@ fn draw_window_body(
     stats_line(ui, settings, stats, palette);
     ui.separator();
 
-    // Pattern gallery.
-    for (heading, dimension) in [
-        ("2D PATTERNS", Dimension::Planar),
-        ("3D PATTERNS", Dimension::Spatial),
-    ] {
-        ui.weak(heading);
-        ui.horizontal_wrapped(|ui| {
-            for pattern in RecursivePattern::ALL
-                .into_iter()
-                .filter(|pattern| pattern.dimension() == dimension)
-            {
-                if pattern_tile(ui, pattern, settings.pattern == pattern, palette, accent).clicked()
-                {
-                    settings.pattern = pattern;
-                }
-            }
-        });
-    }
-    ui.add_space(6.0);
-
-    ui.columns(3, |columns| {
-        section(&mut columns[0], "SHAPE", palette, |ui| {
-            let mut levels = settings.depth_levels();
-            if ui
-                .add(egui::Slider::new(&mut levels, 3..=11).text("depth"))
-                .changed()
-            {
-                settings.depth = (levels - 3) as f32 / 8.0;
-            }
-            slider(ui, &mut settings.scale, 0.0..=1.0, "scale");
-            slider(ui, &mut settings.spread, 0.0..=1.0, "spread");
-            slider(ui, &mut settings.twist, 0.0..=1.0, "twist");
-            slider(ui, &mut settings.randomness, 0.0..=1.0, "randomness");
-            ui.horizontal(|ui| {
-                ui.add(egui::DragValue::new(&mut settings.seed).prefix("seed "))
-                    .on_hover_text("The same seed always gives the same shape");
-                if ui.button("New seed").clicked() {
-                    settings.seed = settings
-                        .seed
-                        .wrapping_mul(1_664_525)
-                        .wrapping_add(1_013_904_223);
-                }
-            });
-            ui.checkbox(&mut settings.flatten, "Flatten to 2D")
-                .on_hover_text("Projects 3D patterns onto the flat XY plane");
-        });
-        section(&mut columns[1], "MOTION & CAMERA", palette, |ui| {
+    ui.weak("Use MIDI Map in the main window, then click a parameter to learn; right-click clears its mapping.");
+    {
+        // Pattern gallery.
+        for (heading, dimension) in [
+            ("2D PATTERNS", Dimension::Planar),
+            ("3D PATTERNS", Dimension::Spatial),
+        ] {
+            ui.weak(heading);
             ui.horizontal_wrapped(|ui| {
-                for (name, rotate, spin, grow) in [
-                    ("Orbit", 0.15, 0.0, 0.0),
-                    ("Spin", 0.0, 0.15, 0.0),
-                    ("Grow", 0.0, 0.0, 0.25),
-                ] {
-                    if ui.button(name).clicked() {
-                        settings.rotate_speed = rotate;
-                        settings.spin_speed = spin;
-                        settings.grow_speed = grow;
+                for pattern in RecursivePattern::ALL
+                    .into_iter()
+                    .filter(|pattern| pattern.dimension() == dimension)
+                {
+                    if buttons::midi_button(
+                        ui,
+                        &format!("generator.{}.pattern.{}", deck.index(), pattern.id()),
+                        &format!("Deck {} · Generator {}", deck.label(), pattern.label()),
+                        |ui| {
+                            pattern_tile(ui, pattern, settings.pattern == pattern, palette, accent)
+                        },
+                    )
+                    .clicked()
+                    {
+                        settings.pattern = pattern;
                     }
                 }
             });
-            slider(ui, &mut settings.rotate_speed, -1.0..=1.0, "rotate");
-            slider(ui, &mut settings.tilt, -1.0..=1.0, "tilt");
-            slider(ui, &mut settings.spin_speed, -1.0..=1.0, "spin");
-            ui.add(
-                egui::Slider::new(&mut settings.zoom, 0.25..=4.0)
-                    .text("zoom")
-                    .logarithmic(true),
-            );
-            slider(ui, &mut settings.perspective, 0.0..=1.0, "perspective");
-            slider(ui, &mut settings.reveal, 0.0..=1.0, "reveal");
-            slider(ui, &mut settings.grow_speed, 0.0..=1.0, "grow loop")
-                .on_hover_text("Above zero, the reveal replays from trunk to tips");
-            if ui.button("Reset camera controls").clicked() {
+        }
+    }
+    ui.add_space(6.0);
+
+    for (heading, ids) in [
+        ("SHAPE", vec![0, 1, 2, 3, 4, 43, 45]),
+        ("POLYNOMIAL & SURFACE", (22..32).collect()),
+        ("RECURSIVE OBJECT ECHOES", (32..39).collect()),
+        ("LINE TRACING", (39..43).collect()),
+        ("MOTION & CAMERA", (5..12).collect()),
+        ("COLOR & LIGHT", (12..21).chain([44]).collect()),
+    ] {
+        section(ui, heading, palette, |ui| {
+            egui::Grid::new(("generator-parameters", deck.index(), heading))
+                .num_columns(2)
+                .show(ui, |ui| {
+                    for (index, id) in ids.into_iter().enumerate() {
+                        parameter_slider(ui, settings, deck, id, midi_map, actions);
+                        if index % 2 == 1 {
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
+    }
+    {
+        ui.horizontal_wrapped(|ui| {
+            if buttons::midi_button(
+                ui,
+                &format!("generator.{}.traced_sculpture", deck.index()),
+                &format!("Deck {} · Generator Traced sculpture", deck.label()),
+                |ui| ui.button("Traced sculpture"),
+            )
+            .clicked()
+            {
+                settings.echo_copies = 8.0;
+                settings.echo_scale = 0.9;
+                settings.trace_heads = 3.0;
+                settings.trace_length = 0.35;
+                settings.trace_speed = 0.15;
+                settings.trace_spread = 1.0;
+                settings.trails = 0.65;
+            }
+            if buttons::midi_button(
+                ui,
+                &format!("generator.{}.full_wireframe", deck.index()),
+                &format!("Deck {} · Generator Full wireframe", deck.label()),
+                |ui| ui.button("Full wireframe"),
+            )
+            .clicked()
+            {
+                settings.trace_length = 1.0;
+                settings.trace_speed = 0.0;
+            }
+            if buttons::midi_button(
+                ui,
+                &format!("generator.{}.stop_motion", deck.index()),
+                &format!("Deck {} · Generator Stop motion", deck.label()),
+                |ui| ui.button("Stop motion"),
+            )
+            .clicked()
+            {
+                settings.rotate_speed = 0.0;
+                settings.spin_speed = 0.0;
+                settings.grow_speed = 0.0;
+                settings.trace_speed = 0.0;
+            }
+            if buttons::midi_button(
+                ui,
+                &format!("generator.{}.reset_camera", deck.index()),
+                &format!("Deck {} · Generator Reset camera", deck.label()),
+                |ui| ui.button("Reset camera controls"),
+            )
+            .clicked()
+            {
                 settings.tilt = 0.0;
                 settings.zoom = 1.0;
                 settings.perspective = 0.5;
             }
-            if ui.button("Stop motion").clicked() {
-                settings.rotate_speed = 0.0;
-                settings.spin_speed = 0.0;
-                settings.grow_speed = 0.0;
+            if buttons::midi_button(
+                ui,
+                &format!("generator.{}.new_seed", deck.index()),
+                &format!("Deck {} · Generator New seed", deck.label()),
+                |ui| ui.button("New seed"),
+            )
+            .clicked()
+            {
+                settings.seed = settings
+                    .seed
+                    .wrapping_mul(1_664_525)
+                    .wrapping_add(1_013_904_223);
             }
         });
-        section(&mut columns[2], "COLOR & LIGHT", palette, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for (name, hue, range, saturation) in [
-                    ("Neon", 0.75, 0.45, 0.9),
-                    ("Fire", 0.0, 0.15, 0.95),
-                    ("Ice", 0.48, 0.18, 0.7),
-                    ("Mono", 0.0, 0.0, 0.0),
-                ] {
-                    if ui.button(name).clicked() {
-                        settings.hue = hue;
-                        settings.hue_range = range;
-                        settings.saturation = saturation;
-                        settings.color_speed = 0.0;
-                    }
+        ui.horizontal_wrapped(|ui| {
+            for (name, rotate, spin, grow) in [
+                ("Orbit", 0.15, 0.0, 0.0),
+                ("Spin", 0.0, 0.15, 0.0),
+                ("Grow", 0.0, 0.0, 0.25),
+            ] {
+                if buttons::midi_button(
+                    ui,
+                    &format!("generator.{}.motion.{name}", deck.index()),
+                    &format!("Deck {} · Generator {name}", deck.label()),
+                    |ui| ui.button(name),
+                )
+                .clicked()
+                {
+                    settings.rotate_speed = rotate;
+                    settings.spin_speed = spin;
+                    settings.grow_speed = grow;
                 }
-            });
-            slider(ui, &mut settings.hue, 0.0..=1.0, "hue");
-            slider(ui, &mut settings.hue_range, 0.0..=1.0, "hue range");
-            slider(ui, &mut settings.color_speed, 0.0..=1.0, "hue drift");
-            slider(ui, &mut settings.saturation, 0.0..=1.0, "saturation");
-            slider(ui, &mut settings.lightness, 0.0..=1.0, "lightness");
-            slider(ui, &mut settings.brightness, 0.0..=4.0, "brightness");
-            slider(ui, &mut settings.line_width, 0.5..=6.0, "line width");
-            slider(ui, &mut settings.depth_fade, 0.0..=1.0, "depth fade");
-            slider(ui, &mut settings.trails, 0.0..=0.97, "trails");
-            ui.checkbox(&mut settings.transparent, "Transparent background")
-                .on_hover_text("Lines layer over lower decks; off draws on black");
+            }
+            for (name, hue, range, saturation) in [
+                ("Neon", 0.75, 0.45, 0.9),
+                ("Fire", 0.0, 0.15, 0.95),
+                ("Ice", 0.48, 0.18, 0.7),
+                ("Mono", 0.0, 0.0, 0.0),
+            ] {
+                if buttons::midi_button(
+                    ui,
+                    &format!("generator.{}.color.{name}", deck.index()),
+                    &format!("Deck {} · Generator {name}", deck.label()),
+                    |ui| ui.button(name),
+                )
+                .clicked()
+                {
+                    settings.hue = hue;
+                    settings.hue_range = range;
+                    settings.saturation = saturation;
+                    settings.color_speed = 0.0;
+                }
+            }
+            ui.add(egui::DragValue::new(&mut settings.seed).prefix("Seed "))
+                .on_hover_text("The same seed always gives the same shape");
         });
-    });
-    ui.add_space(4.0);
-
+    }
     ui.columns(2, |columns| {
         section(&mut columns[0], "AUDIO", palette, |ui| {
-            slider(ui, &mut settings.audio_amount, 0.0..=1.0, "audio amount");
+            parameter_slider(ui, settings, deck, 21, midi_map, actions);
             ui.weak(if settings.pattern.audio_shapes_geometry() {
                 "Bass, mid and high bend this pattern's geometry and shift its colour."
             } else {
@@ -378,15 +521,41 @@ fn draw_window_body(
             }
             ui.horizontal_wrapped(|ui| {
                 for (label, extent) in RESOLUTIONS {
-                    ui.selectable_value(&mut settings.resolution, extent, label);
+                    buttons::midi_select(
+                        ui,
+                        &format!(
+                            "generator.{}.resolution.{}x{}",
+                            deck.index(),
+                            extent[0],
+                            extent[1]
+                        ),
+                        &format!("Deck {} · Generator {label}", deck.label()),
+                        &mut settings.resolution,
+                        extent,
+                        label,
+                    );
                 }
             });
             ui.horizontal_wrapped(|ui| {
                 for fps in FRAME_RATES {
-                    ui.selectable_value(&mut settings.fps, fps, format!("{fps} fps"));
+                    buttons::midi_select(
+                        ui,
+                        &format!("generator.{}.fps.{fps}", deck.index()),
+                        &format!("Deck {} · Generator {fps} fps", deck.label()),
+                        &mut settings.fps,
+                        fps,
+                        format!("{fps} fps"),
+                    );
                 }
             });
-            if ui.button("Reset all generator controls").clicked() {
+            if buttons::midi_button(
+                ui,
+                &format!("generator.{}.reset_all", deck.index()),
+                &format!("Deck {} · Generator Reset all controls", deck.label()),
+                |ui| ui.button("Reset all generator controls"),
+            )
+            .clicked()
+            {
                 *settings = GeneratorSettings {
                     pattern: settings.pattern,
                     seed: settings.seed,

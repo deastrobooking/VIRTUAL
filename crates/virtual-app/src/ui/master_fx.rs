@@ -26,6 +26,8 @@ pub(super) fn draw_custom_effect(
     });
     if algorithm_tiles(
         ui,
+        &format!("master.slot.{slot_index}.algorithm"),
+        &format!("Master slot {} · Algorithm", slot_index + 1),
         &mut slot.package_id,
         packages,
         palette,
@@ -73,7 +75,12 @@ pub(super) fn draw_custom_effect(
         ui.horizontal_wrapped(|ui| {
             ui.strong("Looks");
             for preset in &package.presets {
-                let response = ui.small_button(&preset.label);
+                let response = buttons::midi_button(
+                    ui,
+                    &format!("master.slot.{slot_index}.look.{}", preset.label),
+                    &format!("Master slot {} · Look {}", slot_index + 1, preset.label),
+                    |ui| ui.small_button(&preset.label),
+                );
                 if response.clicked() {
                     for (parameter_id, preset_value) in &preset.values {
                         if let Some(value) = slot
@@ -89,7 +96,14 @@ pub(super) fn draw_custom_effect(
                     response.on_hover_text(&preset.description);
                 }
             }
-            if ui.small_button("Reset controls").clicked() {
+            if buttons::midi_button(
+                ui,
+                &format!("master.slot.{slot_index}.reset_controls"),
+                &format!("Master slot {} · Reset controls", slot_index + 1),
+                |ui| ui.small_button("Reset controls"),
+            )
+            .clicked()
+            {
                 for parameter in &package.parameters {
                     if let Some(value) = slot
                         .parameters
@@ -134,7 +148,20 @@ pub(super) fn draw_custom_effect(
                 }
                 EffectParameterControl::Toggle => {
                     let mut enabled = slot.parameters[index].value >= 0.5;
-                    if ui.checkbox(&mut enabled, &parameter.label).changed() {
+                    let target = ControlTarget::MasterEffectParameter {
+                        slot: slot_index as u8,
+                        parameter_key: effect_parameter_key(&slot.package_id, &parameter.id),
+                    };
+                    let mut toggled = false;
+                    if let Some(map) = buttons::current_map() {
+                        toggled = mappable(ui, &map, target, actions, |ui| {
+                            ui.checkbox(&mut enabled, &parameter.label)
+                        })
+                        .changed();
+                    } else if ui.checkbox(&mut enabled, &parameter.label).changed() {
+                        toggled = true;
+                    }
+                    if toggled {
                         slot.parameters[index].value = if enabled { 1.0 } else { 0.0 };
                     }
                 }
@@ -203,8 +230,21 @@ pub(super) fn draw_master_modulation(
         for (index, lfo) in modulation.lfos.iter_mut().enumerate() {
             ui.group(|ui| {
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut lfo.enabled, format!("LFO {}", index + 1));
-                    if ui.small_button("Reset").clicked() {
+                    buttons::midi_toggle(
+                        ui,
+                        &format!("master.lfo.{index}.enabled"),
+                        &format!("Master LFO {} · On", index + 1),
+                        &mut lfo.enabled,
+                        |ui, value| ui.checkbox(value, format!("LFO {}", index + 1)),
+                    );
+                    if buttons::midi_button(
+                        ui,
+                        &format!("master.lfo.{index}.reset"),
+                        &format!("Master LFO {} · Reset", index + 1),
+                        |ui| ui.small_button("Reset"),
+                    )
+                    .clicked()
+                    {
                         *lfo = MasterLfo {
                             enabled: lfo.enabled,
                             ..MasterLfo::default()
@@ -214,6 +254,8 @@ pub(super) fn draw_master_modulation(
                 draw_lfo_shape(
                     ui,
                     egui::Id::new(("master-lfo", index)),
+                    &format!("master.lfo.{index}"),
+                    &format!("Master LFO {}", index + 1),
                     palette.accent,
                     lfo.enabled,
                     live_sources[index],
@@ -234,18 +276,38 @@ pub(super) fn draw_master_modulation(
 
         ui.horizontal(|ui| {
             ui.strong("Routes");
-            if ui.button("Mute all").clicked() {
+            if buttons::midi_button(
+                ui,
+                "master.routes.mute_all",
+                "Master · Mute all mod routes",
+                |ui| ui.button("Mute all"),
+            )
+            .clicked()
+            {
                 for route in &mut modulation.routes {
                     route.enabled = false;
                 }
             }
-            if ui.button("Clear routes").clicked() {
+            if buttons::midi_button(
+                ui,
+                "master.routes.clear",
+                "Master · Clear mod routes",
+                |ui| ui.button("Clear routes"),
+            )
+            .clicked()
+            {
                 modulation.routes.fill(Default::default());
             }
         });
         for (index, route) in modulation.routes.iter_mut().enumerate() {
             ui.horizontal(|ui| {
-                ui.checkbox(&mut route.enabled, format!("{}", index + 1));
+                buttons::midi_toggle(
+                    ui,
+                    &format!("master.route.{index}.enabled"),
+                    &format!("Master route {} · On", index + 1),
+                    &mut route.enabled,
+                    |ui, value| ui.checkbox(value, format!("{}", index + 1)),
+                );
                 mod_source_combo(ui, ("master-mod-source", index), &mut route.source);
                 egui::ComboBox::from_id_salt(("master-mod-target", index))
                     .selected_text(master_mod_target_label(route, effects, packages))
@@ -281,10 +343,13 @@ pub(super) fn draw_master_modulation(
                         .text("amount")
                         .show_value(true),
                 );
-                if ui
-                    .small_button("±")
-                    .on_hover_text("Invert this route")
-                    .clicked()
+                if buttons::midi_button(
+                    ui,
+                    &format!("master.route.{index}.invert"),
+                    &format!("Master route {} · Invert", index + 1),
+                    |ui| ui.small_button("±").on_hover_text("Invert this route"),
+                )
+                .clicked()
                 {
                     route.amount = -route.amount;
                 }

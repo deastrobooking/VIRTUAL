@@ -676,6 +676,22 @@ impl State {
         let Some(operation) = command_for_control(update) else {
             return;
         };
+        // Pinning is one-hot: journal the implicit unpin of the previous deck
+        // so recovery, which replays each target's last value, ends correct.
+        if let ControlTarget::DeckPin(deck) = update.target
+            && update.value >= 0.5
+            && let Some(previous) = self.ui.pinned_deck
+            && previous.index() != usize::from(deck)
+        {
+            self.record_show_operation(
+                origin.clone(),
+                now,
+                CommandOperation::ControlValue {
+                    target: ControlTarget::DeckPin(previous.index() as u8),
+                    value: 0.0,
+                },
+            );
+        }
         self.record_show_operation(origin, now, operation);
         self.apply_control_update_unrecorded(update, now);
         let feedback_value = match update.target {
@@ -725,6 +741,46 @@ impl State {
                     && let Some(deck) = deck_id(deck)
                 {
                     self.mixer.select(deck);
+                }
+            }
+            ControlTarget::DeckMute(deck) => {
+                if let Some(deck) = deck_id(deck) {
+                    self.ui.bypassed[deck.index()] = update.value >= 0.5;
+                }
+            }
+            ControlTarget::DeckPin(deck) => {
+                if let Some(deck) = deck_id(deck) {
+                    if update.value >= 0.5 {
+                        self.ui.pinned_deck = Some(deck);
+                    } else if self.ui.pinned_deck == Some(deck) {
+                        self.ui.pinned_deck = None;
+                    }
+                }
+            }
+            ControlTarget::DeckLayerTop(deck) => {
+                if update.value >= 0.5 && deck < 4 {
+                    crate::ui::layer_to_top(&mut self.ui.layer_order, deck);
+                }
+            }
+            ControlTarget::DeckLayerUp(deck) => {
+                if update.value >= 0.5 && deck < 4 {
+                    crate::ui::layer_step(&mut self.ui.layer_order, deck, true);
+                }
+            }
+            ControlTarget::DeckLayerDown(deck) => {
+                if update.value >= 0.5 && deck < 4 {
+                    crate::ui::layer_step(&mut self.ui.layer_order, deck, false);
+                }
+            }
+            ControlTarget::UiButton(key) => {
+                if update.value >= 0.5 {
+                    self.ui.pending_buttons.insert(key);
+                }
+            }
+            ControlTarget::LayerReset => {
+                if update.value >= 0.5 {
+                    self.ui.layer_order = virtual_render::DEFAULT_LAYER_ORDER;
+                    self.ui.pinned_deck = None;
                 }
             }
             ControlTarget::DeckRestart(deck) => {
@@ -806,6 +862,14 @@ impl State {
                     }
                 }
             }
+            ControlTarget::GeneratorParameter { deck, parameter } => {
+                if let Some(deck) = deck_id(deck)
+                    && let virtual_media::DeckState::Generator(settings) =
+                        &mut self.mixer.deck_mut(deck).state
+                {
+                    settings.set_parameter(parameter, update.value);
+                }
+            }
             ControlTarget::DeckEffectParameter {
                 deck,
                 parameter_key,
@@ -843,6 +907,11 @@ fn command_for_control(update: ControlUpdate) -> Option<CommandOperation> {
                 | ControlTarget::DeckRestart(_)
                 | ControlTarget::ClipLaunch { .. }
                 | ControlTarget::SceneLaunch(_)
+                | ControlTarget::DeckLayerTop(_)
+                | ControlTarget::DeckLayerUp(_)
+                | ControlTarget::DeckLayerDown(_)
+                | ControlTarget::LayerReset
+                | ControlTarget::UiButton(_)
         )
     {
         return None;
@@ -891,5 +960,21 @@ mod tests {
             }),
             None
         );
+        for target in [
+            ControlTarget::DeckLayerTop(1),
+            ControlTarget::DeckLayerUp(1),
+            ControlTarget::DeckLayerDown(1),
+            ControlTarget::LayerReset,
+        ] {
+            assert_eq!(
+                command_for_control(ControlUpdate { target, value: 0.0 }),
+                None
+            );
+            assert!(command_for_control(ControlUpdate { target, value: 1.0 }).is_some());
+        }
+        // Mute and pin release edges change state, so they are recorded.
+        for target in [ControlTarget::DeckMute(2), ControlTarget::DeckPin(2)] {
+            assert!(command_for_control(ControlUpdate { target, value: 0.0 }).is_some());
+        }
     }
 }

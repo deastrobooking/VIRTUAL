@@ -258,6 +258,15 @@ Open **GPU effects** on a deck. Available controls include:
 - Hue, contrast, saturation, black level, white level and gamma
 - Bit reduction and black-light inversion
 - Mirror, neon glow, fractal fold, jitter and find edges
+- Three more fold algorithms beside fractal fold, each with its own amount
+  that can be stacked, MIDI-learned and LFO/audio-modulated:
+  - **Spiral fold** twists the kaleidoscope seams with distance from the
+    centre and drifts slowly, so wedges spiral inward.
+  - **Kali fold** is a recursive Kaliset inversion fold (`|p| / p·p − c`);
+    the amount deepens the recursion smoothly, from soft warps to dense
+    fractal detail.
+  - **Koch fold** mirrors the image into a snowflake sixth and recursively
+    reflects it along Koch-curve edges, tiling it into crystalline cells.
 - Pixelate, luma key, bloom threshold/radius and chromatic bloom spread
 
 The chain has three rows: **Geometry**, **Color + levels**, and **Stylize +
@@ -530,6 +539,44 @@ because the incoming clock owns the tempo. See
 
 Assign decks to Bus A or Bus B, then use the crossfader. Linear and equal-power
 curves are available.
+
+The **LAYERS** row under the crossfader sets the stacking order, bottom to top.
+Click a deck to bring it to the top, or use ◀ / ▶ to move it one layer. The
+order applies within each bus: the crossfader still blends Bus A against Bus B.
+To keep one source on top during crossfades or modulated blends, pick it in
+**Pin … over mix**. A pinned deck is drawn over the crossfaded result, so the
+crossfader never fades it out; its own level, blend mode, solo and bypass still
+apply. **Reset** restores A–D stacking and unpins. Both settings are saved with
+the project.
+
+A compact copy of the row (deck chips, PIN and Reset) sits in the master
+toolbar next to BLACKOUT and Freeze master. Every layer control is MIDI
+learnable: arm **MIDI Map** and click a deck chip (to top), ◀ / ▶ (down / up),
+PIN or Reset. Pads learn as momentary for the reorder triggers and as toggles
+for PIN. The toolbar's BLACKOUT, Freeze master and channel mute buttons, and the
+deck strip's Bypass, are learnable too.
+
+### Mapping any button
+
+Almost every button, toggle and choice in the app can be mapped to a pad or
+button on a controller: arm **MIDI Map**, click the on-screen button (it is
+outlined like the sliders), then press the controller button. Right-click clears
+the mapping. Pads learn as momentary presses, and a press does exactly what a
+mouse click would: it toggles a checkbox, picks a choice (Bus A/B, Loop or Play
+once, blend mode, quantize, resolution, …) or runs an action (Eject, presets,
+New seed, Reset chain, Save, Scan journals, …).
+
+- A mapped press only acts on a button that is on screen. Buttons in a
+  collapsed section, a closed window or hidden by Show Mode ignore the press;
+  the press is not saved for later. Effect presets and blend modes are the
+  exception: they still respond while their menu is closed.
+- Disabled buttons ignore presses, as they ignore clicks.
+- Not mappable: file-picker buttons (Open…, Save As…, Relink…), the clip
+  right-click menu, dropdown device lists, the custom-colour editor, and the
+  MIDI Manager and learn controls themselves.
+- Mappings save with the project and survive layout and theme changes, because
+  each button has a fixed internal key. In the MIDI Manager a button mapping is
+  listed by name once that button has been drawn this session.
 
 Stage-safety shortcuts:
 

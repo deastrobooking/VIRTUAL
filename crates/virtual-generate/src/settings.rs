@@ -21,6 +21,9 @@ pub enum RecursivePattern {
     GeodesicSphere,
     Spirograph,
     TorusKnot,
+    ChebyshevCurve,
+    PolynomialContours,
+    Supershape,
 }
 
 /// Whether a pattern is drawn in the XY plane or occupies 3D space.
@@ -44,7 +47,7 @@ pub enum ColorMode {
 }
 
 impl RecursivePattern {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 19] = [
         Self::FractalTree,
         Self::RecursiveSpiral,
         Self::Mandala,
@@ -61,6 +64,9 @@ impl RecursivePattern {
         Self::GeodesicSphere,
         Self::Spirograph,
         Self::TorusKnot,
+        Self::ChebyshevCurve,
+        Self::PolynomialContours,
+        Self::Supershape,
     ];
 
     pub const fn id(self) -> &'static str {
@@ -80,6 +86,9 @@ impl RecursivePattern {
             Self::MengerSponge => "menger_sponge",
             Self::GeodesicSphere => "geodesic_sphere",
             Self::Spirograph => "spirograph",
+            Self::ChebyshevCurve => "chebyshev_curve",
+            Self::PolynomialContours => "polynomial_contours",
+            Self::Supershape => "supershape",
             Self::TorusKnot => "torus_knot",
         }
     }
@@ -105,6 +114,9 @@ impl RecursivePattern {
             Self::MengerSponge => "Menger Sponge",
             Self::GeodesicSphere => "Geodesic Sphere",
             Self::Spirograph => "Spirograph",
+            Self::ChebyshevCurve => "Chebyshev Curve",
+            Self::PolynomialContours => "Polynomial Contours",
+            Self::Supershape => "Supershape",
             Self::TorusKnot => "Torus Knot",
         }
     }
@@ -127,6 +139,9 @@ impl RecursivePattern {
             Self::MengerSponge => "Spread: gap between cubes · Twist: cube rotation",
             Self::GeodesicSphere => "Spread: fractal spikes · Twist: spike phase",
             Self::Spirograph => "Depth: curve detail · Spread: lobes · Twist: loop size",
+            Self::ChebyshevCurve | Self::PolynomialContours | Self::Supershape => {
+                "Use Polynomial & surface controls; depth sets curve detail"
+            }
             Self::TorusKnot => "Depth: curve detail · Spread: windings · Twist: tube radius",
         }
     }
@@ -141,7 +156,10 @@ impl RecursivePattern {
             | Self::HilbertCurve
             | Self::HTree
             | Self::PythagorasTree => Dimension::Planar,
-            Self::TorusKnot
+            Self::ChebyshevCurve
+            | Self::PolynomialContours
+            | Self::Supershape
+            | Self::TorusKnot
             | Self::FractalTree
             | Self::RecursiveSpiral
             | Self::Mandala
@@ -154,7 +172,10 @@ impl RecursivePattern {
 
     pub const fn color_mode(self) -> ColorMode {
         match self {
-            Self::KochSnowflake
+            Self::ChebyshevCurve
+            | Self::PolynomialContours
+            | Self::Supershape
+            | Self::KochSnowflake
             | Self::DragonCurve
             | Self::HilbertCurve
             | Self::Spirograph
@@ -246,6 +267,27 @@ pub struct GeneratorSettings {
     // Output.
     pub resolution: [u32; 2],
     pub fps: u32,
+    pub degree_x: f32,
+    pub degree_y: f32,
+    pub degree_z: f32,
+    pub polynomial_mix: f32,
+    pub surface_order: f32,
+    pub surface_cross: f32,
+    pub contours: f32,
+    pub slice_axis: f32,
+    pub symmetry: f32,
+    pub exponent: f32,
+    pub echo_copies: f32,
+    pub echo_scale: f32,
+    pub echo_x: f32,
+    pub echo_y: f32,
+    pub echo_z: f32,
+    pub echo_offset: f32,
+    pub echo_fade: f32,
+    pub trace_heads: f32,
+    pub trace_length: f32,
+    pub trace_speed: f32,
+    pub trace_spread: f32,
 }
 
 impl Default for GeneratorSettings {
@@ -279,6 +321,27 @@ impl Default for GeneratorSettings {
             audio_amount: 0.0,
             resolution: [1280, 720],
             fps: 60,
+            degree_x: 3.0,
+            degree_y: 4.0,
+            degree_z: 5.0,
+            polynomial_mix: 0.25,
+            surface_order: 4.0,
+            surface_cross: 0.0,
+            contours: 24.0,
+            slice_axis: 2.0,
+            symmetry: 6.0,
+            exponent: 1.0,
+            echo_copies: 1.0,
+            echo_scale: 0.88,
+            echo_x: 0.08,
+            echo_y: 0.12,
+            echo_z: 0.04,
+            echo_offset: 0.0,
+            echo_fade: 0.85,
+            trace_heads: 1.0,
+            trace_length: 1.0,
+            trace_speed: 0.0,
+            trace_spread: 0.0,
         }
     }
 }
@@ -299,6 +362,29 @@ impl GeneratorSettings {
         let unit = |value: f32, fallback: f32| finite_or(value, fallback).clamp(0.0, 1.0);
         let signed = |value: f32| finite_or(value, 0.0).clamp(-1.0, 1.0);
         let defaults = Self::default();
+        self.degree_x = finite_or(self.degree_x, defaults.degree_x).clamp(1.0, 12.0);
+        self.degree_y = finite_or(self.degree_y, defaults.degree_y).clamp(1.0, 12.0);
+        self.degree_z = finite_or(self.degree_z, defaults.degree_z).clamp(1.0, 12.0);
+        self.polynomial_mix =
+            finite_or(self.polynomial_mix, defaults.polynomial_mix).clamp(0.0, 1.0);
+        self.surface_order = finite_or(self.surface_order, defaults.surface_order).clamp(2.0, 12.0);
+        self.surface_cross = finite_or(self.surface_cross, defaults.surface_cross).clamp(0.0, 4.0);
+        self.contours = finite_or(self.contours, defaults.contours).clamp(4.0, 64.0);
+        self.slice_axis = finite_or(self.slice_axis, defaults.slice_axis).clamp(0.0, 2.0);
+        self.symmetry = finite_or(self.symmetry, defaults.symmetry).clamp(2.0, 12.0);
+        self.exponent = finite_or(self.exponent, defaults.exponent).clamp(0.25, 4.0);
+        self.echo_copies = finite_or(self.echo_copies, defaults.echo_copies).clamp(1.0, 24.0);
+        self.echo_scale = finite_or(self.echo_scale, defaults.echo_scale).clamp(0.5, 1.0);
+        self.echo_x = finite_or(self.echo_x, defaults.echo_x).clamp(-1.0, 1.0);
+        self.echo_y = finite_or(self.echo_y, defaults.echo_y).clamp(-1.0, 1.0);
+        self.echo_z = finite_or(self.echo_z, defaults.echo_z).clamp(-1.0, 1.0);
+        self.echo_offset = finite_or(self.echo_offset, defaults.echo_offset).clamp(-0.25, 0.25);
+        self.echo_fade = finite_or(self.echo_fade, defaults.echo_fade).clamp(0.1, 1.0);
+        self.trace_heads = finite_or(self.trace_heads, defaults.trace_heads).clamp(1.0, 8.0);
+        self.trace_length = finite_or(self.trace_length, defaults.trace_length).clamp(0.0, 1.0);
+        self.trace_speed = finite_or(self.trace_speed, defaults.trace_speed).clamp(-1.0, 1.0);
+        self.trace_spread = finite_or(self.trace_spread, defaults.trace_spread).clamp(0.0, 1.0);
+
         self.depth = unit(self.depth, defaults.depth);
         self.scale = unit(self.scale, defaults.scale);
         self.spread = unit(self.spread, defaults.spread);

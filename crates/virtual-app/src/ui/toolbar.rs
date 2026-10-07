@@ -1,10 +1,11 @@
 //! Always-visible show controls and release preflight summary.
 
-use virtual_core::ClockSource;
+use virtual_core::{ClockSource, ControlTarget};
 use virtual_media::{CLIPS_PER_DECK, ClipAddress, ClipBank, DeckId};
 
+use super::buttons::midi_button;
 use super::theme::ThemePalette;
-use super::{PerformanceMetrics, UiAction, UiState};
+use super::{MidiMapUi, PerformanceMetrics, UiAction, UiState, draw_layer_order, mappable};
 
 pub(super) fn draw_toolbar(
     ui: &mut egui::Ui,
@@ -12,6 +13,7 @@ pub(super) fn draw_toolbar(
     clips: &ClipBank,
     metrics: &PerformanceMetrics<'_>,
     palette: ThemePalette,
+    midi_map: &MidiMapUi,
     actions: &mut Vec<UiAction>,
 ) {
     let mut missing_media = 0;
@@ -80,6 +82,38 @@ pub(super) fn draw_toolbar(
         );
         status_dot(ui, &palette, "MIDI", metrics.midi.any_connected(), false);
         status_dot(ui, &palette, "OSC", metrics.osc.connected, false);
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            // Reverse insertion keeps the visible channel order A–D.
+            for deck in DeckId::ALL.into_iter().rev() {
+                let muted = &mut state.bypassed[deck.index()];
+                let name = ["A", "B", "C", "D"][deck.index()];
+                let color = palette.deck_color(deck);
+                let label = if *muted {
+                    format!("{name} · MUTED")
+                } else {
+                    format!("{name} · MUTE")
+                };
+                let target = ControlTarget::DeckMute(deck.index() as u8);
+                if mappable(ui, midi_map, target, actions, |ui| {
+                    ui.add(
+                        egui::Button::new(egui::RichText::new(label).strong())
+                            .selected(*muted)
+                            .fill(palette.control_tint(color, if *muted { 0.55 } else { 0.12 }))
+                            .stroke(egui::Stroke::new(1.0, color))
+                            .min_size(egui::vec2(94.0, 34.0)),
+                    )
+                    .on_hover_text(format!(
+                        "{} deck {name} in the program mix. Playback and channel settings are preserved.",
+                        if *muted { "Unmute" } else { "Mute" }
+                    ))
+                })
+                .clicked()
+                {
+                    *muted = !*muted;
+                }
+            }
+            ui.weak("CHANNEL MUTES");
+        });
     });
     ui.horizontal_wrapped(|ui| {
         let blackout_fill = if state.blackout {
@@ -87,8 +121,8 @@ pub(super) fn draw_toolbar(
         } else {
             palette.control_tint(palette.danger, 0.18)
         };
-        if ui
-            .add(
+        if mappable(ui, midi_map, ControlTarget::MasterBlackout, actions, |ui| {
+            ui.add(
                 egui::Button::new(
                     egui::RichText::new("BLACKOUT")
                         .strong()
@@ -98,12 +132,13 @@ pub(super) fn draw_toolbar(
                 .min_size(egui::vec2(104.0, 34.0)),
             )
             .on_hover_text("Emergency program blackout")
-            .clicked()
+        })
+        .clicked()
         {
             state.blackout = !state.blackout;
         }
-        if ui
-            .add(
+        if mappable(ui, midi_map, ControlTarget::MasterFreeze, actions, |ui| {
+            ui.add(
                 egui::Button::new(if state.master_freeze {
                     "Resume master"
                 } else {
@@ -111,17 +146,21 @@ pub(super) fn draw_toolbar(
                 })
                 .selected(state.master_freeze),
             )
-            .clicked()
+        })
+        .clicked()
         {
             state.master_freeze = !state.master_freeze;
         }
+        ui.separator();
+        draw_layer_order(ui, state, &palette, midi_map, actions, true);
+        ui.separator();
         let show_label = if state.show_mode {
             "EXIT SHOW MODE"
         } else {
             "SHOW MODE"
         };
-        if ui
-            .add(
+        if midi_button(ui, "toolbar.show_mode", "Toolbar · Show Mode", |ui| {
+            ui.add(
                 egui::Button::new(egui::RichText::new(show_label).strong()).fill(
                     if state.show_mode {
                         palette.control_tint(palette.success, 0.36)
@@ -131,7 +170,8 @@ pub(super) fn draw_toolbar(
                 ),
             )
             .on_hover_text("Lock setup, media management and structural effect editors")
-            .clicked()
+        })
+        .clicked()
         {
             state.show_mode = !state.show_mode;
             if state.show_mode {
@@ -142,16 +182,18 @@ pub(super) fn draw_toolbar(
             }
         }
         if !state.show_mode {
-            if ui
-                .selectable_label(state.theme.editor_open, "Appearance")
-                .clicked()
+            if midi_button(ui, "toolbar.appearance", "Toolbar · Appearance", |ui| {
+                ui.selectable_label(state.theme.editor_open, "Appearance")
+            })
+            .clicked()
             {
                 state.theme.editor_open = !state.theme.editor_open;
             }
-            if ui
-                .selectable_label(state.midi_manager_open, "MIDI")
-                .on_hover_text("Open the MIDI Manager window")
-                .clicked()
+            if midi_button(ui, "toolbar.midi_manager", "Toolbar · MIDI Manager", |ui| {
+                ui.selectable_label(state.midi_manager_open, "MIDI")
+                    .on_hover_text("Open the MIDI Manager window")
+            })
+            .clicked()
             {
                 state.midi_manager_open = !state.midi_manager_open;
             }
@@ -181,10 +223,11 @@ pub(super) fn draw_toolbar(
                 .speed(0.25)
                 .suffix(" BPM"),
         );
-        if ui
-            .add_enabled(!external, egui::Button::new("Tap tempo"))
-            .on_hover_text("Tap with the DJ's beat; available in Show Mode")
-            .clicked()
+        if mappable(ui, midi_map, ControlTarget::TapTempo, actions, |ui| {
+            ui.add_enabled(!external, egui::Button::new("Tap tempo"))
+                .on_hover_text("Tap with the DJ's beat; available in Show Mode")
+        })
+        .clicked()
         {
             actions.push(UiAction::TapTempo);
         }
@@ -226,7 +269,14 @@ pub(super) fn draw_toolbar(
                 palette.danger,
                 format!("Save failed · {}: {error}", path.display()),
             );
-            if ui.button("Dismiss save error").clicked() {
+            if midi_button(
+                ui,
+                "toolbar.dismiss_save_error",
+                "Toolbar · Dismiss save error",
+                |ui| ui.button("Dismiss save error"),
+            )
+            .clicked()
+            {
                 state.save_status.error = None;
             }
         }

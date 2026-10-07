@@ -28,6 +28,9 @@ struct MixerGlobals {
     luma_key: [f32; 4],
     neon: [f32; 4],
     fractal: [f32; 4],
+    spiral_fold: [f32; 4],
+    kali_fold: [f32; 4],
+    koch_fold: [f32; 4],
     jitter: [f32; 4],
     find_edges: [f32; 4],
     bit_reduction: [f32; 4],
@@ -64,12 +67,29 @@ struct MixerGlobals {
     time_seconds: f32,
     output_aspect: f32,
     blackout: u32,
-    _padding_a: u32,
+    /// Deck composited over the crossfaded mix; 4 means none.
+    pinned_deck: u32,
     _padding_b: u32,
     deck_override_mask: [u32; 4],
+    layer_order: [u32; 4],
 }
 
 pub const EFFECT_SLOTS_PER_DECK: usize = 3;
+
+/// Bottom-to-top compositing order matching the original A→D stacking.
+pub const DEFAULT_LAYER_ORDER: [u8; 4] = [0, 1, 2, 3];
+
+/// Returns `order` when it is a permutation of the four decks, else the default.
+pub fn sanitized_layer_order(order: [u8; 4]) -> [u8; 4] {
+    let mut seen = [false; 4];
+    for deck in order {
+        match seen.get_mut(usize::from(deck)) {
+            Some(slot) if !*slot => *slot = true,
+            _ => return DEFAULT_LAYER_ORDER,
+        }
+    }
+    order
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum EffectGroup {
@@ -172,6 +192,9 @@ pub struct DeckEffects {
     pub luma_key: f32,
     pub neon: f32,
     pub fractal: f32,
+    pub spiral_fold: f32,
+    pub kali_fold: f32,
+    pub koch_fold: f32,
     pub jitter: f32,
     pub find_edges: f32,
     pub bit_reduction: f32,
@@ -205,6 +228,9 @@ impl Default for DeckEffects {
             luma_key: 0.0,
             neon: 0.0,
             fractal: 0.0,
+            spiral_fold: 0.0,
+            kali_fold: 0.0,
+            koch_fold: 0.0,
             jitter: 0.0,
             find_edges: 0.0,
             bit_reduction: 0.0,
@@ -266,6 +292,9 @@ impl DeckEffects {
         self.luma_key = self.luma_key.clamp(0.0, 1.0);
         self.neon = self.neon.clamp(0.0, 1.0);
         self.fractal = self.fractal.clamp(0.0, 1.0);
+        self.spiral_fold = self.spiral_fold.clamp(0.0, 1.0);
+        self.kali_fold = self.kali_fold.clamp(0.0, 1.0);
+        self.koch_fold = self.koch_fold.clamp(0.0, 1.0);
         self.jitter = self.jitter.clamp(0.0, 1.0);
         self.find_edges = self.find_edges.clamp(0.0, 1.0);
         self.bit_reduction = self.bit_reduction.clamp(0.0, 1.0);
@@ -385,6 +414,9 @@ pub enum EffectTarget {
     LumaKey,
     Neon,
     Fractal,
+    SpiralFold,
+    KaliFold,
+    KochFold,
     Jitter,
     FindEdges,
     BitReduction,
@@ -580,6 +612,9 @@ fn modulate(effects: &mut DeckEffects, target: EffectTarget, value: f32) {
         EffectTarget::LumaKey => effects.luma_key += value,
         EffectTarget::Neon => effects.neon += value,
         EffectTarget::Fractal => effects.fractal += value,
+        EffectTarget::SpiralFold => effects.spiral_fold += value,
+        EffectTarget::KaliFold => effects.kali_fold += value,
+        EffectTarget::KochFold => effects.koch_fold += value,
         EffectTarget::Jitter => effects.jitter += value,
         EffectTarget::FindEdges => effects.find_edges += value,
         EffectTarget::BitReduction => effects.bit_reduction += value,
@@ -598,6 +633,10 @@ pub struct MixerParams {
     pub bypassed: [bool; 4],
     pub buses: [MixerBus; 4],
     pub crossfade_gains: [f32; 2],
+    /// Deck indices from bottom to top within each bus.
+    pub layer_order: [u8; 4],
+    /// Deck drawn over the crossfaded mix, unaffected by the crossfader.
+    pub pinned_deck: Option<u8>,
     pub transforms: [DeckTransform; 4],
     pub blend_modes: [LayerBlendMode; 4],
     pub output_aspect: f32,
@@ -1056,6 +1095,8 @@ impl Default for MixerParams {
             bypassed: [false; 4],
             buses: [MixerBus::A; 4],
             crossfade_gains: [1.0, 0.0],
+            layer_order: DEFAULT_LAYER_ORDER,
+            pinned_deck: None,
             transforms: [DeckTransform::default(); 4],
             blend_modes: [LayerBlendMode::Normal; 4],
             output_aspect: 1.0,
@@ -1694,6 +1735,9 @@ impl FourDeckCompositor {
                 luma_key: float_values(|effect| effect.luma_key),
                 neon: float_values(|effect| effect.neon),
                 fractal: float_values(|effect| effect.fractal),
+                spiral_fold: float_values(|effect| effect.spiral_fold),
+                kali_fold: float_values(|effect| effect.kali_fold),
+                koch_fold: float_values(|effect| effect.koch_fold),
                 jitter: float_values(|effect| effect.jitter),
                 find_edges: float_values(|effect| effect.find_edges),
                 bit_reduction: float_values(|effect| effect.bit_reduction),
@@ -1741,9 +1785,13 @@ impl FourDeckCompositor {
                     1.0
                 },
                 blackout: u32::from(params.blackout),
-                _padding_a: 0,
+                pinned_deck: params
+                    .pinned_deck
+                    .filter(|deck| *deck < 4)
+                    .map_or(4, u32::from),
                 _padding_b: 0,
                 deck_override_mask,
+                layer_order: sanitized_layer_order(params.layer_order).map(u32::from),
             }),
         );
         if self.bind_group.is_none() {

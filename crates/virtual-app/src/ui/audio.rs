@@ -126,14 +126,23 @@ fn draw_signal_views(ui: &mut egui::Ui, state: &mut UiState, context: &AudioPane
 
     ui.horizontal_wrapped(|ui| {
         let mut frozen = state.audio_display_frozen.is_some();
-        if ui
-            .toggle_value(&mut frozen, "Freeze")
-            .on_hover_text("Hold the waveform and spectrum to inspect them")
-            .changed()
+        if buttons::midi_toggle(
+            ui,
+            "audio.freeze_display",
+            "Audio · Freeze display",
+            &mut frozen,
+            |ui, value| ui.toggle_value(value, "Freeze"),
+        )
+        .on_hover_text("Hold the waveform and spectrum to inspect them")
+        .changed()
         {
             state.audio_display_frozen = frozen.then(|| context.visual.clone());
         }
-        if ui.button("Reset peaks").clicked() {
+        if buttons::midi_button(ui, "audio.reset_peaks", "Audio · Reset peaks", |ui| {
+            ui.button("Reset peaks")
+        })
+        .clicked()
+        {
             state.spectrum_curve_peaks.fill(CURVE_FLOOR_DB);
         }
         match loudest {
@@ -510,20 +519,29 @@ fn draw_input_row(
         if context.connected && state.audio_channel != previous_channel {
             actions.push(UiAction::ConnectAudioInput(state.audio_device_id.clone()));
         }
-        if ui.button("Refresh").clicked() {
+        if buttons::midi_button(ui, "audio.refresh", "Audio · Refresh inputs", |ui| {
+            ui.button("Refresh")
+        })
+        .clicked()
+        {
             actions.push(UiAction::RefreshAudioInputs);
         }
         if context.connected {
-            if ui.button("Disconnect").clicked() {
+            if buttons::midi_button(ui, "audio.disconnect", "Audio · Disconnect input", |ui| {
+                ui.button("Disconnect")
+            })
+            .clicked()
+            {
                 actions.push(UiAction::DisconnectAudioInput);
             }
-        } else if ui
-            .add_enabled(
+        } else if buttons::midi_button(ui, "audio.connect", "Audio · Connect input", |ui| {
+            ui.add_enabled(
                 !state.audio_device_id.is_empty(),
                 egui::Button::new("Connect")
                     .fill(context.palette.control_tint(context.palette.success, 0.3)),
             )
-            .clicked()
+        })
+        .clicked()
         {
             actions.push(UiAction::ConnectAudioInput(state.audio_device_id.clone()));
         }
@@ -627,8 +645,22 @@ fn draw_spectrum(ui: &mut egui::Ui, state: &mut UiState, context: &AudioPanelCon
     });
     ui.horizontal_wrapped(|ui| {
         ui.label("Scale");
-        ui.selectable_value(&mut state.audio_analysis.spectrum_decibels, true, "dB");
-        ui.selectable_value(&mut state.audio_analysis.spectrum_decibels, false, "Linear");
+        buttons::midi_select(
+            ui,
+            "audio.scale_db",
+            "Audio · Spectrum dB",
+            &mut state.audio_analysis.spectrum_decibels,
+            true,
+            "dB",
+        );
+        buttons::midi_select(
+            ui,
+            "audio.scale_linear",
+            "Audio · Spectrum linear",
+            &mut state.audio_analysis.spectrum_decibels,
+            false,
+            "Linear",
+        );
         ui.add_enabled(
             state.audio_analysis.spectrum_decibels,
             egui::Slider::new(&mut state.audio_analysis.spectrum_range_db, 12.0..=96.0)
@@ -636,13 +668,18 @@ fn draw_spectrum(ui: &mut egui::Ui, state: &mut UiState, context: &AudioPanelCon
                 .text("range"),
         )
         .on_hover_text("How far below full scale a band reads as zero");
-        if ui.button("Flat EQ").clicked() {
+        if buttons::midi_button(ui, "audio.flat_eq", "Audio · Flat EQ", |ui| {
+            ui.button("Flat EQ")
+        })
+        .clicked()
+        {
             state.audio_analysis.band_gains_db = [0.0; SPECTRUM_BANDS];
         }
-        if ui
-            .button("Music tilt")
-            .on_hover_text("Lift the quieter upper bands so each band moves on typical music")
-            .clicked()
+        if buttons::midi_button(ui, "audio.music_tilt", "Audio · Music tilt EQ", |ui| {
+            ui.button("Music tilt")
+                .on_hover_text("Lift the quieter upper bands so each band moves on typical music")
+        })
+        .clicked()
         {
             state.audio_analysis.band_gains_db = [-3.0, -3.0, 0.0, 2.0, 4.0, 6.0, 8.0, 10.0];
         }
@@ -818,7 +855,13 @@ fn draw_response(ui: &mut egui::Ui, state: &mut UiState, context: &AudioPanelCon
                 );
             });
             ui.horizontal_wrapped(|ui| {
-                ui.checkbox(&mut analysis.normalization, "Adaptive normalization");
+                buttons::midi_toggle(
+                    ui,
+                    "audio.normalization",
+                    "Audio · Adaptive normalization",
+                    &mut analysis.normalization,
+                    |ui, value| ui.checkbox(value, "Adaptive normalization"),
+                );
                 ui.add_enabled_ui(analysis.normalization, |ui| {
                     ui.add(
                         egui::Slider::new(&mut analysis.normalization_target, 0.05..=1.0)
@@ -914,24 +957,31 @@ fn draw_mappings(ui: &mut egui::Ui, state: &mut UiState, context: &AudioPanelCon
             "Band mappings · {}/{MAX_AUDIO_BINDINGS}",
             state.audio_map.bindings.len()
         ));
-        if ui
-            .add_enabled(
-                state.audio_map.bindings.len() < MAX_AUDIO_BINDINGS,
-                egui::Button::new("Add mapping"),
-            )
-            .clicked()
+        let can_add = state.audio_map.bindings.len() < MAX_AUDIO_BINDINGS;
+        if buttons::midi_button(ui, "audio.map.add", "Audio map · Add mapping", |ui| {
+            ui.add_enabled(can_add, egui::Button::new("Add mapping"))
+        })
+        .clicked()
         {
             state
                 .audio_map
                 .bindings
                 .push(AudioBinding::new(1, ControlTarget::DeckLevel(0)));
         }
-        if ui.button("Mute all").clicked() {
+        if buttons::midi_button(ui, "audio.map.mute_all", "Audio map · Mute all", |ui| {
+            ui.button("Mute all")
+        })
+        .clicked()
+        {
             for binding in &mut state.audio_map.bindings {
                 binding.enabled = false;
             }
         }
-        if ui.button("Clear all").clicked() {
+        if buttons::midi_button(ui, "audio.map.clear_all", "Audio map · Clear all", |ui| {
+            ui.button("Clear all")
+        })
+        .clicked()
+        {
             state.audio_map.bindings.clear();
         }
     });
@@ -967,7 +1017,13 @@ fn draw_mappings(ui: &mut egui::Ui, state: &mut UiState, context: &AudioPanelCon
                     }
                     ui.end_row();
                     for (index, binding) in state.audio_map.bindings.iter_mut().enumerate() {
-                        ui.checkbox(&mut binding.enabled, "");
+                        buttons::midi_toggle(
+                            ui,
+                            &format!("audio.map.{index}.enabled"),
+                            &format!("Audio map {} · On", index + 1),
+                            &mut binding.enabled,
+                            |ui, value| ui.checkbox(value, ""),
+                        );
                         egui::ComboBox::from_id_salt(("audio-map-source", index))
                             .selected_text(audio_map_source_label(binding.source))
                             .width(96.0)
@@ -1030,7 +1086,13 @@ fn draw_mappings(ui: &mut egui::Ui, state: &mut UiState, context: &AudioPanelCon
                             ui.add(egui::DragValue::new(&mut binding.output_range[0]).speed(0.01));
                             ui.add(egui::DragValue::new(&mut binding.output_range[1]).speed(0.01));
                         });
-                        ui.checkbox(&mut binding.invert, "");
+                        buttons::midi_toggle(
+                            ui,
+                            &format!("audio.map.{index}.invert"),
+                            &format!("Audio map {} · Invert", index + 1),
+                            &mut binding.invert,
+                            |ui, value| ui.checkbox(value, ""),
+                        );
                         let live = binding.normalized(&sources);
                         let lit =
                             binding.mode == AudioMapMode::Continuous || live >= binding.threshold;
