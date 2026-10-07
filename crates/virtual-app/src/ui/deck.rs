@@ -68,7 +68,7 @@ pub(super) fn draw_deck(
         .corner_radius(egui::CornerRadius::same(8))
         .inner_margin(10.0);
 
-    frame.show(ui, |ui| {
+    let strip = frame.show(ui, |ui| {
         // 340 keeps a strip usable inside the cascade's 380 px column; the
         // grid cells simply grow past it.
         ui.set_min_size([340.0, 165.0].into());
@@ -121,7 +121,7 @@ pub(super) fn draw_deck(
         match &mixer.deck(id).state {
             DeckState::Empty => {
                 ui.label("Empty");
-                ui.weak("Select this deck and drop MOV, MP4, MKV, AVI, WebM, or MXF footage.");
+                ui.weak("Drop MOV, MP4, MKV, AVI, WebM, or MXF footage on this deck or one of its clip slots.");
             }
             DeckState::Loading { path } => {
                 ui.spinner();
@@ -1051,6 +1051,7 @@ pub(super) fn draw_deck(
             });
         }
     });
+    drop_targets::register(ui, strip.response.rect, drop_targets::DropTarget::Deck(id));
 }
 
 pub(super) struct LfoFields<'a> {

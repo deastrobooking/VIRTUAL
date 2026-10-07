@@ -221,6 +221,11 @@ pub(super) fn draw_clip_grid(
                             ui.add_sized(CLIP_CELL, button)
                         }
                     });
+                    drop_targets::register(
+                        ui,
+                        response.rect,
+                        drop_targets::DropTarget::Clip(address),
+                    );
                     let response = if draggable {
                         response.on_hover_cursor(egui::CursorIcon::Grab)
                     } else {
@@ -297,7 +302,7 @@ pub(super) fn draw_clip_grid(
                         } else if let Some(path) = &slot_state.pending_path {
                             format!("Restoring {}", path.display())
                         } else {
-                            "Empty slot · select then drop a movie".to_owned()
+                            "Empty slot · drop a movie or folder here".to_owned()
                         })
                         .context_menu(|ui| {
                             if state.show_mode {

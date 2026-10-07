@@ -23,13 +23,103 @@ pub(crate) struct ActiveCameraRecording {
     pub canceled: bool,
 }
 
+/// Drop events closer together than this belong to one multi-file drop.
+const DROP_BURST: std::time::Duration = std::time::Duration::from_millis(750);
+
+/// Slot for a dropped file aimed at `first`: `first` itself, or the slot
+/// after the previous file when it belongs to the same multi-file drop.
+fn drop_slot(
+    last_drop: Option<(Instant, ClipAddress, ClipAddress)>,
+    first: ClipAddress,
+    now: Instant,
+) -> ClipAddress {
+    match last_drop {
+        Some((at, burst_first, previous))
+            if burst_first == first
+                && now.saturating_duration_since(at) < DROP_BURST
+                && previous.slot + 1 < CLIPS_PER_DECK =>
+        {
+            ClipAddress {
+                deck: previous.deck,
+                slot: previous.slot + 1,
+            }
+        }
+        _ => first,
+    }
+}
+
+/// The cursor in egui points, read from CoreGraphics. winit 0.30 sends no
+/// cursor events while Finder drags a file over the window, so egui's last
+/// pointer position is wherever the mouse left the window.
+#[cfg(target_os = "macos")]
+fn macos_cursor_points(
+    window: &winit::window::Window,
+    pixels_per_point: f32,
+) -> Option<egui::Pos2> {
+    use objc2_core_graphics::CGEvent;
+    let event = CGEvent::new(None)?;
+    // Global display coordinates: points from the top-left of the main
+    // display, the same space winit flips window positions into.
+    let cursor = CGEvent::location(Some(&event));
+    let scale = window.scale_factor();
+    let origin = window.inner_position().ok()?.to_logical::<f64>(scale);
+    let to_points = scale / f64::from(pixels_per_point);
+    Some(egui::pos2(
+        ((cursor.x - origin.x) * to_points) as f32,
+        ((cursor.y - origin.y) * to_points) as f32,
+    ))
+}
+
 impl State {
     pub(crate) fn import_path(&mut self, path: PathBuf) {
         if path.is_dir() {
             self.import_folder(path);
         } else {
-            self.import_movie(path);
+            self.import_movie(path, true);
         }
+    }
+
+    /// Imports a file dropped from the desktop into the clip slot or deck
+    /// under the pointer, falling back to the selected slot. Several files
+    /// dropped together arrive as consecutive events and fill the slots after
+    /// the first one on the same deck.
+    pub(crate) fn import_dropped(&mut self, path: PathBuf) {
+        let ctx = self.egui_state.egui_ctx().clone();
+        let target = self
+            .drop_pointer(&ctx)
+            .and_then(|pos| crate::ui::drop_targets::at(&ctx, pos));
+        let now = Instant::now();
+        let address = match target {
+            Some(crate::ui::drop_targets::DropTarget::Clip(address)) => Some(address),
+            Some(crate::ui::drop_targets::DropTarget::Deck(deck)) => Some(ClipAddress {
+                deck,
+                slot: self.clips.selected(deck),
+            }),
+            None => None,
+        };
+        let Some(first) = address else {
+            self.last_drop = None;
+            self.import_path(path);
+            return;
+        };
+        let address = drop_slot(self.last_drop, first, now);
+        self.last_drop = Some((now, first, address));
+        self.mixer.select(address.deck);
+        self.clips.select(address);
+        if path.is_dir() {
+            self.import_folder(path);
+        } else {
+            self.import_movie(path, false);
+        }
+    }
+
+    /// Pointer position in egui points at the moment of a desktop drop.
+    fn drop_pointer(&self, ctx: &egui::Context) -> Option<egui::Pos2> {
+        #[cfg(target_os = "macos")]
+        if let Some(pos) = macos_cursor_points(&self.window, ctx.pixels_per_point()) {
+            return Some(pos);
+        }
+        ctx.input(|input| input.pointer.latest_pos())
     }
 
     pub(crate) fn browse_relink(&mut self, address: ClipAddress) {
@@ -304,7 +394,10 @@ impl State {
         }
     }
 
-    pub(crate) fn import_movie(&mut self, path: PathBuf) {
+    /// Loads `path` into the selected deck's selected slot. `advance` moves
+    /// the selection to the next deck afterwards, so files opened together
+    /// from the command line spread across decks.
+    pub(crate) fn import_movie(&mut self, path: PathBuf, advance: bool) {
         let path = path.canonicalize().unwrap_or(path);
         let deck = self.mixer.selected();
         self.stop_camera_recording(deck);
@@ -320,7 +413,9 @@ impl State {
         self.reset_playback(deck, request.generation);
         match self.importer.submit(request) {
             Ok(()) => {
-                self.mixer.select(deck.next());
+                if advance {
+                    self.mixer.select(deck.next());
+                }
                 self.window.request_redraw();
             }
             Err(SubmitError::Busy(request)) | Err(SubmitError::Disconnected(request)) => {
@@ -680,5 +775,38 @@ impl State {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use virtual_media::DeckId;
+
+    #[test]
+    fn multi_file_drops_fill_following_slots_on_the_target_deck() {
+        let first = ClipAddress {
+            deck: DeckId::C,
+            slot: 1,
+        };
+        let start = Instant::now();
+        assert_eq!(drop_slot(None, first, start), first);
+        let second = drop_slot(Some((start, first, first)), first, start);
+        assert_eq!(
+            second,
+            ClipAddress {
+                deck: DeckId::C,
+                slot: 2
+            }
+        );
+        // A later, separate drop on the same cell starts over.
+        let later = start + DROP_BURST * 2;
+        assert_eq!(drop_slot(Some((start, first, second)), first, later), first);
+        // A burst never runs past the last slot.
+        let last = ClipAddress {
+            deck: DeckId::C,
+            slot: CLIPS_PER_DECK - 1,
+        };
+        assert_eq!(drop_slot(Some((start, first, last)), first, start), first);
     }
 }

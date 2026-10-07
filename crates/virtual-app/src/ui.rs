@@ -9,6 +9,7 @@ pub(crate) mod buttons;
 mod clips;
 mod deck;
 mod diagnostics;
+pub(crate) mod drop_targets;
 mod generator;
 mod master_fx;
 mod midi;
@@ -856,6 +857,7 @@ pub fn draw(
     let palette = state.theme.palette();
     state.fps.push(metrics.frame_time.delta);
     let mut actions = Vec::new();
+    drop_targets::begin_frame();
     buttons::begin_frame(
         std::mem::take(&mut state.pending_buttons),
         MidiMapUi {

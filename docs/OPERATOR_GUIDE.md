@@ -126,12 +126,15 @@ GPU-compressed path; other supported movies and stills use FFmpeg.
 
 ## Load and trigger clips
 
-1. Select deck A, B, C or D.
-2. Select one of its eight clip slots.
-3. Drag a MOV, MP4, MKV, AVI, WebM, MXF, PNG or JPEG file onto the window.
-4. Wait for the slot to show its thumbnail and filled-circle first-frame
+1. Drag a MOV, MP4, MKV, AVI, WebM, MXF, PNG or JPEG file from the desktop
+   onto the clip slot you want, for example deck C slot 2. That slot and deck
+   become selected and the clip loads there. Dropping several files together
+   fills the following slots of the same deck. Dropping onto a deck strip loads
+   that deck's selected slot; dropping anywhere else uses the selected deck and
+   slot, as before.
+2. Wait for the slot to show its thumbnail and filled-circle first-frame
    readiness marker.
-5. Click the slot to launch it.
+3. Click the slot to launch it.
 
 To reorganize a bank, drag any populated or missing-media slot onto another
 slot. An empty destination receives the clip; an occupied destination swaps
@@ -146,8 +149,8 @@ launches and cached previews through the same journaled path. Deleting the
 currently playing slot also stops its decoder, clears its uploaded GPU texture
 and empties that deck's live signal. Show Mode blocks clip deletion.
 
-To populate multiple slots, select the desired starting slot and drag a folder
-onto the window. VIRTUAL recursively finds supported media, sorts paths
+To populate multiple slots, drag a folder onto the starting slot (or select
+the starting slot and drop the folder anywhere else in the window). VIRTUAL recursively finds supported media, sorts paths
 lexically, fills from the selected slot, wraps across decks and skips occupied
 slots. At most the 32 available clip addresses are assigned. The status line
 reports scanning, probe progress, truncation caused by available capacity and

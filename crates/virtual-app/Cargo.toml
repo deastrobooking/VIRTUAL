@@ -31,3 +31,8 @@ serde.workspace = true
 serde_json.workspace = true
 wgpu.workspace = true
 winit.workspace = true
+
+# Cursor position at drop time: winit 0.30 reports no position for files
+# dragged in from Finder.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-graphics = { version = "0.3.2", default-features = false, features = ["std", "CGEvent", "CGEventSource", "CGEventTypes"] }

@@ -102,6 +102,8 @@ struct State {
     folder_scanner: FolderScanner,
     folder_request_id: u64,
     folder_scan_start: ClipAddress,
+    /// First slot and last-filled slot of the current multi-file drop.
+    last_drop: Option<(Instant, ClipAddress, ClipAddress)>,
     folder_pending: HashSet<ClipAddress>,
     relink_pending: HashSet<ClipAddress>,
     relink_active: HashSet<ClipAddress>,
@@ -277,7 +279,7 @@ impl ApplicationHandler for App {
                             .unwrap_or("media")
                     );
                 } else {
-                    state.import_path(path);
+                    state.import_dropped(path);
                 }
             }
             WindowEvent::ModifiersChanged(modifiers) => state.modifiers = modifiers.state(),
@@ -669,6 +671,7 @@ impl State {
             importer: MediaImporter::new(8),
             folder_scanner: FolderScanner::new(),
             folder_request_id: 0,
+            last_drop: None,
             folder_scan_start: ClipAddress {
                 deck: DeckId::A,
                 slot: 0,
