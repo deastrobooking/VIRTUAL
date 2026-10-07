@@ -493,11 +493,13 @@ fn fold_variants_are_distinct_and_keep_the_image_visible() {
         params
     };
     type Setter = fn(&mut DeckEffects, f32);
-    let setters: [(&str, Setter); 4] = [
+    let setters: [(&str, Setter); 6] = [
         ("fractal", |e, v| e.fractal = v),
         ("spiral", |e, v| e.spiral_fold = v),
         ("kali", |e, v| e.kali_fold = v),
         ("koch", |e, v| e.koch_fold = v),
+        ("julia", |e, v| e.julia_fold = v),
+        ("polynomial", |e, v| e.polynomial_fold = v),
     ];
     let mut outputs = Vec::new();
     for (name, set) in setters {
@@ -1455,6 +1457,59 @@ fn mirror_packages_reflect_the_requested_axes_and_source_side() {
                     near(actual, pixel(&result, y, SIZE - 1 - x), "fourfold rotation");
                 }
             }
+        }
+    }
+}
+
+#[test]
+fn native_distortion_faders_are_distinct_and_respect_geometry_bypass() {
+    let Some((device, queue)) = device() else {
+        return;
+    };
+    let mut mixer = FourDeckCompositor::new(&device, &queue, wgpu::TextureFormat::Rgba8UnormSrgb);
+    mixer.upload(&device, &queue, 0, &pattern()).unwrap();
+    let baseline = render(&device, &queue, &mut mixer, MixerParams::default());
+    type Setter = fn(&mut DeckEffects, f32);
+    let setters: [(&str, Setter); 6] = [
+        ("wave", |e, v| e.wave_distort = v),
+        ("vortex", |e, v| e.vortex_distort = v),
+        ("blocks", |e, v| e.block_jitter = v),
+        ("rgb", |e, v| e.rgb_jitter = v),
+        ("julia", |e, v| e.julia_fold = v),
+        ("polynomial", |e, v| e.polynomial_fold = v),
+    ];
+    let mut outputs = Vec::new();
+    for (name, set) in setters {
+        let mut params = MixerParams::default();
+        for amount in [0.0, 0.5, 1.0] {
+            set(&mut params.effects[0], amount);
+            let pixels = render(&device, &queue, &mut mixer, params);
+            if amount == 0.0 {
+                assert_eq!(pixels, baseline, "{name} zero");
+            } else {
+                assert_ne!(pixels, baseline, "{name} wet");
+            }
+            if amount == 1.0 {
+                outputs.push((name, pixels));
+            }
+        }
+        params.effects[0].slots[0].bypassed = true;
+        assert_eq!(
+            render(&device, &queue, &mut mixer, params),
+            baseline,
+            "{name} bypass"
+        );
+        params.effects[0].slots[0].bypassed = false;
+        params.effects[0].slots[0].mix = 0.0;
+        assert_eq!(
+            render(&device, &queue, &mut mixer, params),
+            baseline,
+            "{name} dry"
+        );
+    }
+    for (i, (name, image)) in outputs.iter().enumerate() {
+        for (other, other_image) in &outputs[i + 1..] {
+            assert_ne!(image, other_image, "{name} == {other}");
         }
     }
 }

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Direct mixer distortion faders (2026-10-07)
+
+- Six native deck-effect faders: Wave distortion, Vortex distortion, Block
+  jitter, RGB jitter, Julia fold and Polynomial fold. These sit directly in
+  the mixer instead of requiring a package selection, and support Geometry
+  bypass/wet, MIDI mapping, LFO/modulation and project persistence.
+- Existing Jitter is labeled Scanline jitter. Existing projects remain
+  unchanged because all six new amounts default to zero.
+
+### Effect MIDI ranges (2026-10-07)
+
+- New deck/master package MIDI assignments use the effect manifest's actual
+  parameter range. Movement, rotation, noise speed, repeat count and cell
+  density can now reach their full span on a controller. Saved mappings keep
+  their existing customized ranges.
+
 ### Creative generators and effects (2026-10-06)
 
 - Chebyshev Curve, Polynomial Contours and Supershape bring the generator

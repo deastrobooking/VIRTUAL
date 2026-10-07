@@ -1345,6 +1345,12 @@ fn effect_parameter_label(effect: u8) -> &'static str {
         "Spiral fold",
         "Kali fold",
         "Koch fold",
+        "Wave distortion",
+        "Vortex distortion",
+        "Block jitter",
+        "RGB jitter",
+        "Julia fold",
+        "Polynomial fold",
     ]
     .get(usize::from(effect))
     .copied()

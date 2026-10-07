@@ -32,6 +32,12 @@ struct MixerGlobals {
     kali_fold: [f32; 4],
     koch_fold: [f32; 4],
     jitter: [f32; 4],
+    wave_distort: [f32; 4],
+    vortex_distort: [f32; 4],
+    block_jitter: [f32; 4],
+    rgb_jitter: [f32; 4],
+    julia_fold: [f32; 4],
+    polynomial_fold: [f32; 4],
     find_edges: [f32; 4],
     bit_reduction: [f32; 4],
     blacklight: [f32; 4],
@@ -196,6 +202,12 @@ pub struct DeckEffects {
     pub kali_fold: f32,
     pub koch_fold: f32,
     pub jitter: f32,
+    pub wave_distort: f32,
+    pub vortex_distort: f32,
+    pub block_jitter: f32,
+    pub rgb_jitter: f32,
+    pub julia_fold: f32,
+    pub polynomial_fold: f32,
     pub find_edges: f32,
     pub bit_reduction: f32,
     pub blacklight: f32,
@@ -232,6 +244,12 @@ impl Default for DeckEffects {
             kali_fold: 0.0,
             koch_fold: 0.0,
             jitter: 0.0,
+            wave_distort: 0.0,
+            vortex_distort: 0.0,
+            block_jitter: 0.0,
+            rgb_jitter: 0.0,
+            julia_fold: 0.0,
+            polynomial_fold: 0.0,
             find_edges: 0.0,
             bit_reduction: 0.0,
             blacklight: 0.0,
@@ -296,6 +314,22 @@ impl DeckEffects {
         self.kali_fold = self.kali_fold.clamp(0.0, 1.0);
         self.koch_fold = self.koch_fold.clamp(0.0, 1.0);
         self.jitter = self.jitter.clamp(0.0, 1.0);
+        // A NaN would survive clamp and poison the shader, so it falls back
+        // to the neutral amount instead.
+        let amount = |value: f32| {
+            if value.is_finite() {
+                value.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        };
+        self.wave_distort = amount(self.wave_distort);
+        self.vortex_distort = amount(self.vortex_distort);
+        self.block_jitter = amount(self.block_jitter);
+        self.rgb_jitter = amount(self.rgb_jitter);
+        self.julia_fold = amount(self.julia_fold);
+        self.polynomial_fold = amount(self.polynomial_fold);
+
         self.find_edges = self.find_edges.clamp(0.0, 1.0);
         self.bit_reduction = self.bit_reduction.clamp(0.0, 1.0);
         self.blacklight = self.blacklight.clamp(0.0, 1.0);
@@ -418,6 +452,12 @@ pub enum EffectTarget {
     KaliFold,
     KochFold,
     Jitter,
+    WaveDistort,
+    VortexDistort,
+    BlockJitter,
+    RgbJitter,
+    JuliaFold,
+    PolynomialFold,
     FindEdges,
     BitReduction,
     Blacklight,
@@ -616,6 +656,12 @@ fn modulate(effects: &mut DeckEffects, target: EffectTarget, value: f32) {
         EffectTarget::KaliFold => effects.kali_fold += value,
         EffectTarget::KochFold => effects.koch_fold += value,
         EffectTarget::Jitter => effects.jitter += value,
+        EffectTarget::WaveDistort => effects.wave_distort += value,
+        EffectTarget::VortexDistort => effects.vortex_distort += value,
+        EffectTarget::BlockJitter => effects.block_jitter += value,
+        EffectTarget::RgbJitter => effects.rgb_jitter += value,
+        EffectTarget::JuliaFold => effects.julia_fold += value,
+        EffectTarget::PolynomialFold => effects.polynomial_fold += value,
         EffectTarget::FindEdges => effects.find_edges += value,
         EffectTarget::BitReduction => effects.bit_reduction += value,
         EffectTarget::Blacklight => effects.blacklight += value,
@@ -1739,6 +1785,12 @@ impl FourDeckCompositor {
                 kali_fold: float_values(|effect| effect.kali_fold),
                 koch_fold: float_values(|effect| effect.koch_fold),
                 jitter: float_values(|effect| effect.jitter),
+                wave_distort: float_values(|effect| effect.wave_distort),
+                vortex_distort: float_values(|effect| effect.vortex_distort),
+                block_jitter: float_values(|effect| effect.block_jitter),
+                rgb_jitter: float_values(|effect| effect.rgb_jitter),
+                julia_fold: float_values(|effect| effect.julia_fold),
+                polynomial_fold: float_values(|effect| effect.polynomial_fold),
                 find_edges: float_values(|effect| effect.find_edges),
                 bit_reduction: float_values(|effect| effect.bit_reduction),
                 blacklight: float_values(|effect| effect.blacklight),

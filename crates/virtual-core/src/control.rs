@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// This is part of the persisted MIDI target contract. Keep the parameter
 /// indices stable and update this bound whenever a parameter is appended.
-pub const FIXED_DECK_EFFECT_PARAMETER_COUNT: u8 = 21;
+pub const FIXED_DECK_EFFECT_PARAMETER_COUNT: u8 = 27;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum MidiMessageKind {
@@ -385,11 +385,30 @@ impl MidiMapper {
         message: MidiMessage,
         current_value: impl Fn(ControlTarget) -> f32,
     ) -> Vec<ControlUpdate> {
+        self.ingest_with_range(device, message, current_value, None)
+    }
+
+    /// Use a manifest's physical range for a newly learned parameter only.
+    /// Existing bindings keep their saved output range and takeover state.
+    pub fn ingest_with_range(
+        &mut self,
+        device: &str,
+        message: MidiMessage,
+        current_value: impl Fn(ControlTarget) -> f32,
+        learned_range: Option<[f32; 2]>,
+    ) -> Vec<ControlUpdate> {
         if let Some(target) = self.learning.take() {
             self.bindings
                 .retain(|binding| binding.target != target || binding.device != device);
-            self.bindings
-                .push(MidiBinding::learned(device, message, target));
+            let mut binding = MidiBinding::learned(device, message, target);
+            if let Some([min, max]) = learned_range
+                && min.is_finite()
+                && max.is_finite()
+                && min < max
+            {
+                binding.output_range = [min, max];
+            }
+            self.bindings.push(binding);
         }
         self.bindings
             .iter_mut()
@@ -408,6 +427,37 @@ impl MidiMapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn learned_effect_ranges_apply_immediately_and_preserve_saved_edits() {
+        let target = ControlTarget::MasterEffectParameter {
+            slot: 0,
+            parameter_key: 1,
+        };
+        let cc = |value| MidiMessage::ControlChange {
+            channel: 0,
+            controller: 7,
+            value,
+        };
+        let mut mapper = MidiMapper::default();
+        mapper.learn(target);
+        assert_eq!(
+            mapper.ingest_with_range("knob", cc(127), |_| 0.0, Some([-30.0, 30.0]))[0].value,
+            30.0
+        );
+        assert_eq!(
+            mapper.ingest_with_range("knob", cc(0), |_| 30.0, None)[0].value,
+            -30.0
+        );
+        mapper.bindings[0].output_range = [2.0, 8.0];
+        assert_eq!(
+            mapper.ingest_with_range("knob", cc(127), |_| 0.0, Some([0.0, 60.0]))[0].value,
+            8.0
+        );
+        mapper.learn(target);
+        mapper.ingest_with_range("knob", cc(0), |_| 0.0, Some([f32::NAN, 1.0]));
+        assert_eq!(mapper.bindings[0].output_range, [0.0, 1.0]);
+    }
 
     #[test]
     fn generator_switches_learn_as_note_toggles_and_faders_as_continuous() {

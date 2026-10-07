@@ -270,6 +270,15 @@ impl ProjectFile {
                 ("effects.kali_fold", !unit(deck.effects.kali_fold)),
                 ("effects.koch_fold", !unit(deck.effects.koch_fold)),
                 ("effects.jitter", !unit(deck.effects.jitter)),
+                ("effects.wave_distort", !unit(deck.effects.wave_distort)),
+                ("effects.vortex_distort", !unit(deck.effects.vortex_distort)),
+                ("effects.block_jitter", !unit(deck.effects.block_jitter)),
+                ("effects.rgb_jitter", !unit(deck.effects.rgb_jitter)),
+                ("effects.julia_fold", !unit(deck.effects.julia_fold)),
+                (
+                    "effects.polynomial_fold",
+                    !unit(deck.effects.polynomial_fold),
+                ),
                 ("effects.find_edges", !unit(deck.effects.find_edges)),
                 ("effects.bit_reduction", !unit(deck.effects.bit_reduction)),
                 ("effects.blacklight", !unit(deck.effects.blacklight)),
@@ -1322,6 +1331,18 @@ pub struct EffectProject {
     #[serde(default)]
     pub jitter: f32,
     #[serde(default)]
+    pub wave_distort: f32,
+    #[serde(default)]
+    pub vortex_distort: f32,
+    #[serde(default)]
+    pub block_jitter: f32,
+    #[serde(default)]
+    pub rgb_jitter: f32,
+    #[serde(default)]
+    pub julia_fold: f32,
+    #[serde(default)]
+    pub polynomial_fold: f32,
+    #[serde(default)]
     pub find_edges: f32,
     #[serde(default)]
     pub bit_reduction: f32,
@@ -1407,6 +1428,12 @@ pub enum EffectTargetProject {
     KaliFold,
     KochFold,
     Jitter,
+    WaveDistort,
+    VortexDistort,
+    BlockJitter,
+    RgbJitter,
+    JuliaFold,
+    PolynomialFold,
     FindEdges,
     BitReduction,
     Blacklight,
@@ -1705,6 +1732,12 @@ impl Default for EffectProject {
             kali_fold: 0.0,
             koch_fold: 0.0,
             jitter: 0.0,
+            wave_distort: 0.0,
+            vortex_distort: 0.0,
+            block_jitter: 0.0,
+            rgb_jitter: 0.0,
+            julia_fold: 0.0,
+            polynomial_fold: 0.0,
             find_edges: 0.0,
             bit_reduction: 0.0,
             blacklight: 0.0,

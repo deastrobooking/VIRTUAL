@@ -271,9 +271,16 @@ impl State {
                     let ui = &self.ui;
                     let mixer = &self.mixer;
                     let transports = &self.transports;
-                    self.midi.ingest(&device, message, |target| {
-                        current_control_value(ui, mixer, transports, target)
-                    })
+                    let learned_range = self
+                        .midi
+                        .learning()
+                        .and_then(|target| effect_control_range(ui, target));
+                    self.midi.ingest_with_range(
+                        &device,
+                        message,
+                        |target| current_control_value(ui, mixer, transports, target),
+                        learned_range,
+                    )
                 };
                 for update in updates {
                     self.dispatch_control_update(update, CommandOrigin::Midi(device.clone()), now);
@@ -929,9 +936,100 @@ fn command_for_control(update: ControlUpdate) -> Option<CommandOperation> {
     })
 }
 
+/// Resolve against the selected package at learn time so reordered manifests
+/// and controller assignments use the stable parameter identity.
+fn effect_control_range(ui: &crate::ui::UiState, target: ControlTarget) -> Option<[f32; 2]> {
+    let (package_id, key, packages) = match target {
+        ControlTarget::MasterEffectParameter {
+            slot,
+            parameter_key,
+        } => (
+            &ui.master_effects.slots.get(slot as usize)?.package_id,
+            parameter_key,
+            &ui.effect_packages,
+        ),
+        ControlTarget::DeckEffectParameter {
+            deck,
+            parameter_key,
+        } => (
+            &ui.deck_packages.get(deck as usize)?.package_id,
+            parameter_key,
+            &ui.deck_effect_packages,
+        ),
+        _ => return None,
+    };
+    let package = packages.iter().find(|p| &p.id == package_id)?;
+    let parameter = package
+        .parameters
+        .iter()
+        .find(|p| effect_parameter_key(package_id, &p.id) == key)?;
+    Some([parameter.minimum, parameter.maximum])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn effect_learn_resolves_master_and_deck_manifest_ranges() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../effects");
+        let registry = virtual_render::discover_effect_packages(root);
+        let mut ui = crate::ui::UiState::default();
+        ui.effect_packages = registry.effects.clone();
+        ui.deck_effect_packages = registry.effects;
+        ui.master_effects.slots[0].package_id = "video-repeater".into();
+        assert_eq!(
+            effect_control_range(
+                &ui,
+                ControlTarget::MasterEffectParameter {
+                    slot: 0,
+                    parameter_key: effect_parameter_key("video-repeater", "speed")
+                }
+            ),
+            Some([0.0, 30.0])
+        );
+        assert_eq!(
+            effect_control_range(
+                &ui,
+                ControlTarget::MasterEffectParameter {
+                    slot: 0,
+                    parameter_key: effect_parameter_key("video-repeater", "rotation")
+                }
+            ),
+            Some([-1.0, 1.0])
+        );
+        ui.deck_packages[2].package_id = "cyclic-cells".into();
+        assert_eq!(
+            effect_control_range(
+                &ui,
+                ControlTarget::DeckEffectParameter {
+                    deck: 2,
+                    parameter_key: effect_parameter_key("cyclic-cells", "cells")
+                }
+            ),
+            Some([8.0, 180.0])
+        );
+        assert_eq!(
+            effect_control_range(
+                &ui,
+                ControlTarget::GeneratorParameter {
+                    deck: 0,
+                    parameter: 5
+                }
+            ),
+            None
+        );
+        assert_eq!(
+            effect_control_range(
+                &ui,
+                ControlTarget::MasterEffectParameter {
+                    slot: 255,
+                    parameter_key: 1
+                }
+            ),
+            None
+        );
+    }
 
     #[test]
     fn gateway_maps_semantic_launch_and_emergency_commands() {

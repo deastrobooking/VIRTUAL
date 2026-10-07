@@ -732,8 +732,43 @@ pub(super) fn draw_deck(
                 fx(
                     &mut columns[1],
                     10,
-                    egui::Slider::new(&mut effects.jitter, 0.0..=1.0).text("jitter"),
+                    egui::Slider::new(&mut effects.jitter, 0.0..=1.0).text("scanline jitter"),
                 );
+                columns[1].strong("Distortion / jitter");
+                fx(
+                    &mut columns[1],
+                    21,
+                    egui::Slider::new(&mut effects.wave_distort, 0.0..=1.0).text("wave distortion"),
+                );
+                fx(
+                    &mut columns[1],
+                    22,
+                    egui::Slider::new(&mut effects.vortex_distort, 0.0..=1.0)
+                        .text("vortex distortion"),
+                );
+                fx(
+                    &mut columns[1],
+                    23,
+                    egui::Slider::new(&mut effects.block_jitter, 0.0..=1.0).text("block jitter"),
+                );
+                fx(
+                    &mut columns[1],
+                    24,
+                    egui::Slider::new(&mut effects.rgb_jitter, 0.0..=1.0).text("rgb jitter"),
+                );
+                columns[1].strong("Polynomial fractals");
+                fx(
+                    &mut columns[1],
+                    25,
+                    egui::Slider::new(&mut effects.julia_fold, 0.0..=1.0).text("julia fold"),
+                );
+                fx(
+                    &mut columns[1],
+                    26,
+                    egui::Slider::new(&mut effects.polynomial_fold, 0.0..=1.0)
+                        .text("polynomial fold"),
+                );
+                columns[1].separator();
                 fx(
                     &mut columns[1],
                     11,
@@ -1658,7 +1693,7 @@ fn draw_deck_package_body(
     slot.sanitize();
 }
 
-pub(super) const EFFECT_TARGETS: [EffectTarget; 21] = [
+pub(super) const EFFECT_TARGETS: [EffectTarget; 27] = [
     EffectTarget::Hue,
     EffectTarget::Contrast,
     EffectTarget::Saturation,
@@ -1673,6 +1708,12 @@ pub(super) const EFFECT_TARGETS: [EffectTarget; 21] = [
     EffectTarget::KaliFold,
     EffectTarget::KochFold,
     EffectTarget::Jitter,
+    EffectTarget::WaveDistort,
+    EffectTarget::VortexDistort,
+    EffectTarget::BlockJitter,
+    EffectTarget::RgbJitter,
+    EffectTarget::JuliaFold,
+    EffectTarget::PolynomialFold,
     EffectTarget::FindEdges,
     EffectTarget::BitReduction,
     EffectTarget::Blacklight,
@@ -1715,6 +1756,12 @@ pub(super) fn effect_target_label(target: EffectTarget) -> &'static str {
         EffectTarget::KaliFold => "Kali fold",
         EffectTarget::KochFold => "Koch fold",
         EffectTarget::Jitter => "Jitter",
+        EffectTarget::WaveDistort => "Wave distortion",
+        EffectTarget::VortexDistort => "Vortex distortion",
+        EffectTarget::BlockJitter => "Block jitter",
+        EffectTarget::RgbJitter => "RGB jitter",
+        EffectTarget::JuliaFold => "Julia fold",
+        EffectTarget::PolynomialFold => "Polynomial fold",
         EffectTarget::FindEdges => "Find edges",
         EffectTarget::BitReduction => "Bit reduction",
         EffectTarget::Blacklight => "Black light",

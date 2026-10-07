@@ -78,10 +78,43 @@ cargo run -p virtual-render --example effect_preview -- analog-crt > preview.ppm
 cargo run -p virtual-render --example effect_preview -- kaleidoscope spiral-bloom > spiral.ppm
 ```
 
+## Direct mixer distortion and fractal faders
+
+The selected deck's **Effects → Geometry / stylize** area includes direct
+faders, alongside the existing Fractal, Spiral, Kali and Koch folds:
+
+| Fader | Behavior |
+|---|---|
+| Wave distortion | Animated two-axis sine displacement |
+| Vortex distortion | Localized twist around the image center |
+| Block jitter | Independently displaced blocks, changing 18 times per second |
+| RGB jitter | Red/blue sampling offsets, changing 24 times per second |
+| Julia fold | Bounded quadratic complex iteration with slow coefficient drift |
+| Polynomial fold | Bounded cubic complex iteration with slow coefficient drift |
+
+These are native mixer controls: they do not occupy the deck's custom package
+slot. The original Jitter fader is labeled **scanline jitter** to distinguish it
+from Block and RGB jitter. New faders are 0–1 amounts, with zero neutral; they
+respect the Geometry group's bypass and wet controls and are available in Show
+Mode. MIDI Map, direct LFO targets and modulation routes include every fader.
+Projects and recovery control snapshots preserve them. Old projects default
+all six to zero, and existing MIDI parameter indices are unchanged (new IDs
+21–26 append to the built-in bank).
+
+Both polynomial folds reflect each orbit back into a bounded domain and blend
+between iteration depths. RGB jitter adds two source samples only when active;
+other additions change sampling coordinates without extra texture passes.
+The separately selectable Jitter & Noise package remains available for its
+additional type, rate, scale and noise controls.
+
 ## Repeater, transitions, noise and cellular pixels
 
 Five additional packages expose MIDI-learnable controls through the existing
-master/deck effect panels. Each includes three named looks.
+master/deck effect panels. Each includes three named looks. Newly learned MIDI
+faders use the parameter's declared minimum and maximum (including signed
+rotation and high-range speed/cell counts). Existing saved mappings keep their
+configured ranges; re-learn an older mapping or edit its range in MIDI Manager
+to use the full parameter span.
 
 | Package | Placement | Controls |
 |---|---|---|

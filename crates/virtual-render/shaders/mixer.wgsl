@@ -15,6 +15,12 @@ struct MixerGlobals {
     kali_fold: vec4<f32>,
     koch_fold: vec4<f32>,
     jitter: vec4<f32>,
+    wave_distort: vec4<f32>,
+    vortex_distort: vec4<f32>,
+    block_jitter: vec4<f32>,
+    rgb_jitter: vec4<f32>,
+    julia_fold: vec4<f32>,
+    polynomial_fold: vec4<f32>,
     find_edges: vec4<f32>,
     bit_reduction: vec4<f32>,
     blacklight: vec4<f32>,
@@ -71,6 +77,12 @@ struct EffectConfig {
     kali_fold: f32,
     koch_fold: f32,
     jitter: f32,
+    wave_distort: f32,
+    vortex_distort: f32,
+    block_jitter: f32,
+    rgb_jitter: f32,
+    julia_fold: f32,
+    polynomial_fold: f32,
     find_edges: f32,
     bit_reduction: f32,
     blacklight: f32,
@@ -516,6 +528,34 @@ fn koch_fold_uv(uv: vec2<f32>, amount: f32) -> vec2<f32> {
     return mirror_wrap(mix(previous, p, fract(depth)) * 0.5 + vec2(0.5));
 }
 
+// Bounded quadratic/cubic complex iteration, blended between depths.
+// Reflection keeps every orbit finite, including the centre and frame corners.
+fn polynomial_fold_uv(uv: vec2<f32>, amount: f32, cubic: bool) -> vec2<f32> {
+    let depth = 1.0 + amount * 5.0;
+    let whole = u32(floor(depth));
+    let drift = vec2(sin(globals.time_seconds * 0.11), cos(globals.time_seconds * 0.09)) * 0.04;
+    let c = vec2(-0.67, 0.26) + drift;
+    var z = (uv - vec2(0.5)) * 2.0;
+    var previous = z;
+    for (var i = 0u; i <= whole; i = i + 1u) {
+        previous = z;
+        let square = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y);
+        var next = square + c;
+        if cubic {
+            next = vec2(
+                square.x * z.x - square.y * z.y,
+                square.x * z.y + square.y * z.x,
+            ) + c.yx;
+        }
+        z = (mirror_wrap(next * 0.35 + vec2(0.5)) - vec2(0.5)) * 2.4;
+    }
+    return mirror_wrap(mix(previous, z, fract(depth)) * 0.5 + vec2(0.5));
+}
+
+fn jitter_hash(p: vec2<f32>) -> f32 {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
 fn geometry_effect_uv(input_uv: vec2<f32>, effect: EffectConfig) -> vec2<f32> {
     var uv = input_uv;
     if effect.mirror != 0u {
@@ -539,6 +579,34 @@ fn geometry_effect_uv(input_uv: vec2<f32>, effect: EffectConfig) -> vec2<f32> {
     }
     if effect.koch_fold > 0.0001 {
         uv = mix(uv, koch_fold_uv(uv, effect.koch_fold), effect.koch_fold);
+    }
+    if effect.julia_fold > 0.0001 {
+        uv = mix(uv, polynomial_fold_uv(uv, effect.julia_fold, false), effect.julia_fold);
+    }
+    if effect.polynomial_fold > 0.0001 {
+        uv = mix(uv, polynomial_fold_uv(uv, effect.polynomial_fold, true), effect.polynomial_fold);
+    }
+    if effect.wave_distort > 0.0001 {
+        let phase = globals.time_seconds * 1.7;
+        let offset = vec2(sin(uv.y * 22.0 + phase), sin(uv.x * 17.0 - phase * 0.73));
+        uv = mirror_wrap(uv + offset * effect.wave_distort * 0.09);
+    }
+    if effect.vortex_distort > 0.0001 {
+        // Twist in aspect-corrected space so the vortex stays round.
+        let aspect = vec2(max(globals.output_aspect, 0.01), 1.0);
+        let p = (uv - vec2(0.5)) * aspect;
+        let angle = effect.vortex_distort * 9.0 * exp(-length(p) * 3.0);
+        let rotated = vec2(
+            cos(angle) * p.x - sin(angle) * p.y,
+            sin(angle) * p.x + cos(angle) * p.y,
+        );
+        uv = mirror_wrap(rotated / aspect + vec2(0.5));
+    }
+    if effect.block_jitter > 0.0001 {
+        let block = floor(uv * mix(8.0, 40.0, effect.block_jitter));
+        let tick = floor(globals.time_seconds * 18.0);
+        let shift = vec2(jitter_hash(block + tick), jitter_hash(block.yx + tick + 19.0)) - vec2(0.5);
+        uv = mirror_wrap(uv + shift * effect.block_jitter * 0.3);
     }
     if effect.jitter > 0.0001 {
         let row = floor(uv.y * mix(24.0, 240.0, effect.jitter));
@@ -748,7 +816,27 @@ fn process_source(
     effect: EffectConfig,
 ) -> vec4<f32> {
     let uv = effect_uv(input_uv, effect);
-    let color = sample_source(primary, alpha_texture, uv, kind);
+    var color = sample_source(primary, alpha_texture, uv, kind);
+    // RGB jitter needs extra samples, so it runs here rather than in the UV
+    // prepass, scaled by the combined wet of every enabled Geometry slot.
+    var geometry_wet = 0.0;
+    for (var slot = 0u; slot < 3u; slot = slot + 1u) {
+        if effect.slot_enabled[slot] != 0u && effect.slot_groups[slot] == 0u {
+            geometry_wet = 1.0 - (1.0 - geometry_wet) * (1.0 - effect.slot_mix[slot]);
+        }
+    }
+    if effect.rgb_jitter > 0.0001 && geometry_wet > 0.0001 {
+        let tick = floor(globals.time_seconds * 24.0);
+        let shift = vec2(
+            jitter_hash(vec2(tick, 7.0)) - 0.5,
+            jitter_hash(vec2(13.0, tick)) - 0.5,
+        ) * effect.rgb_jitter * 0.12;
+        let red = sample_source(primary, alpha_texture, mirror_wrap(uv + shift), kind);
+        let blue = sample_source(primary, alpha_texture, mirror_wrap(uv - shift), kind);
+        let alpha = max(color.a, max(red.a, blue.a));
+        let rgb = vec3(red.r * red.a, color.g * color.a, blue.b * blue.a) / max(alpha, 0.00001);
+        color = mix(color, vec4(rgb, alpha), geometry_wet);
+    }
     var edge = 0.0;
     let stylize_active = stylize_slot_active(effect, 0u)
         || stylize_slot_active(effect, 1u)
@@ -788,7 +876,14 @@ fn effect_config(index: u32) -> EffectConfig {
         globals.black_level[index], globals.white_level[index], globals.gamma[index],
         globals.pixelate[index], globals.luma_key[index], globals.neon[index],
         globals.fractal[index], globals.spiral_fold[index], globals.kali_fold[index],
-        globals.koch_fold[index], globals.jitter[index], globals.find_edges[index],
+        globals.koch_fold[index], globals.jitter[index],
+        globals.wave_distort[index],
+        globals.vortex_distort[index],
+        globals.block_jitter[index],
+        globals.rgb_jitter[index],
+        globals.julia_fold[index],
+        globals.polynomial_fold[index],
+        globals.find_edges[index],
         globals.bit_reduction[index], globals.blacklight[index], globals.bloom[index],
         globals.bloom_threshold[index], globals.bloom_radius[index], globals.bloom_chroma[index],
         globals.mirror[index],

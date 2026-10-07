@@ -832,6 +832,12 @@ fn effect_to_project(effect: DeckEffects) -> EffectProject {
         kali_fold: effect.kali_fold,
         koch_fold: effect.koch_fold,
         jitter: effect.jitter,
+        wave_distort: effect.wave_distort,
+        vortex_distort: effect.vortex_distort,
+        block_jitter: effect.block_jitter,
+        rgb_jitter: effect.rgb_jitter,
+        julia_fold: effect.julia_fold,
+        polynomial_fold: effect.polynomial_fold,
         find_edges: effect.find_edges,
         bit_reduction: effect.bit_reduction,
         blacklight: effect.blacklight,
@@ -859,6 +865,12 @@ fn effect_from_project(effect: &EffectProject) -> DeckEffects {
         kali_fold: effect.kali_fold,
         koch_fold: effect.koch_fold,
         jitter: effect.jitter,
+        wave_distort: effect.wave_distort,
+        vortex_distort: effect.vortex_distort,
+        block_jitter: effect.block_jitter,
+        rgb_jitter: effect.rgb_jitter,
+        julia_fold: effect.julia_fold,
+        polynomial_fold: effect.polynomial_fold,
         find_edges: effect.find_edges,
         bit_reduction: effect.bit_reduction,
         blacklight: effect.blacklight,
@@ -951,6 +963,12 @@ fn effect_target_to_project(target: EffectTarget) -> EffectTargetProject {
         EffectTarget::KaliFold => EffectTargetProject::KaliFold,
         EffectTarget::KochFold => EffectTargetProject::KochFold,
         EffectTarget::Jitter => EffectTargetProject::Jitter,
+        EffectTarget::WaveDistort => EffectTargetProject::WaveDistort,
+        EffectTarget::VortexDistort => EffectTargetProject::VortexDistort,
+        EffectTarget::BlockJitter => EffectTargetProject::BlockJitter,
+        EffectTarget::RgbJitter => EffectTargetProject::RgbJitter,
+        EffectTarget::JuliaFold => EffectTargetProject::JuliaFold,
+        EffectTarget::PolynomialFold => EffectTargetProject::PolynomialFold,
         EffectTarget::FindEdges => EffectTargetProject::FindEdges,
         EffectTarget::BitReduction => EffectTargetProject::BitReduction,
         EffectTarget::Blacklight => EffectTargetProject::Blacklight,
@@ -977,6 +995,12 @@ fn effect_target_from_project(target: EffectTargetProject) -> EffectTarget {
         EffectTargetProject::KaliFold => EffectTarget::KaliFold,
         EffectTargetProject::KochFold => EffectTarget::KochFold,
         EffectTargetProject::Jitter => EffectTarget::Jitter,
+        EffectTargetProject::WaveDistort => EffectTarget::WaveDistort,
+        EffectTargetProject::VortexDistort => EffectTarget::VortexDistort,
+        EffectTargetProject::BlockJitter => EffectTarget::BlockJitter,
+        EffectTargetProject::RgbJitter => EffectTarget::RgbJitter,
+        EffectTargetProject::JuliaFold => EffectTarget::JuliaFold,
+        EffectTargetProject::PolynomialFold => EffectTarget::PolynomialFold,
         EffectTargetProject::FindEdges => EffectTarget::FindEdges,
         EffectTargetProject::BitReduction => EffectTarget::BitReduction,
         EffectTargetProject::Blacklight => EffectTarget::Blacklight,
@@ -1222,6 +1246,51 @@ fn target_from_project(target: ControlTargetProject) -> ControlTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn native_distortion_parameters_and_modulation_targets_round_trip() {
+        let effects = DeckEffects {
+            wave_distort: 0.15,
+            vortex_distort: 0.25,
+            block_jitter: 0.35,
+            rgb_jitter: 0.45,
+            julia_fold: 0.55,
+            polynomial_fold: 0.65,
+            ..Default::default()
+        };
+        let project = effect_to_project(effects);
+        let encoded = serde_json::to_string(&project).unwrap();
+        let decoded: EffectProject = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(effect_from_project(&decoded), effects);
+        for target in [
+            EffectTarget::WaveDistort,
+            EffectTarget::VortexDistort,
+            EffectTarget::BlockJitter,
+            EffectTarget::RgbJitter,
+            EffectTarget::JuliaFold,
+            EffectTarget::PolynomialFold,
+        ] {
+            assert_eq!(
+                effect_target_from_project(effect_target_to_project(target)),
+                target
+            );
+        }
+        let mut old = serde_json::to_value(EffectProject::default()).unwrap();
+        for field in [
+            "wave_distort",
+            "vortex_distort",
+            "block_jitter",
+            "rgb_jitter",
+            "julia_fold",
+            "polynomial_fold",
+        ] {
+            old.as_object_mut().unwrap().remove(field);
+        }
+        assert_eq!(
+            effect_from_project(&serde_json::from_value(old).unwrap()),
+            DeckEffects::default()
+        );
+    }
 
     #[test]
     fn all_generator_controls_and_mapping_targets_round_trip() {

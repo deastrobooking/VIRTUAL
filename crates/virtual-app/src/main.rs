@@ -1470,6 +1470,12 @@ fn effect_parameter(effects: DeckEffects, effect: u8) -> f32 {
         18 => effects.spiral_fold,
         19 => effects.kali_fold,
         20 => effects.koch_fold,
+        21 => effects.wave_distort,
+        22 => effects.vortex_distort,
+        23 => effects.block_jitter,
+        24 => effects.rgb_jitter,
+        25 => effects.julia_fold,
+        26 => effects.polynomial_fold,
         _ => 0.0,
     }
 }
@@ -1497,6 +1503,12 @@ fn set_effect_parameter(effects: &mut DeckEffects, effect: u8, value: f32) {
         18 => effects.spiral_fold = value,
         19 => effects.kali_fold = value,
         20 => effects.koch_fold = value,
+        21 => effects.wave_distort = value,
+        22 => effects.vortex_distort = value,
+        23 => effects.block_jitter = value,
+        24 => effects.rgb_jitter = value,
+        25 => effects.julia_fold = value,
+        26 => effects.polynomial_fold = value,
         _ => {}
     }
     *effects = effects.sanitized();
@@ -1520,7 +1532,17 @@ mod output_health_tests {
 
         let snapshot = performance_control_snapshot(&ui, &mixer, &transports);
 
-        assert_eq!(snapshot.len(), 240);
+        assert_eq!(snapshot.len(), 264);
+        for effect in 21..=26 {
+            let mut effects = DeckEffects::default();
+            set_effect_parameter(&mut effects, effect, 0.625);
+            assert_eq!(effect_parameter(effects, effect), 0.625);
+            assert!(snapshot.contains_key(&ControlTarget::EffectParameter {
+                deck: 3,
+                effect,
+                parameter: 0
+            }));
+        }
         assert!(snapshot.contains_key(&ControlTarget::Crossfader));
         assert!(snapshot.contains_key(&ControlTarget::DeckMute(3)));
         assert!(snapshot.contains_key(&ControlTarget::DeckPin(3)));
