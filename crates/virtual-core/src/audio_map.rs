@@ -69,7 +69,10 @@ impl AudioMapMode {
             | ControlTarget::DeckMute(_)
             | ControlTarget::DeckPin(_)
             | ControlTarget::DeckPlay(_)
-            | ControlTarget::DeckFreeze(_) => Self::Gate,
+            | ControlTarget::DeckFreeze(_)
+            | ControlTarget::GeneratorParameter {
+                parameter: 43 | 44, ..
+            } => Self::Gate,
             _ => Self::Continuous,
         }
     }

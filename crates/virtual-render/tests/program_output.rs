@@ -1014,6 +1014,10 @@ fn new_master_packages_render_and_preserve_dry_identity() {
         "turbulent-displace",
         "mobius-warp",
         "god-rays",
+        "transition-lab",
+        "jitter-noise",
+        "life-mosaic",
+        "cyclic-cells",
     ];
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../effects");
     let program = ProgramTarget::new(&device, [SIZE, SIZE]);
@@ -1167,6 +1171,158 @@ fn new_master_packages_render_and_preserve_dry_identity() {
                     baseline,
                     "{id} extreme parameters (maximum={maximum})"
                 );
+            }
+        }
+    }
+}
+
+#[test]
+fn repeater_retains_previous_signal_and_transition_endpoints_are_exact() {
+    let Some((device, queue)) = device() else {
+        return;
+    };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../effects");
+    let program = ProgramTarget::new(&device, [SIZE, SIZE]);
+    let presenter = ProgramPresenter::new(&device, &program, PROGRAM_FORMAT);
+    let mut processor = MasterEffectProcessor::new(&device, &program);
+    processor.watch_effect_manifests(
+        ["video-repeater", "transition-lab"]
+            .map(|id| root.join(id).join("effect.json"))
+            .to_vec(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while ["video-repeater", "transition-lab"]
+        .iter()
+        .any(|id| !processor.custom_effect_loaded(id))
+        && Instant::now() < deadline
+    {
+        processor.poll_effect_reload();
+        thread::sleep(Duration::from_millis(10));
+    }
+    for id in ["video-repeater", "transition-lab"] {
+        assert!(
+            processor.custom_effect_loaded(id),
+            "{}",
+            processor.reload_status()
+        );
+    }
+    let parameters = |id: &str| {
+        load_effect_package(root.join(id).join("effect.json"))
+            .unwrap()
+            .manifest
+            .parameters
+            .iter()
+            .map(|p| EffectParameterValue {
+                id: p.id.clone(),
+                value: p.default,
+            })
+            .collect()
+    };
+    let mut chain = MasterEffectChain {
+        slots: [
+            MasterEffectSlot {
+                kind: MasterEffectKind::Custom,
+                package_id: "video-repeater".into(),
+                parameters: parameters("video-repeater"),
+                ..Default::default()
+            },
+            MasterEffectSlot::default(),
+        ],
+    };
+    // Stationary echoes isolate history correctness from offscreen clipping.
+    for p in &mut chain.slots[0].parameters {
+        if ["movement", "drift-x", "drift-y", "rotation", "zoom"].contains(&p.id.as_str()) {
+            p.value = 0.0;
+        }
+    }
+    let first = render_master_color(
+        &device,
+        &queue,
+        &program,
+        &mut processor,
+        &presenter,
+        wgpu::Color::RED,
+        &chain,
+    );
+    assert_eq!(first, [255, 0, 0, 255]);
+    let second = render_master_color(
+        &device,
+        &queue,
+        &program,
+        &mut processor,
+        &presenter,
+        wgpu::Color::BLUE,
+        &chain,
+    );
+    assert!(
+        second[0] > 50 && second[2] > 200,
+        "history echo missing: {second:?}"
+    );
+    let faded = render_master_color(
+        &device,
+        &queue,
+        &program,
+        &mut processor,
+        &presenter,
+        wgpu::Color::BLACK,
+        &chain,
+    );
+    assert!(
+        faded[2] > 0 && faded[2] < second[2],
+        "echo must decay: {faded:?}"
+    );
+    chain.slots[0].mix = 0.0;
+    assert_eq!(
+        render_master_color(
+            &device,
+            &queue,
+            &program,
+            &mut processor,
+            &presenter,
+            wgpu::Color::GREEN,
+            &chain
+        ),
+        [0, 255, 0, 255]
+    );
+    chain.slots[0].mix = 1.0;
+    processor.reset_history();
+    assert_eq!(
+        render_master_color(
+            &device,
+            &queue,
+            &program,
+            &mut processor,
+            &presenter,
+            wgpu::Color::GREEN,
+            &chain
+        ),
+        [0, 255, 0, 255]
+    );
+    chain.slots[0].package_id = "transition-lab".into();
+    chain.slots[0].parameters = parameters("transition-lab");
+    for style in 0..5 {
+        for progress in [0.0, 1.0] {
+            for p in &mut chain.slots[0].parameters {
+                if p.id == "style" {
+                    p.value = style as f32;
+                }
+                if p.id == "progress" {
+                    p.value = progress;
+                }
+            }
+            let pixel = render_master_color(
+                &device,
+                &queue,
+                &program,
+                &mut processor,
+                &presenter,
+                wgpu::Color::RED,
+                &chain,
+            );
+            if progress == 0.0 {
+                assert_eq!(pixel, [255, 0, 0, 255], "style {style}");
+            } else {
+                assert_eq!(&pixel[..3], &[0, 0, 0], "style {style}");
             }
         }
     }

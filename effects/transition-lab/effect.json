@@ -1,0 +1,124 @@
+{
+  "format": "virtual-effect",
+  "version": 2,
+  "id": "transition-lab",
+  "name": "Transition Lab",
+  "description": "Creative fade-to-black transitions. At full wet, Progress 0 is unchanged and 1 is black/transparent. Change scenes at 1, then return to 0; this effect does not access the other crossfader bus.",
+  "role": "effect",
+  "targets": [
+    "master",
+    "deck"
+  ],
+  "abi": "deck-v1",
+  "shader": "transition_lab.wgsl",
+  "parameters": [
+    {
+      "id": "progress",
+      "label": "Transition progress",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.35,
+      "group": "Transition"
+    },
+    {
+      "id": "style",
+      "label": "Transition style",
+      "minimum": 0,
+      "maximum": 4,
+      "default": 0,
+      "group": "Transition",
+      "control": "choice",
+      "options": [
+        {
+          "label": "Noise dissolve",
+          "value": 0
+        },
+        {
+          "label": "Radial collapse",
+          "value": 1
+        },
+        {
+          "label": "Tile shatter",
+          "value": 2
+        },
+        {
+          "label": "Scan wipe",
+          "value": 3
+        },
+        {
+          "label": "Vortex fade",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": "distortion",
+      "label": "Distortion",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.4,
+      "group": "Shape"
+    },
+    {
+      "id": "cells",
+      "label": "Tile / noise scale",
+      "minimum": 4,
+      "maximum": 100,
+      "default": 24,
+      "group": "Shape"
+    },
+    {
+      "id": "softness",
+      "label": "Edge softness",
+      "minimum": 0.005,
+      "maximum": 0.3,
+      "default": 0.06,
+      "group": "Shape"
+    },
+    {
+      "id": "rotation",
+      "label": "Twist direction",
+      "minimum": -1,
+      "maximum": 1,
+      "default": 0.4,
+      "group": "Shape"
+    },
+    {
+      "id": "seed",
+      "label": "Pattern seed",
+      "minimum": 0,
+      "maximum": 32,
+      "default": 2,
+      "group": "Shape"
+    }
+  ],
+  "presets": [
+    {
+      "id": "dissolve",
+      "label": "Digital dissolve",
+      "values": {
+        "style": 0,
+        "distortion": 0,
+        "cells": 60
+      }
+    },
+    {
+      "id": "shatter",
+      "label": "Tile scatter",
+      "values": {
+        "style": 2,
+        "distortion": 0.8,
+        "cells": 16
+      }
+    },
+    {
+      "id": "vortex",
+      "label": "Vortex out",
+      "values": {
+        "style": 4,
+        "distortion": 0.8,
+        "rotation": 0.7
+      }
+    }
+  ]
+}

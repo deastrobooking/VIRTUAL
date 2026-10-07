@@ -273,10 +273,15 @@ impl Generator {
             height: height as usize,
         };
         let mut traced = 0;
+        let mut trace_truncated = false;
         for segment in &self.geometry.segments[..drawn] {
             let index = (segment.t.clamp(0.0, 1.0) * (PALETTE_ENTRIES - 1) as f32) as usize;
             let intensity = settings.echo_fade.powi(segment.echo as i32);
             trace_intervals(segment.trace, self.trace_phase, &settings, |a, b| {
+                if traced >= crate::MAX_SEGMENTS as u32 {
+                    trace_truncated = true;
+                    return;
+                }
                 let (x0, y0, fade0) = project(segment.start.lerp(segment.end, a));
                 let (x1, y1, fade1) = project(segment.start.lerp(segment.end, b));
                 let fade = (fade0 + fade1) * 0.5;
@@ -293,7 +298,7 @@ impl Generator {
             drawn: traced,
             requested_depth: self.geometry.requested_depth,
             depth: self.geometry.depth,
-            truncated: self.geometry.truncated,
+            truncated: self.geometry.truncated || trace_truncated,
             planar: self.geometry.is_planar(),
             generate_micros: self.stats.generate_micros,
             render_micros: started.elapsed().as_micros().min(u32::MAX as u128) as u32,

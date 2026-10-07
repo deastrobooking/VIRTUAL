@@ -78,6 +78,45 @@ cargo run -p virtual-render --example effect_preview -- analog-crt > preview.ppm
 cargo run -p virtual-render --example effect_preview -- kaleidoscope spiral-bloom > spiral.ppm
 ```
 
+## Repeater, transitions, noise and cellular pixels
+
+Five additional packages expose MIDI-learnable controls through the existing
+master/deck effect panels. Each includes three named looks.
+
+| Package | Placement | Controls |
+|---|---|---|
+| Video Repeater | Master only | Trail amount, persistence, random movement, wander speed, X/Y drift, rotation, zoom, 1–8 repeats, stepped movement, Add/Screen/Maximum blend, seed |
+| Transition Lab | Deck or master | Progress, Noise dissolve / Radial collapse / Tile shatter / Scan wipe / Vortex fade, distortion, tile scale, softness, twist, seed |
+| Jitter & Noise | Deck or master | Scanline tear / Block shuffle / Analog wobble / Radial shake / RGB jitter; Film grain / Block static / Scanline hiss, amount, scale, rate, seed |
+| Life Mosaic | Deck or master | Cell density, luminance threshold, mutation, gap, mutation rate, 1–2 local generations, Life B3/S23 or HighLife B36/S23 |
+| Cyclic Cells | Deck or master | Cell density, seed threshold, mutation, gap, mutation rate, 1–2 local generations, color-state count, neighbor threshold, palette shift |
+
+**Repeater:** choose Video Repeater in a master package slot. Raise Trail amount
+and Persistence, then use Random movement and X/Y drift to place echoes behind
+new video. Arcade ghosts, Random scatter and Spiral tunnel are starting looks.
+It feeds back the previous output of that slot and clears with the existing
+history lifecycle. Repeat count performs at most eight history samples per
+pixel. Echo persistence is per rendered frame; Wander speed is changes per
+second. It is not a multi-frame delay bank. Zero Wander speed holds the random
+movement field; zero movement/drift/rotation/zoom holds the echoes in place.
+
+**Transitions:** at full wet, Progress 0 preserves the signal and Progress 1
+removes it. Fade to 1, change the scene, then bring Progress back to 0. The
+package does not read the second crossfader bus and is not an A/B wipe. Lower
+wet values blend with the unaffected signal, so they do not fully black out.
+
+**Cellular pixels:** both effects seed a 5×5 neighborhood from current video,
+then compute up to two local automaton generations. They are video-driven
+stylizations, not persistent simulations. Life Mosaic uses binary birth and
+survival; Cyclic Cells advances a cell when enough neighbors have the next
+color state. Zero Mutation rate freezes random reseeding, while changing video
+continues to drive the cells. They use 25 seed texture samples plus dry and
+cell-color samples per pixel; measure them at the intended output resolution.
+
+All five preserve a zero-wet dry path. Stateless packages support transparent
+deck sources; repeater history transforms RGBA together and clips offscreen
+samples instead of stretching border pixels.
+
 ## Manifest
 
 `format` must be `virtual-effect`. Packages using an older format name still

@@ -1,0 +1,113 @@
+{
+  "format": "virtual-effect",
+  "version": 2,
+  "id": "life-mosaic",
+  "name": "Life Mosaic",
+  "description": "Video-seeded Life / HighLife cells. One or two local generations are recomputed from the current video each frame; this is not a persistent Life simulation.",
+  "role": "effect",
+  "targets": [
+    "master",
+    "deck"
+  ],
+  "abi": "deck-v1",
+  "shader": "life_mosaic.wgsl",
+  "parameters": [
+    {
+      "id": "cells",
+      "label": "Cells vertically",
+      "minimum": 8,
+      "maximum": 180,
+      "default": 48,
+      "group": "Grid"
+    },
+    {
+      "id": "threshold",
+      "label": "Seed threshold",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.35,
+      "group": "Rules"
+    },
+    {
+      "id": "mutation",
+      "label": "Seed mutation",
+      "minimum": 0,
+      "maximum": 0.4,
+      "default": 0.04,
+      "group": "Rules"
+    },
+    {
+      "id": "gap",
+      "label": "Cell gap",
+      "minimum": 0,
+      "maximum": 0.15,
+      "default": 0.04,
+      "group": "Grid"
+    },
+    {
+      "id": "speed",
+      "label": "Mutation rate",
+      "minimum": 0,
+      "maximum": 30,
+      "default": 4,
+      "group": "Rules"
+    },
+    {
+      "id": "generations",
+      "label": "Local generations",
+      "minimum": 1,
+      "maximum": 2,
+      "default": 2,
+      "group": "Rules"
+    },
+    {
+      "id": "rule",
+      "label": "Rule",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0,
+      "group": "Rules",
+      "control": "choice",
+      "options": [
+        {
+          "label": "Life B3/S23",
+          "value": 0
+        },
+        {
+          "label": "HighLife B36/S23",
+          "value": 1
+        }
+      ]
+    }
+  ],
+  "presets": [
+    {
+      "id": "life",
+      "label": "Life pixels",
+      "values": {
+        "rule": 0,
+        "cells": 48,
+        "mutation": 0.04
+      }
+    },
+    {
+      "id": "highlife",
+      "label": "HighLife swarm",
+      "values": {
+        "rule": 1,
+        "cells": 90,
+        "mutation": 0.15
+      }
+    },
+    {
+      "id": "chunky",
+      "label": "Chunky arcade",
+      "values": {
+        "rule": 0,
+        "cells": 18,
+        "generations": 1,
+        "gap": 0.08
+      }
+    }
+  ]
+}

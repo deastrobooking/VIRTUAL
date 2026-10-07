@@ -1241,6 +1241,10 @@ fn new_deck_packages_render_presets_and_preserve_bypass_and_transparency() {
         "turbulent-displace",
         "mobius-warp",
         "god-rays",
+        "transition-lab",
+        "jitter-noise",
+        "life-mosaic",
+        "cyclic-cells",
     ];
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../effects");
     let mut mixer = FourDeckCompositor::new(&device, &queue, wgpu::TextureFormat::Rgba8UnormSrgb);

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Creative generators and effects (2026-10-06)
+
+- Chebyshev Curve, Polynomial Contours and Supershape bring the generator
+  catalogue to 19 patterns. Shared recursive object echoes and arc-length
+  line tracing add nested 3D copies and multiple moving drawing heads.
+- 46 stable generator parameter targets support MIDI learn, saved mappings,
+  soft takeover, and OSC. Generator switches learn as note toggles.
+- Video Repeater adds moving previous-frame echoes in master slots.
+- Transition Lab adds five fade/distortion styles; Jitter & Noise adds five
+  jitter modes and three noise modes. Life Mosaic and Cyclic Cells provide
+  two video-seeded cellular pixel treatments. All effect parameters support
+  the existing MIDI mapping workflow. See [effect packages](EFFECT_PACKAGES.md).
+
+
 ### Naming cleanup (2026-10-06)
 
 - OSC routes now use `/virtual/...`. Controller layouts that send `/vjx/...`

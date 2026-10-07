@@ -315,6 +315,9 @@ fn note_mode_for(target: ControlTarget) -> MappingMode {
         | ControlTarget::DeckPin(_)
         | ControlTarget::DeckPlay(_)
         | ControlTarget::DeckFreeze(_)
+        | ControlTarget::GeneratorParameter {
+            parameter: 43 | 44, ..
+        }
         | ControlTarget::LfoParameter { parameter: 0, .. }
         | ControlTarget::ModRouteParameter { parameter: 0, .. } => MappingMode::Toggle,
         _ => MappingMode::Continuous,
@@ -405,6 +408,38 @@ impl MidiMapper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn generator_switches_learn_as_note_toggles_and_faders_as_continuous() {
+        let note = MidiMessage::NoteOn {
+            channel: 0,
+            note: 20,
+            velocity: 12,
+        };
+        for parameter in [43, 44] {
+            let mut binding = MidiBinding::learned(
+                "pads",
+                note,
+                ControlTarget::GeneratorParameter { deck: 0, parameter },
+            );
+            assert_eq!(binding.mode, MappingMode::Toggle);
+            assert_eq!(binding.apply(note, 0.0), Some(1.0));
+        }
+        let binding = MidiBinding::learned(
+            "knobs",
+            MidiMessage::ControlChange {
+                channel: 0,
+                controller: 1,
+                value: 64,
+            },
+            ControlTarget::GeneratorParameter {
+                deck: 0,
+                parameter: 5,
+            },
+        );
+        assert_eq!(binding.output_range, [0.0, 1.0]);
+        assert_eq!(binding.mode, MappingMode::Continuous);
+    }
 
     #[test]
     fn two_devices_map_the_same_control_change_independently() {

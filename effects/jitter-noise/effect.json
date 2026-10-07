@@ -1,0 +1,142 @@
+{
+  "format": "virtual-effect",
+  "version": 2,
+  "id": "jitter-noise",
+  "name": "Jitter & Noise",
+  "description": "Five coordinate jitter styles with independently selectable film grain, block static and scanline noise. Zero speed holds the noise field.",
+  "role": "effect",
+  "targets": [
+    "master",
+    "deck"
+  ],
+  "abi": "deck-v1",
+  "shader": "jitter_noise.wgsl",
+  "parameters": [
+    {
+      "id": "jitter",
+      "label": "Jitter amount",
+      "minimum": 0,
+      "maximum": 0.3,
+      "default": 0.025,
+      "group": "Movement"
+    },
+    {
+      "id": "type",
+      "label": "Jitter type",
+      "minimum": 0,
+      "maximum": 4,
+      "default": 0,
+      "group": "Movement",
+      "control": "choice",
+      "options": [
+        {
+          "label": "Scanline tear",
+          "value": 0
+        },
+        {
+          "label": "Block shuffle",
+          "value": 1
+        },
+        {
+          "label": "Analog wobble",
+          "value": 2
+        },
+        {
+          "label": "Radial shake",
+          "value": 3
+        },
+        {
+          "label": "RGB jitter",
+          "value": 4
+        }
+      ]
+    },
+    {
+      "id": "scale",
+      "label": "Block / line scale",
+      "minimum": 2,
+      "maximum": 200,
+      "default": 60,
+      "group": "Movement"
+    },
+    {
+      "id": "speed",
+      "label": "Change rate",
+      "minimum": 0,
+      "maximum": 60,
+      "default": 12,
+      "group": "Movement"
+    },
+    {
+      "id": "noise",
+      "label": "Noise amount",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.12,
+      "group": "Noise"
+    },
+    {
+      "id": "noise-type",
+      "label": "Noise type",
+      "minimum": 0,
+      "maximum": 2,
+      "default": 0,
+      "group": "Noise",
+      "control": "choice",
+      "options": [
+        {
+          "label": "Film grain",
+          "value": 0
+        },
+        {
+          "label": "Block static",
+          "value": 1
+        },
+        {
+          "label": "Scanline hiss",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "seed",
+      "label": "Seed",
+      "minimum": 0,
+      "maximum": 32,
+      "default": 1,
+      "group": "Noise"
+    }
+  ],
+  "presets": [
+    {
+      "id": "tape",
+      "label": "Broken tape",
+      "values": {
+        "type": 0,
+        "noise-type": 2,
+        "jitter": 0.06,
+        "noise": 0.2
+      }
+    },
+    {
+      "id": "blocks",
+      "label": "Block storm",
+      "values": {
+        "type": 1,
+        "noise-type": 1,
+        "scale": 20,
+        "jitter": 0.15
+      }
+    },
+    {
+      "id": "rgb",
+      "label": "RGB tremor",
+      "values": {
+        "type": 4,
+        "noise-type": 0,
+        "jitter": 0.02,
+        "noise": 0.08
+      }
+    }
+  ]
+}

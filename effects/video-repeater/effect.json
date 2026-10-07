@@ -1,0 +1,164 @@
+{
+  "format": "virtual-effect",
+  "version": 2,
+  "id": "video-repeater",
+  "name": "Video Repeater",
+  "description": "Previous-frame echoes with seeded wandering, rotation and drift. Master only. Speed sets motion changes per second; trails accumulate once per rendered frame.",
+  "role": "effect",
+  "targets": [
+    "master"
+  ],
+  "abi": "master-v1",
+  "shader": "video_repeater.wgsl",
+  "parameters": [
+    {
+      "id": "trail",
+      "label": "Trail amount",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.65,
+      "group": "Echo"
+    },
+    {
+      "id": "feedback",
+      "label": "Persistence",
+      "minimum": 0,
+      "maximum": 0.97,
+      "default": 0.82,
+      "group": "Echo"
+    },
+    {
+      "id": "movement",
+      "label": "Random movement",
+      "minimum": 0,
+      "maximum": 0.2,
+      "default": 0.025,
+      "group": "Movement"
+    },
+    {
+      "id": "speed",
+      "label": "Wander speed",
+      "minimum": 0,
+      "maximum": 30,
+      "default": 8,
+      "group": "Movement"
+    },
+    {
+      "id": "drift-x",
+      "label": "Horizontal drift",
+      "minimum": -0.1,
+      "maximum": 0.1,
+      "default": 0.008,
+      "group": "Movement"
+    },
+    {
+      "id": "drift-y",
+      "label": "Vertical drift",
+      "minimum": -0.1,
+      "maximum": 0.1,
+      "default": 0.004,
+      "group": "Movement"
+    },
+    {
+      "id": "rotation",
+      "label": "Echo rotation",
+      "minimum": -1,
+      "maximum": 1,
+      "default": 0.04,
+      "group": "Movement"
+    },
+    {
+      "id": "zoom",
+      "label": "Echo zoom",
+      "minimum": -0.08,
+      "maximum": 0.08,
+      "default": 0.01,
+      "group": "Movement"
+    },
+    {
+      "id": "repeats",
+      "label": "Repeats",
+      "minimum": 1,
+      "maximum": 8,
+      "default": 4,
+      "group": "Echo"
+    },
+    {
+      "id": "jitter",
+      "label": "Stepped movement",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.25,
+      "group": "Movement"
+    },
+    {
+      "id": "blend",
+      "label": "Echo blend",
+      "minimum": 0,
+      "maximum": 2,
+      "default": 1,
+      "group": "Echo",
+      "control": "choice",
+      "options": [
+        {
+          "label": "Add",
+          "value": 0
+        },
+        {
+          "label": "Screen",
+          "value": 1
+        },
+        {
+          "label": "Maximum",
+          "value": 2
+        }
+      ]
+    },
+    {
+      "id": "seed",
+      "label": "Seed",
+      "minimum": 0,
+      "maximum": 32,
+      "default": 2,
+      "group": "Movement"
+    }
+  ],
+  "presets": [
+    {
+      "id": "arcade",
+      "label": "Arcade ghosts",
+      "values": {
+        "blend": 2,
+        "movement": 0.02,
+        "feedback": 0.88,
+        "repeats": 5
+      }
+    },
+    {
+      "id": "scatter",
+      "label": "Random scatter",
+      "values": {
+        "movement": 0.09,
+        "speed": 18,
+        "jitter": 1,
+        "rotation": 0.12,
+        "blend": 1
+      }
+    },
+    {
+      "id": "tunnel",
+      "label": "Spiral tunnel",
+      "values": {
+        "movement": 0,
+        "drift-x": 0,
+        "drift-y": 0,
+        "zoom": 0.04,
+        "rotation": 0.06,
+        "feedback": 0.93
+      }
+    }
+  ],
+  "resources": {
+    "history": "previous_slot_output"
+  }
+}

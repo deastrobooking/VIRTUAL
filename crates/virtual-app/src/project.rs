@@ -1224,6 +1224,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn all_generator_controls_and_mapping_targets_round_trip() {
+        let mut settings = GeneratorSettings::default();
+        for parameter in virtual_generate::GENERATOR_PARAMETERS {
+            settings.set_parameter(parameter.id, 0.37);
+            let target = ControlTarget::GeneratorParameter {
+                deck: 3,
+                parameter: parameter.id,
+            };
+            let encoded = serde_json::to_string(&target_to_project(target)).unwrap();
+            let decoded: ControlTargetProject = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(target_from_project(decoded), target);
+        }
+        let encoded = serde_json::to_string(&generator_to_project(&settings)).unwrap();
+        let loaded = generator_from_project(&serde_json::from_str(&encoded).unwrap());
+        assert_eq!(loaded, settings.clone().sanitized());
+    }
+
+    #[test]
     fn generator_project_defaults_match_runtime_defaults_and_round_trip() {
         assert_eq!(
             generator_from_project(&GeneratorProject::default()),
