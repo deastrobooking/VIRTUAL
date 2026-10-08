@@ -108,6 +108,13 @@ impl State {
                     self.tap_tempo.reset();
                 }
                 ui::UiAction::SetOutputEnabled(enabled) => {
+                    if !enabled && self.ui.output_locked {
+                        self.ui.output_enabled = true;
+                        self.project_status =
+                            "Output locked · Unlock output before disabling.".into();
+                        continue;
+                    }
+                    self.ui.output_enabled = enabled;
                     self.record_show_operation(
                         CommandOrigin::Operator,
                         now,
@@ -115,6 +122,8 @@ impl State {
                     );
                     self.output.window.set_visible(enabled);
                     if enabled {
+                        self.output.window.set_minimized(false);
+                        self.output.window.focus_window();
                         self.output.window.request_redraw();
                     }
                     self.publish_osc_value(
@@ -283,6 +292,7 @@ impl ui::UiAction {
             Self::Restart(_) | Self::Seek(_) | Self::Launch(_) | Self::LaunchScene(_)
             | Self::SaveProject | Self::TapTempo | Self::HalfTempo | Self::DoubleTempo
             | Self::MidiCancelLearn | Self::MidiClockContinue
+            | Self::SetOutputEnabled(true)
             // Live video switching and recording are intentional performance controls.
             | Self::RefreshCameras | Self::ConnectCamera { .. } | Self::ConnectGenerator { .. }
             | Self::StartCameraRecording(_) | Self::StopCameraRecording(_)
@@ -306,6 +316,7 @@ mod tests {
             ui::UiAction::OpenProject,
             ui::UiAction::RecoverProject,
             ui::UiAction::SetCompositionExtent([1920, 1080]),
+            ui::UiAction::SetOutputEnabled(false),
         ] {
             assert!(!action.allowed_in_show_mode(), "{action:?}");
         }
@@ -314,6 +325,7 @@ mod tests {
             ui::UiAction::SaveProject,
             ui::UiAction::LaunchScene(0),
             ui::UiAction::RefreshCameras,
+            ui::UiAction::SetOutputEnabled(true),
         ] {
             assert!(action.allowed_in_show_mode(), "{action:?}");
         }

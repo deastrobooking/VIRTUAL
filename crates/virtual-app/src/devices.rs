@@ -588,6 +588,10 @@ impl State {
                 self.tap_tempo.reset();
             }
             OscAction::OutputEnabled(enabled) => {
+                if !enabled && self.ui.output_locked {
+                    self.osc_status = "Output locked · ignored output disable".into();
+                    return;
+                }
                 self.record_show_operation(
                     origin,
                     now,

@@ -225,6 +225,11 @@ impl ApplicationHandler for App {
         if state.output.window.id() == id {
             match event {
                 WindowEvent::CloseRequested => {
+                    if state.ui.output_locked {
+                        state.project_status =
+                            "Output locked · Unlock output before closing.".into();
+                        return;
+                    }
                     state.record_show_operation(
                         CommandOrigin::Operator,
                         Instant::now(),
@@ -266,6 +271,10 @@ impl ApplicationHandler for App {
 
         match event {
             WindowEvent::CloseRequested => {
+                if state.ui.output_locked {
+                    state.project_status = "Output locked · Unlock output before quitting.".into();
+                    return;
+                }
                 state.finish_project_saves();
                 event_loop.exit();
             }
@@ -395,6 +404,10 @@ impl State {
                 self.output.window.set_fullscreen(None);
             }
             KeyCode::KeyO if !self.modifiers.control_key() && !self.modifiers.super_key() => {
+                if self.ui.output_locked {
+                    self.project_status = "Output locked · Unlock output before hiding.".into();
+                    return;
+                }
                 let enabled = !self.ui.output_enabled;
                 self.record_show_operation(
                     CommandOrigin::Keyboard,

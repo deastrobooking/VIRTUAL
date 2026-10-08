@@ -93,6 +93,16 @@ editor, so they stay on screen however far the editor is scrolled. Save
 progress and save failures appear there in both modes. A failure stays visible
 until the same file saves successfully or you press **Dismiss save error**.
 
+Press **Open output** in the toolbar to reopen the external program window
+after closing it, restore it if minimized, or bring it forward. This button
+also remains available in Show Mode.
+
+Use **Lock output** beside it to prevent closing or disabling the output
+during a performance. **Unlock output** releases the lock. While locked,
+window close requests (including closing the operator window), the `O` toggle,
+and setup or OSC output-disable requests are blocked. Both buttons remain
+available in Show Mode. The lock starts off each time the app launches.
+
 After setup and saving, press **SHOW MODE** in the top bar. Show Mode keeps
 clip and scene launches, deck transport, levels, solo/bypass, live per-deck
 effect sliders, compact master-effect bypass/wet cards, the A/B crossfader,

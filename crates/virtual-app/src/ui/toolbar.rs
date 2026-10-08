@@ -154,6 +154,29 @@ pub(super) fn draw_toolbar(
         ui.separator();
         draw_layer_order(ui, state, &palette, midi_map, actions, true);
         ui.separator();
+        if midi_button(ui, "toolbar.open_output", "Toolbar · Open output", |ui| {
+            ui.button("Open output")
+                .on_hover_text("Reopen or bring forward the external program output window")
+        })
+        .clicked()
+        {
+            actions.push(UiAction::SetOutputEnabled(true));
+        }
+        if ui
+            .add_enabled(
+                state.output_enabled || state.output_locked,
+                egui::Button::new(if state.output_locked {
+                    "Unlock output"
+                } else {
+                    "Lock output"
+                })
+                .selected(state.output_locked),
+            )
+            .on_hover_text("Prevent closing or disabling the output until unlocked")
+            .clicked()
+        {
+            state.output_locked = !state.output_locked;
+        }
         let show_label = if state.show_mode {
             "EXIT SHOW MODE"
         } else {

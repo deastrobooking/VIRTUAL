@@ -175,6 +175,9 @@ impl OutputLifecycle {
 
 impl State {
     pub(crate) fn apply_output_settings(&mut self) -> bool {
+        if self.ui.output_locked {
+            self.ui.output_enabled = true;
+        }
         if self.program.extent() != self.ui.composition_extent {
             if let Err(error) = self
                 .performance_runtime

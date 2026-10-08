@@ -63,6 +63,8 @@ pub struct UiState {
     pub crossfader: f32,
     pub equal_power: bool,
     pub output_enabled: bool,
+    /// Session-only safety lock; never restored from project files.
+    pub output_locked: bool,
     pub output_fullscreen: bool,
     pub output_display_id: String,
     pub output_test_card: bool,
@@ -169,6 +171,7 @@ impl Default for UiState {
             crossfader: 0.5,
             equal_power: true,
             output_enabled: true,
+            output_locked: false,
             output_fullscreen: false,
             output_display_id: String::new(),
             output_test_card: false,
