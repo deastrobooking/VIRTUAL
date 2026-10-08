@@ -776,7 +776,7 @@ pub(super) fn mappable(
         ui.painter().rect(
             rect,
             4.0,
-            map.palette.control_tint(map.palette.success, 0.22),
+            egui::Color32::TRANSPARENT,
             egui::Stroke::new(1.5, map.palette.success),
             egui::StrokeKind::Outside,
         );
@@ -797,25 +797,23 @@ pub(super) fn mappable(
     }
     let armed = map.learning == Some(target);
     let devices = map.devices_for(target);
-    let (tint, stroke) = if armed {
-        (
-            map.palette.control_tint(map.palette.accent, 0.34),
-            egui::Stroke::new(2.0, map.palette.accent),
-        )
+    let stroke = if armed {
+        egui::Stroke::new(2.0, map.palette.accent)
     } else if devices.is_empty() {
-        (
-            map.palette.control_tint(map.palette.stroke, 0.10),
-            egui::Stroke::new(1.0, map.palette.stroke),
-        )
+        egui::Stroke::new(1.0, map.palette.stroke)
     } else {
-        (
-            map.palette.control_tint(map.palette.secondary, 0.28),
-            egui::Stroke::new(1.0, map.palette.secondary),
-        )
+        egui::Stroke::new(1.0, map.palette.secondary)
     };
     let rect = response.rect.expand(2.0);
-    ui.painter()
-        .rect(rect, 4.0, tint, stroke, egui::StrokeKind::Outside);
+    // This is painted after the widget: an opaque control tint hides its text
+    // and value. Outline the target without painting over its contents.
+    ui.painter().rect(
+        rect,
+        4.0,
+        egui::Color32::TRANSPARENT,
+        stroke,
+        egui::StrokeKind::Outside,
+    );
     let hit = ui.interact(
         rect,
         response.id.with("midi-map-overlay"),

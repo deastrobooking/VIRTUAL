@@ -26,7 +26,8 @@ pub(crate) fn requested_depth(pattern: RecursivePattern, levels: u32) -> u32 {
         PythagorasTree => levels + 1,
         MengerSponge => levels.saturating_sub(3) / 2,
         GeodesicSphere => levels.saturating_sub(4),
-        ChebyshevCurve | PolynomialContours | Supershape | Spirograph | TorusKnot => levels,
+        ChebyshevCurve | PolynomialContours | Supershape | RoseCurve | Lissajous
+        | SphericalWeave | MobiusRibbon | Spirograph | TorusKnot => levels,
     }
 }
 
@@ -68,7 +69,9 @@ pub(crate) fn estimate(params: &GeometryParams, depth: u32) -> u64 {
         PolynomialContours | Supershape => {
             params.contours.round().clamp(4.0, 64.0) as u64 * 2 * 64 * u64::from(depth.max(1))
         }
-        Spirograph | TorusKnot => 256 * u64::from(depth.max(1)),
+        RoseCurve | Lissajous | SphericalWeave | MobiusRibbon | Spirograph | TorusKnot => {
+            256 * u64::from(depth.max(1))
+        }
     }
 }
 
@@ -183,7 +186,9 @@ pub(crate) fn build(p: &GeometryParams, depth: u32, out: &mut Builder) {
         MengerSponge => menger(&mut c, Vec3::ZERO, scale, depth),
         GeodesicSphere => geodesic(&mut c, depth),
         ChebyshevCurve | PolynomialContours | Supershape => advanced_curves(&mut c, depth),
-        Spirograph | TorusKnot => parametric_curve(&mut c, depth),
+        RoseCurve | Lissajous | SphericalWeave | MobiusRibbon | Spirograph | TorusKnot => {
+            parametric_curve(&mut c, depth)
+        }
     }
 }
 
@@ -194,7 +199,36 @@ fn parametric_curve(c: &mut Ctx, depth: u32) {
     let lobes = 2.0 + (c.p.spread * 10.0).floor();
     let point = |c: &mut Ctx, index: u32| {
         let t = index as f32 / steps as f32 * TAU;
-        let v = if c.p.pattern == RecursivePattern::Spirograph {
+        let v = if c.p.pattern == RecursivePattern::RoseCurve {
+            let radius = 0.15 + c.p.twist * 0.5 + 0.8 * (lobes * t).cos();
+            Vec3::new(radius * t.cos(), radius * t.sin(), 0.0)
+        } else if c.p.pattern == RecursivePattern::Lissajous {
+            Vec3::new(
+                (lobes * t + c.p.twist * PI).sin(),
+                ((lobes + 1.0) * t).sin(),
+                0.0,
+            )
+        } else if c.p.pattern == RecursivePattern::SphericalWeave {
+            let latitude = (0.2 + c.p.twist * 1.2) * (lobes * t).sin();
+            Vec3::new(
+                latitude.cos() * t.cos(),
+                latitude.cos() * t.sin(),
+                latitude.sin(),
+            )
+        } else if c.p.pattern == RecursivePattern::MobiusRibbon {
+            // A closed thread scans back and forth across a twisted ribbon.
+            // Two revolutions close the seam even for an odd half-twist count.
+            let angle = t * 2.0;
+            let half_twists = 1.0 + 2.0 * (c.p.spread * 4.0).floor();
+            let across = (0.1 + c.p.twist * 0.5) * (24.0 * t).sin();
+            let roll = half_twists * angle * 0.5;
+            let radius = 1.0 + across * roll.cos();
+            Vec3::new(
+                radius * angle.cos(),
+                radius * angle.sin(),
+                across * roll.sin(),
+            )
+        } else if c.p.pattern == RecursivePattern::Spirograph {
             let loop_size = 0.15 + c.p.twist * 0.85;
             Vec3::new(
                 t.cos() + loop_size * (lobes * t).cos(),
@@ -213,7 +247,7 @@ fn parametric_curve(c: &mut Ctx, depth: u32) {
         v * c.p.scale
             + c.jitter_vec(
                 c.p.scale * 0.04,
-                c.p.pattern == RecursivePattern::Spirograph,
+                c.p.pattern.dimension() == crate::settings::Dimension::Planar,
             )
     };
     let first = point(c, 0);
@@ -807,7 +841,14 @@ mod tests {
 
     #[test]
     fn new_curves_are_closed_seeded_and_respond_to_controls() {
-        for pattern in [RecursivePattern::Spirograph, RecursivePattern::TorusKnot] {
+        for pattern in [
+            RecursivePattern::Spirograph,
+            RecursivePattern::TorusKnot,
+            RecursivePattern::RoseCurve,
+            RecursivePattern::Lissajous,
+            RecursivePattern::SphericalWeave,
+            RecursivePattern::MobiusRibbon,
+        ] {
             let mut p = params(pattern, 7);
             p.randomness = 0.3;
             let geometry = generate(&p);

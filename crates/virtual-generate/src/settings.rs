@@ -24,6 +24,10 @@ pub enum RecursivePattern {
     ChebyshevCurve,
     PolynomialContours,
     Supershape,
+    RoseCurve,
+    Lissajous,
+    SphericalWeave,
+    MobiusRibbon,
 }
 
 /// Whether a pattern is drawn in the XY plane or occupies 3D space.
@@ -47,7 +51,7 @@ pub enum ColorMode {
 }
 
 impl RecursivePattern {
-    pub const ALL: [Self; 19] = [
+    pub const ALL: [Self; 23] = [
         Self::FractalTree,
         Self::RecursiveSpiral,
         Self::Mandala,
@@ -67,6 +71,10 @@ impl RecursivePattern {
         Self::ChebyshevCurve,
         Self::PolynomialContours,
         Self::Supershape,
+        Self::RoseCurve,
+        Self::Lissajous,
+        Self::SphericalWeave,
+        Self::MobiusRibbon,
     ];
 
     pub const fn id(self) -> &'static str {
@@ -90,6 +98,10 @@ impl RecursivePattern {
             Self::PolynomialContours => "polynomial_contours",
             Self::Supershape => "supershape",
             Self::TorusKnot => "torus_knot",
+            Self::RoseCurve => "rose_curve",
+            Self::Lissajous => "lissajous",
+            Self::SphericalWeave => "spherical_weave",
+            Self::MobiusRibbon => "mobius_ribbon",
         }
     }
 
@@ -118,6 +130,10 @@ impl RecursivePattern {
             Self::PolynomialContours => "Polynomial Contours",
             Self::Supershape => "Supershape",
             Self::TorusKnot => "Torus Knot",
+            Self::RoseCurve => "Rose Curve",
+            Self::Lissajous => "Lissajous",
+            Self::SphericalWeave => "Spherical Weave",
+            Self::MobiusRibbon => "Möbius Ribbon",
         }
     }
 
@@ -143,12 +159,18 @@ impl RecursivePattern {
                 "Use Polynomial & surface controls; depth sets curve detail"
             }
             Self::TorusKnot => "Depth: curve detail · Spread: windings · Twist: tube radius",
+            Self::RoseCurve => "Spread: petals · Twist: inner radius",
+            Self::Lissajous => "Spread: frequency ratio · Twist: phase",
+            Self::SphericalWeave => "Spread: windings · Twist: latitude sweep",
+            Self::MobiusRibbon => "Spread: half twists · Twist: ribbon width",
         }
     }
 
     pub const fn dimension(self) -> Dimension {
         match self {
-            Self::Spirograph
+            Self::RoseCurve
+            | Self::Lissajous
+            | Self::Spirograph
             | Self::KochSnowflake
             | Self::RecursiveWeb
             | Self::SierpinskiTriangle
@@ -156,7 +178,9 @@ impl RecursivePattern {
             | Self::HilbertCurve
             | Self::HTree
             | Self::PythagorasTree => Dimension::Planar,
-            Self::ChebyshevCurve
+            Self::SphericalWeave
+            | Self::MobiusRibbon
+            | Self::ChebyshevCurve
             | Self::PolynomialContours
             | Self::Supershape
             | Self::TorusKnot
@@ -172,7 +196,10 @@ impl RecursivePattern {
 
     pub const fn color_mode(self) -> ColorMode {
         match self {
-            Self::ChebyshevCurve
+            Self::RoseCurve | Self::Lissajous => ColorMode::Path,
+            Self::SphericalWeave
+            | Self::MobiusRibbon
+            | Self::ChebyshevCurve
             | Self::PolynomialContours
             | Self::Supershape
             | Self::KochSnowflake
