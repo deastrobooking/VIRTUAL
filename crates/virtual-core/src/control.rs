@@ -186,7 +186,7 @@ impl MidiBinding {
             input_range: [0.0, 1.0],
             output_range: crate::audio_map::default_output_range(target),
             invert: false,
-            mode: if kind == MidiMessageKind::Note {
+            mode: if kind == MidiMessageKind::Note || matches!(target, ControlTarget::DeckMute(_)) {
                 note_mode_for(target)
             } else {
                 MappingMode::Continuous
@@ -203,12 +203,18 @@ impl MidiBinding {
             return None;
         }
         let raw = message.normalized();
-        // Deck mute notes always latch, including saved bindings that used
-        // continuous or momentary mode. Releases must never undo the mute.
-        let deck_mute_note =
-            self.kind == MidiMessageKind::Note && matches!(self.target, ControlTarget::DeckMute(_));
-        if deck_mute_note || self.mode == MappingMode::Toggle {
-            if raw <= 0.0 {
+        // Channel mute buttons latch for both notes and CC buttons, including
+        // saved continuous/momentary mappings. A release only re-arms the CC
+        // button; it must never change the deck's mute state.
+        let deck_mute = matches!(self.target, ControlTarget::DeckMute(_));
+        if deck_mute || self.mode == MappingMode::Toggle {
+            let repeated_cc_press = deck_mute
+                && self.kind == MidiMessageKind::ControlChange
+                && self.last_hardware.is_some_and(|previous| previous > 0.0);
+            if deck_mute {
+                self.last_hardware = Some(raw);
+            }
+            if raw <= 0.0 || repeated_cc_press {
                 return None;
             }
             // Flip relative to the target's live state rather than a private
@@ -810,11 +816,26 @@ mod tests {
     }
 
     #[test]
-    fn deck_mute_cc_remains_absolute() {
-        let mut binding = MidiBinding::learned("knobs", cc(0), ControlTarget::DeckMute(0));
-        assert_eq!(binding.apply(cc(127), 0.0), Some(1.0));
-        assert_eq!(binding.apply(cc(127), 1.0), Some(1.0));
-        assert_eq!(binding.apply(cc(0), 1.0), Some(0.0));
+    fn deck_mute_cc_latches_for_new_and_saved_mappings() {
+        for deck in 0..4 {
+            for mode in [
+                MappingMode::Toggle,
+                MappingMode::Continuous,
+                MappingMode::Momentary,
+            ] {
+                let mut binding =
+                    MidiBinding::learned("buttons", cc(127), ControlTarget::DeckMute(deck));
+                assert_eq!(binding.mode, MappingMode::Toggle);
+                binding.mode = mode;
+                assert_eq!(binding.apply(cc(127), 0.0), Some(1.0));
+                assert_eq!(binding.apply(cc(127), 1.0), None);
+                assert_eq!(binding.apply(cc(0), 1.0), None);
+                assert_eq!(binding.apply(cc(127), 1.0), Some(0.0));
+                assert_eq!(binding.apply(cc(0), 0.0), None);
+                // A mouse click has muted the deck between MIDI presses.
+                assert_eq!(binding.apply(cc(127), 1.0), Some(0.0));
+            }
+        }
     }
 
     #[test]
