@@ -203,7 +203,11 @@ impl MidiBinding {
             return None;
         }
         let raw = message.normalized();
-        if self.mode == MappingMode::Toggle {
+        // Deck mute notes always latch, including saved bindings that used
+        // continuous or momentary mode. Releases must never undo the mute.
+        let deck_mute_note =
+            self.kind == MidiMessageKind::Note && matches!(self.target, ControlTarget::DeckMute(_));
+        if deck_mute_note || self.mode == MappingMode::Toggle {
             if raw <= 0.0 {
                 return None;
             }
@@ -776,6 +780,41 @@ mod tests {
         // A CC fader on a switch stays absolute rather than toggling per tick.
         let fader = MidiBinding::learned("knobs", cc(0), ControlTarget::MasterBlackout);
         assert_eq!(fader.mode, MappingMode::Continuous);
+    }
+
+    #[test]
+    fn deck_mute_notes_latch_across_releases_for_new_and_saved_mappings() {
+        for deck in 0..4 {
+            for mode in [
+                MappingMode::Toggle,
+                MappingMode::Momentary,
+                MappingMode::Continuous,
+            ] {
+                let mut binding =
+                    MidiBinding::learned("pads", pad(127), ControlTarget::DeckMute(deck));
+                assert_eq!(binding.mode, MappingMode::Toggle);
+                binding.mode = mode;
+                let release = MidiMessage::NoteOff {
+                    channel: 0,
+                    note: 36,
+                };
+                // Even a soft hit mutes; both MIDI release encodings leave it muted.
+                assert_eq!(binding.apply(pad(1), 0.0), Some(1.0));
+                assert_eq!(binding.apply(release, 1.0), None);
+                assert_eq!(binding.apply(pad(0), 1.0), None);
+                assert_eq!(binding.apply(pad(127), 1.0), Some(0.0));
+                assert_eq!(binding.apply(release, 0.0), None);
+                assert_eq!(binding.apply(pad(0), 0.0), None);
+            }
+        }
+    }
+
+    #[test]
+    fn deck_mute_cc_remains_absolute() {
+        let mut binding = MidiBinding::learned("knobs", cc(0), ControlTarget::DeckMute(0));
+        assert_eq!(binding.apply(cc(127), 0.0), Some(1.0));
+        assert_eq!(binding.apply(cc(127), 1.0), Some(1.0));
+        assert_eq!(binding.apply(cc(0), 1.0), Some(0.0));
     }
 
     #[test]
