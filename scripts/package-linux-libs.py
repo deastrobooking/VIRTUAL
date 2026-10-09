@@ -5,32 +5,66 @@ Keep the host's glibc and GPU drivers. A baseline-compatible Linux installation
 is still required; this does not claim compatibility with every distribution.
 """
 import json
+import os
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-# These must come from the host. In particular, never ship a build-machine GPU
-# driver or mix a bundled libc with the host's ELF interpreter.
-HOST = re.compile(
-    r"^(ld-linux.*|lib(c|m|pthread|dl|rt|resolv|util|anl|nss_.*)\.so(?:\..*)?"
-    r"|lib(GL|EGL|GLX|GLdispatch|OpenGL|vulkan|cuda|nvidia.*)\.so(?:\..*)?)$"
+# Libraries the host must supply; they are never bundled (AppImage-style
+# exclusions). Shipping a builder copy would shadow the host's and break the
+# host GPU driver, display server or audio plugins, which are built against the
+# host's own versions, typically newer than the builder's.
+HOST_LIBRARIES = (
+    # glibc and its ELF interpreter: a bundled libc cannot mix with the host's.
+    r"ld-linux.*",
+    r"lib(c|m|mvec|pthread|dl|rt|resolv|util|anl|BrokenLocale|thread_db|nss_.*)",
+    # C++ runtime: Mesa and vendor drivers loaded into the process need the
+    # host's (newer) libstdc++/libgcc_s symbol versions.
+    r"lib(stdc\+\+|gcc_s)",
+    # GPU drivers and the libraries shared with them.
+    r"lib(GL|EGL|GLX|GLdispatch|OpenGL|GLESv2|gbm|vulkan|cuda|nvidia.*|drm.*)",
+    # Display server clients.
+    r"lib(X.*|xcb.*|xkbcommon.*|wayland-.*|xshmfence)",
+    # ALSA must match the host's plugin and configuration files.
+    r"lib(asound|dbus-1|udev)",
 )
-
+HOST = re.compile(r"^(" + "|".join(HOST_LIBRARIES) + r")\.so(?:\..*)?$")
 
 def run(*args):
     return subprocess.check_output(args, text=True, stderr=subprocess.STDOUT)
 
 
-def dependencies(path):
+def resolved_dependencies(path):
+    """Map each library the loader would load for `path` to its file."""
     result = run("ldd", str(path))
     if "not found" in result:
         raise RuntimeError(f"Unresolved libraries in {path}:\n{result}")
+    resolved = {}
     for line in result.splitlines():
         match = re.match(r"\s*(\S+) => (/.*?) \(0x", line)
         if match:
-            yield match[1], Path(match[2])
+            resolved[match[1]] = Path(match[2])
+    return resolved
+
+
+def direct_dependencies(path):
+    """`path`'s own DT_NEEDED entries with their resolved files.
+
+    ldd lists the whole transitive closure, including libraries reached only
+    through host libraries; those belong to the host too, so traverse direct
+    dependencies instead.
+    """
+    resolved = resolved_dependencies(path)
+    for name in run("patchelf", "--print-needed", str(path)).split():
+        if HOST.fullmatch(name):
+            # ldd prints the ELF interpreter without a "=>" mapping.
+            yield name, resolved.get(name)
+        elif name in resolved:
+            yield name, resolved[name]
+        else:
+            raise RuntimeError(f"ldd did not resolve {name} needed by {path}")
 
 
 def main():
@@ -44,7 +78,7 @@ def main():
     packages = {}
     while queue:
         binary = queue.pop()
-        for name, source in dependencies(binary):
+        for name, source in direct_dependencies(binary):
             if HOST.fullmatch(name):
                 host.add(name)
                 continue
@@ -75,9 +109,13 @@ def main():
     run("patchelf", "--set-rpath", "$ORIGIN/lib", str(bundle / "virtual"))
     for path in lib.iterdir():
         run("patchelf", "--set-rpath", "$ORIGIN", str(path))
-    # The launcher covers transitive search paths as well as direct dependencies.
+    # Audit as the user's loader will see it, via RUNPATH alone: every
+    # non-host dependency must resolve inside the bundle.
+    os.environ.pop("LD_LIBRARY_PATH", None)
     for path in [bundle / "virtual", *lib.iterdir()]:
-        list(dependencies(path))
+        for name, resolved in direct_dependencies(path):
+            if not HOST.fullmatch(name) and resolved.resolve().parent != lib:
+                raise RuntimeError(f"{path.name} loads {name} outside the bundle: {resolved}")
     (bundle / "native-dependencies.json").write_text(json.dumps({
         "libraries": origins, "host_libraries": sorted(host), "packages": packages,
         "builder": Path("/etc/os-release").read_text(),

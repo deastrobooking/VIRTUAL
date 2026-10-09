@@ -33,8 +33,9 @@ cat > "$bundle/VIRTUAL" <<'LAUNCHER'
 #!/bin/sh
 set -eu
 bundle=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-# Prepend only a nonempty directory; do not add CWD to the loader search path.
-export LD_LIBRARY_PATH="$bundle/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# Bundled libraries are found through RUNPATH ($ORIGIN). LD_LIBRARY_PATH is
+# deliberately left alone: it would also override the host libraries that GPU
+# drivers and audio plugins load into this process.
 exec "$bundle/virtual" "$@"
 LAUNCHER
 chmod +x "$bundle/VIRTUAL"

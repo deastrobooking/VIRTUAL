@@ -25,14 +25,30 @@ sh scripts/build-linux.sh
 ```
 
 The Debian/Ubuntu packaging helper records package versions and copies copyright
-files for bundled libraries. It deliberately uses the host glibc and GPU drivers.
+files for bundled libraries. It bundles FFmpeg and its codec and device libraries,
+but deliberately leaves these to the host (`HOST_LIBRARIES` in
+`scripts/package-linux-libs.py`), because a builder copy would override the host's
+and break GPU drivers, the display server or audio plugins that are built against
+newer host versions:
+
+- glibc and its loader;
+- the C++ runtime (`libstdc++`, `libgcc_s`);
+- GPU and driver libraries (`libGL`, `libEGL`, `libvulkan`, `libgbm`, `libdrm*`);
+- display clients (`libX*`, `libxcb*`, `libxkbcommon`, `libwayland-*`);
+- `libasound`, `libdbus-1` and `libudev`.
+
+Any desktop installation provides these. The exact list an archive needs is in
+its `native-dependencies.json` (`host_libraries`). Bundled libraries find each
+other through `RUNPATH`, never `LD_LIBRARY_PATH`, so they cannot shadow libraries
+that host drivers load into the process.
 The native FFmpeg version comes from the build distribution and is recorded in
 the dependency manifest; Cargo dependencies are locked. This is not a bit-for-bit
 reproducible build while apt packages and runner images can change.
 
 Output: `target/dist/VIRTUAL-<version>-linux-x86_64.tar.gz` and a SHA-256 file.
 Extract the archive and launch `VIRTUAL/VIRTUAL`. Keep the complete folder together.
-The launcher handles library paths and works from another current directory.
+The launcher works from another current directory and does not change the
+library search path.
 Recovery data goes in `${XDG_DATA_HOME:-$HOME/.local/share}/virtual`.
 
 ## Windows x64
@@ -62,6 +78,12 @@ release steps.
 
 `.github/workflows/native-builds.yml` builds on Ubuntu 24.04 and Windows Server
 2022 runners. It runs CPU/media library tests and uploads archives plus checksums.
+The Linux job also unpacks the archive in a clean Ubuntu 24.04 container that has
+only the host libraries above installed, and fails by name if anything else is
+missing. The Windows job checks out vcpkg at the manifest's `builtin-baseline`
+commit (`VCPKG_COMMIT` in the workflow; keep the two equal) rather than the runner
+image's copy, and caches built FFmpeg packages between runs, so only the first
+run after a baseline or manifest change builds FFmpeg from source.
 Trigger it manually, with a pull request, or by pushing a `build/**` branch.
 It does not publish a GitHub release.
 
