@@ -43,7 +43,8 @@ jobs:
               libstdc++6 libgcc-s1 libasound2t64 libdbus-1-3 libudev1 \
               libdrm2 libgbm1 libgl1 libegl1 libvulkan1 \
               libx11-6 libx11-xcb1 libxext6 libxfixes3 libxrender1 libxv1 \
-              libxcb1 libxcb-shape0 libxcb-shm0 libxcb-xfixes0 libxcb-dri3-0 \
+              libxcursor1 libxi6 libxrandr2 libxss1 \
+              libxcb1 libxcb-render0 libxcb-shape0 libxcb-shm0 libxcb-xfixes0 libxcb-dri3-0 \
               libxkbcommon0 libwayland-client0 libwayland-cursor0 libwayland-egl1 \
               >/dev/null
             tar -xzf /artifacts/VIRTUAL-*-linux-x86_64.tar.gz -C /tmp
