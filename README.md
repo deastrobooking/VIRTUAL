@@ -18,6 +18,10 @@ instead copies FFmpeg and its dependencies into the bundle so it runs on Macs
 without Homebrew (macOS 26 or later, matching the Homebrew libraries). Both are
 ad-hoc signed, not notarized.
 
+Native Windows x64 and Linux x86-64 packaging scripts and CI builds are described
+in [cross-platform builds](docs/CROSS_PLATFORM_BUILDS.md). They bundle runtime
+libraries; end users do not need a package manager or developer tools.
+
 ## At a glance
 
 | Path | What VIRTUAL provides |

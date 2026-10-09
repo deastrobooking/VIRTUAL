@@ -57,6 +57,15 @@ use winit::window::{Window, WindowId};
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Also exercises the native library loader without requiring a display.
+    if std::env::args_os()
+        .nth(1)
+        .is_some_and(|arg| arg == "--version")
+    {
+        println!("VIRTUAL {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     let event_loop = EventLoop::new().context("create event loop")?;
     // Poll rather than Wait: the render loop is continuous and paced by vsync
     // on present, not by incoming input events.
