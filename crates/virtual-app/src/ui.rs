@@ -205,7 +205,7 @@ impl Default for UiState {
             quantization: Quantization::Immediate,
             project_path: "show.virtual".to_owned(),
             save_status: crate::project_save::SaveStatus::default(),
-            camera_device_id: "0".to_owned(),
+            camera_device_id: virtual_media::default_camera_id().to_owned(),
             camera_width: 1280,
             camera_height: 720,
             camera_fps: 30,

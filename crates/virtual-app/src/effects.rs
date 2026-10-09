@@ -176,7 +176,17 @@ fn user_effect_root(legacy: bool) -> Option<PathBuf> {
             })
         })
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("APPDATA").map(|root| {
+            PathBuf::from(root).join(if legacy {
+                "Oneiroi/effects"
+            } else {
+                "VIRTUAL/effects"
+            })
+        })
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)

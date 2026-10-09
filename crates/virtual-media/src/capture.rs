@@ -14,6 +14,27 @@ use virtual_core::MediaTime;
 use crate::{AlphaMode, DecodePath, FrameRate, MediaHealth, MovieMetadata};
 
 pub const CAMERA_SCHEME: &str = "camera://";
+/// FFmpeg input device backend for the current operating system.
+pub const fn native_camera_backend() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "dshow"
+    } else if cfg!(target_os = "linux") {
+        "video4linux2"
+    } else {
+        "avfoundation"
+    }
+}
+
+pub const fn default_camera_id() -> &'static str {
+    if cfg!(target_os = "linux") {
+        "/dev/video0"
+    } else if cfg!(target_os = "windows") {
+        ""
+    } else {
+        "0"
+    }
+}
+
 const NATIVE_DEVICE_PREFIX: &str = "avf-id/";
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -62,7 +83,7 @@ impl CapturePixelFormat {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CameraDevice {
-    /// Backend-specific stable identifier accepted by AVFoundation.
+    /// Backend-specific identifier accepted by the capture backend.
     pub id: String,
     pub label: String,
     pub backend: String,
@@ -81,6 +102,8 @@ impl CameraConfig {
     pub fn input_name(&self) -> String {
         if self.device.backend == "avfoundation" {
             format!("{}:none", self.device.id)
+        } else if self.device.backend == "dshow" {
+            format!("video={}", self.device.id)
         } else {
             self.device.id.clone()
         }
@@ -139,9 +162,9 @@ pub enum CameraDiscoveryError {
     NativeDiscovery,
     #[error("initialize FFmpeg: {0}")]
     Initialize(ffmpeg::Error),
-    #[error("AVFoundation input support is unavailable")]
+    #[error("Native video-input support is unavailable")]
     BackendUnavailable,
-    #[error("list AVFoundation cameras: {0}")]
+    #[error("list video inputs: {0}")]
     List(ffmpeg::Error),
 }
 
@@ -149,7 +172,7 @@ pub enum CameraDiscoveryError {
 pub fn discover_cameras() -> Result<Vec<CameraDevice>, CameraDiscoveryError> {
     ffmpeg::init().map_err(CameraDiscoveryError::Initialize)?;
     ffmpeg::device::register_all();
-    let backend = CString::new("avfoundation").expect("static backend name");
+    let backend = CString::new(native_camera_backend()).expect("static backend name");
     // SAFETY: the backend string is NUL terminated and lives for this call.
     let format = unsafe { ffmpeg::ffi::av_find_input_format(backend.as_ptr()) };
     if format.is_null() {
@@ -162,6 +185,8 @@ pub fn discover_cameras() -> Result<Vec<CameraDevice>, CameraDiscoveryError> {
         ffmpeg::ffi::avdevice_list_input_sources(format, ptr::null(), ptr::null_mut(), &mut list)
     };
     if count < 0 {
+        // Some backends can allocate the list before reporting an error.
+        unsafe { ffmpeg::ffi::avdevice_free_list_devices(&mut list) };
         return Err(CameraDiscoveryError::List(ffmpeg::Error::from(count)));
     }
     let mut cameras = Vec::with_capacity(count as usize);
@@ -182,7 +207,7 @@ pub fn discover_cameras() -> Result<Vec<CameraDevice>, CameraDiscoveryError> {
                     cameras.push(CameraDevice {
                         label: label.unwrap_or_else(|| id.clone()),
                         id,
-                        backend: "avfoundation".to_owned(),
+                        backend: native_camera_backend().to_owned(),
                     });
                 }
             }
@@ -195,7 +220,7 @@ pub fn discover_cameras() -> Result<Vec<CameraDevice>, CameraDiscoveryError> {
 #[cfg(not(target_os = "macos"))]
 unsafe fn provides_video(info: &ffmpeg::ffi::AVDeviceInfo) -> bool {
     if info.media_types.is_null() || info.nb_media_types <= 0 {
-        return false;
+        return cfg!(target_os = "linux");
     }
     // SAFETY: FFmpeg reports nb_media_types entries in this device's array.
     unsafe {
@@ -329,6 +354,25 @@ mod tests {
         };
         assert_eq!(config.input_name(), config.device.id);
         assert_eq!(config.requested_pixel_format(), None);
+    }
+
+    #[test]
+    fn formats_windows_and_linux_capture_inputs() {
+        let mut config = CameraConfig {
+            device: CameraDevice {
+                id: "USB HDMI".to_owned(),
+                label: "Capture".to_owned(),
+                backend: "dshow".to_owned(),
+            },
+            requested_extent: None,
+            requested_fps: None,
+            fps_denominator: 1,
+            pixel_format: CapturePixelFormat::Auto,
+        };
+        assert_eq!(config.input_name(), "video=USB HDMI");
+        config.device.backend = "video4linux2".to_owned();
+        config.device.id = "/dev/video0".to_owned();
+        assert_eq!(config.input_name(), "/dev/video0");
     }
 
     #[test]

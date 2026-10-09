@@ -14,7 +14,35 @@ pub(crate) fn workspace_directory() -> std::io::Result<PathBuf> {
                     && contents.join("Info.plist").is_file()
             })
     });
-    if cfg!(target_os = "macos") && bundled {
+    // Release archives carry this marker; installation directories may be
+    // read-only. Keep command-line development workspaces unchanged.
+    let portable = executable
+        .parent()
+        .is_some_and(|directory| directory.join("virtual-portable").is_file());
+    if portable && !cfg!(target_os = "macos") {
+        let root = if cfg!(target_os = "windows") {
+            std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+        } else {
+            std::env::var_os("XDG_DATA_HOME")
+                .map(PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
+                })
+        }
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "user application-data directory unavailable",
+            )
+        })?;
+        let workspace = root.join(if cfg!(target_os = "windows") {
+            "VIRTUAL"
+        } else {
+            "virtual"
+        });
+        std::fs::create_dir_all(&workspace)?;
+        Ok(workspace)
+    } else if cfg!(target_os = "macos") && bundled {
         let home = std::env::var_os("HOME").ok_or_else(|| {
             std::io::Error::new(std::io::ErrorKind::NotFound, "home directory unavailable")
         })?;

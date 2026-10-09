@@ -23,7 +23,7 @@ mod worker;
 
 pub use capture::{
     CAMERA_SCHEME, CameraConfig, CameraDevice, CameraDiscoveryError, CapturePixelFormat,
-    camera_pts, discover_cameras,
+    camera_pts, default_camera_id, discover_cameras, native_camera_backend,
 };
 pub use clips::{
     CLIPS_PER_DECK, ClipAddress, ClipBank, ClipLaunchMode, ClipPlayback, ClipRestoreRequest,

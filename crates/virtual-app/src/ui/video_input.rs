@@ -48,7 +48,7 @@ pub(super) fn draw_video_input(
                     .cloned().unwrap_or_else(|| CameraDevice {
                         id: state.camera_device_id.trim().to_owned(),
                         label: format!("Video input {}", state.camera_device_id.trim()),
-                        backend: "avfoundation".to_owned(),
+                        backend: virtual_media::native_camera_backend().to_owned(),
                     });
                 actions.push(UiAction::ConnectCamera { deck, config: CameraConfig {
                     device,
