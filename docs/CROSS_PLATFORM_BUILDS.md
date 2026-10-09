@@ -66,7 +66,10 @@ $env:LIBCLANG_PATH = 'C:/Program Files/LLVM/bin'
 The manifest in `packaging/windows/vcpkg.json` pins native dependency versions to
 a vcpkg baseline (FFmpeg 8.0.1). The script builds dynamic x64 FFmpeg libraries,
 includes the app-local MSVC runtime, copies dependency notices, audits PE imports,
-and runs the executable with developer directories removed from PATH.
+and runs the executable with developer directories removed from PATH. FFmpeg is
+installed into the vcpkg checkout's own `installed/` tree, because the `vcpkg`
+crate that `ffmpeg-sys-next` uses to find it only reads that location; use a
+dedicated vcpkg checkout if another project shares it.
 
 Output: `target/dist/VIRTUAL-<version>-windows-x86_64.zip` and a SHA-256 file.
 Extract the entire ZIP and run `VIRTUAL/virtual.exe`. Keep the DLLs beside it.

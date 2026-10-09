@@ -25,10 +25,15 @@ $VcpkgRoot = (Resolve-Path $VcpkgRoot).Path
 $env:VCPKG_ROOT = $VcpkgRoot
 $env:VCPKGRS_DYNAMIC = '1'
 $env:VCPKGRS_TRIPLET = 'x64-windows'
-$Installed = Join-Path $ProjectRoot 'target/vcpkg-installed'
-$env:VCPKG_INSTALLED_ROOT = $Installed
+# ffmpeg-sys-next finds FFmpeg through the vcpkg crate (0.2.15), which only
+# reads the classic tree at $VCPKG_ROOT/installed and ignores
+# VCPKG_INSTALLED_ROOT, so the manifest install must land there.
+$Installed = Join-Path $VcpkgRoot 'installed'
 $Manifest = Join-Path $ProjectRoot 'packaging/windows'
 Invoke-Native "$VcpkgRoot/vcpkg.exe" @('install', "--x-manifest-root=$Manifest", "--x-install-root=$Installed", '--triplet=x64-windows')
+# The crate also reads the status database's incremental-updates directory,
+# which manifest-mode installs do not always create.
+New-Item -ItemType Directory -Force (Join-Path $Installed 'vcpkg/updates') | Out-Null
 $Native = Join-Path $Installed 'x64-windows'
 $env:PATH = "$Native/bin;$env:PATH"
 $Target = 'x86_64-pc-windows-msvc'

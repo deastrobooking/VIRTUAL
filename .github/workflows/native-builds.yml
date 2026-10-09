@@ -33,7 +33,10 @@ jobs:
         # the host (scripts/package-linux-libs.py, HOST_LIBRARIES). Any
         # library the archive needs that is neither bundled nor listed here
         # fails the check by name.
+        # Failures are echoed as an annotation so they are visible without
+        # access to the job log.
         run: |
+          for attempt in 1 2 3; do docker pull -q ubuntu:24.04 && break; sleep 15; done
           docker run --rm -v "$PWD/target/dist:/artifacts:ro" ubuntu:24.04 sh -ec '
             apt-get update -qq
             apt-get install -y --no-install-recommends \
@@ -48,7 +51,13 @@ jobs:
             if [ -n "$missing" ]; then echo "Host libraries missing:"; echo "$missing"; exit 1; fi
             cd /
             /tmp/VIRTUAL/VIRTUAL --version
-          '
+          ' > clean-baseline.log 2>&1 || {
+            code=$?
+            cat clean-baseline.log
+            echo "::error title=Clean-baseline check (exit $code)::$(tail -n 25 clean-baseline.log | awk '{gsub(/%/,"%25"); printf "%s%%0A", $0}')"
+            exit "$code"
+          }
+          cat clean-baseline.log
       - uses: actions/upload-artifact@v4
         with:
           name: VIRTUAL-linux-x86_64
