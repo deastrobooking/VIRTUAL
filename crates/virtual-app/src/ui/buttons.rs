@@ -153,6 +153,78 @@ pub(super) fn midi_button(
     response
 }
 
+/// A button that opens, closes or raises a window. Unlike [`midi_button`] it
+/// stays usable in MIDI Map mode, so the operator can open the window holding
+/// the controls they want to map. Shift-click maps the button itself and
+/// right-click clears its mapping.
+pub(super) fn midi_nav_button(
+    ui: &mut egui::Ui,
+    key: &str,
+    label: &str,
+    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
+    let hash = key_hash(key);
+    register(hash, label);
+    let target = ControlTarget::UiButton(hash);
+    let map = current_map();
+    let mut response = add(ui);
+    let Some(map) = map else {
+        return response;
+    };
+    if map.active && map.audio_learning.is_none() {
+        let armed = map.learning == Some(target);
+        let devices = map.devices_for(target);
+        let stroke = if armed {
+            egui::Stroke::new(2.0, map.palette.accent)
+        } else if devices.is_empty() {
+            egui::Stroke::new(1.0, map.palette.stroke)
+        } else {
+            egui::Stroke::new(1.0, map.palette.secondary)
+        };
+        ui.painter().rect_stroke(
+            response.rect.expand(2.0),
+            4.0,
+            stroke,
+            egui::StrokeKind::Outside,
+        );
+        let mut actions = Vec::new();
+        if response.secondary_clicked() {
+            actions.push(UiAction::MidiClearTarget(target));
+        }
+        if response.clicked() && ui.input(|input| input.modifiers.shift) {
+            // Shift-click maps instead of navigating.
+            response.flags.remove(
+                egui::response::Flags::CLICKED | egui::response::Flags::FAKE_PRIMARY_CLICKED,
+            );
+            actions.push(if armed {
+                UiAction::MidiCancelLearn
+            } else {
+                UiAction::MidiLearn(target)
+            });
+        }
+        response = response.on_hover_text(if armed {
+            "Armed · move a control on any connected device".to_owned()
+        } else if devices.is_empty() {
+            "Click to open · Shift-click to map to MIDI · right-click clears".to_owned()
+        } else {
+            format!(
+                "Mapped to {} · click to open · Shift-click to remap · right-click clears",
+                devices.join(", ")
+            )
+        });
+        FRAME.with(|frame| frame.borrow_mut().actions.append(&mut actions));
+    }
+    let pressed = FRAME.with(|frame| frame.borrow_mut().pending.remove(&hash))
+        && response.enabled()
+        && !map.active;
+    if pressed {
+        response
+            .flags
+            .insert(egui::response::Flags::FAKE_PRIMARY_CLICKED);
+    }
+    response
+}
+
 /// A checkbox-style toggle; a MIDI press flips `value`.
 pub(super) fn midi_toggle(
     ui: &mut egui::Ui,
@@ -287,6 +359,25 @@ mod tests {
             .clicked();
         });
         assert!(!clicked, "stale presses must not fire on a later frame");
+    }
+
+    #[test]
+    fn navigation_buttons_stay_usable_in_map_mode_and_still_take_presses() {
+        // Map mode leaves window toggles enabled so their windows can open.
+        frame(&[], true, |ui| {
+            let response = midi_nav_button(ui, "test.window", "Test · Window", |ui| {
+                ui.button("Window")
+            });
+            assert!(response.enabled());
+        });
+        let mut opened = false;
+        frame(&["test.window"], false, |ui| {
+            opened |= midi_nav_button(ui, "test.window", "Test · Window", |ui| {
+                ui.button("Window")
+            })
+            .clicked();
+        });
+        assert!(opened, "a mapped press opens the window outside map mode");
     }
 
     #[test]

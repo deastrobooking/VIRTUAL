@@ -120,7 +120,7 @@ pub(super) fn draw_generator_summary(
     ui.horizontal_wrapped(|ui| {
         ui.colored_label(palette.success, "◆ GENERATOR");
         ui.strong(settings.pattern.label());
-        if buttons::midi_button(
+        if buttons::midi_nav_button(
             ui,
             &format!("generator.{}.window", deck.index()),
             &format!("Deck {} · Generator window", deck.label()),

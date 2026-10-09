@@ -584,6 +584,10 @@ New seed, Reset chain, Save, Scan journals, …).
   the press is not saved for later. Effect presets and blend modes are the
   exception: they still respond while their menu is closed.
 - Disabled buttons ignore presses, as they ignore clicks.
+- Buttons that open windows (**Generator controls…**, **MIDI**, **Appearance**,
+  **Open output**) keep working while MIDI Map is armed, so you can open any
+  window and map the controls inside it. Shift-click one of them to map the
+  button itself; right-click clears its mapping.
 - Not mappable: file-picker buttons (Open…, Save As…, Relink…), the clip
   right-click menu, dropdown device lists, the custom-colour editor, and the
   MIDI Manager and learn controls themselves.

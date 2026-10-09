@@ -3,7 +3,7 @@
 use virtual_core::{ClockSource, ControlTarget};
 use virtual_media::{CLIPS_PER_DECK, ClipAddress, ClipBank, DeckId};
 
-use super::buttons::midi_button;
+use super::buttons::{midi_button, midi_nav_button};
 use super::theme::ThemePalette;
 use super::{MidiMapUi, PerformanceMetrics, UiAction, UiState, draw_layer_order, mappable};
 
@@ -154,7 +154,7 @@ pub(super) fn draw_toolbar(
         ui.separator();
         draw_layer_order(ui, state, &palette, midi_map, actions, true);
         ui.separator();
-        if midi_button(ui, "toolbar.open_output", "Toolbar · Open output", |ui| {
+        if midi_nav_button(ui, "toolbar.open_output", "Toolbar · Open output", |ui| {
             ui.button("Open output")
                 .on_hover_text("Reopen or bring forward the external program output window")
         })
@@ -205,14 +205,14 @@ pub(super) fn draw_toolbar(
             }
         }
         if !state.show_mode {
-            if midi_button(ui, "toolbar.appearance", "Toolbar · Appearance", |ui| {
+            if midi_nav_button(ui, "toolbar.appearance", "Toolbar · Appearance", |ui| {
                 ui.selectable_label(state.theme.editor_open, "Appearance")
             })
             .clicked()
             {
                 state.theme.editor_open = !state.theme.editor_open;
             }
-            if midi_button(ui, "toolbar.midi_manager", "Toolbar · MIDI Manager", |ui| {
+            if midi_nav_button(ui, "toolbar.midi_manager", "Toolbar · MIDI Manager", |ui| {
                 ui.selectable_label(state.midi_manager_open, "MIDI")
                     .on_hover_text("Open the MIDI Manager window")
             })
