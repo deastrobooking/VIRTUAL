@@ -134,6 +134,7 @@ pub(super) fn draw_setup(
                     |ui, value| ui.checkbox(value, "Identify"),
                 );
             });
+            draw_projection_mapping(ui, state);
             draw_output_health(ui, state, metrics, palette);
             ui.horizontal(|ui| {
                 ui.label(if metrics.project_dirty {
@@ -482,4 +483,76 @@ pub(super) fn draw_setup(
                 });
         });
     }
+}
+
+fn draw_projection_mapping(ui: &mut egui::Ui, state: &mut UiState) {
+    egui::CollapsingHeader::new("Projection mapping · corner pin, crop & masks")
+        .show(ui, |ui| {
+            ui.add_enabled_ui(!state.output_locked, |ui| {
+                let mut candidate = state.output_projection;
+                ui.checkbox(&mut candidate.enabled, "Map the external output");
+                ui.weak("Drag corners to align the projector. The operator preview stays unchanged.");
+                let width = ui.available_width().min(360.0);
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(width, width * 9.0 / 16.0), egui::Sense::hover());
+                // Inset handles so points at the edge remain easy to grab.
+                let canvas = rect.shrink(10.0);
+                let point = |p: [f32; 2]| egui::pos2(canvas.left() + p[0] * canvas.width(), canvas.top() + p[1] * canvas.height());
+                ui.painter().rect_filled(canvas, 0.0, egui::Color32::BLACK);
+                let labels = ["TL", "TR", "BR", "BL"];
+                for (index, label) in labels.iter().enumerate() {
+                    let pos = point(candidate.corners[index]);
+                    let response = ui.interact(egui::Rect::from_center_size(pos, egui::vec2(20.0,20.0)), ui.id().with(("projection-corner",index)), egui::Sense::drag());
+                    if response.dragged() && let Some(pointer) = response.interact_pointer_pos() {
+                        candidate.corners[index] = [((pointer.x-canvas.left())/canvas.width()).clamp(0.0,1.0), ((pointer.y-canvas.top())/canvas.height()).clamp(0.0,1.0)];
+                    }
+                    ui.painter().circle_filled(pos, 5.0, egui::Color32::LIGHT_BLUE);
+                    ui.painter().text(pos + egui::vec2(7.0,7.0), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(11.0), egui::Color32::WHITE);
+                }
+                for i in 0..4 {
+                    ui.painter().line_segment([point(candidate.corners[i]), point(candidate.corners[(i+1)%4])], egui::Stroke::new(1.5,egui::Color32::LIGHT_BLUE));
+                }
+                for mask in candidate.masks {
+                    if mask[2] > mask[0] && mask[3] > mask[1] {
+                        ui.painter().rect_filled(egui::Rect::from_min_max(point([mask[0],mask[1]]), point([mask[2],mask[3]])), 0.0, egui::Color32::from_rgba_unmultiplied(255,40,40,100));
+                    }
+                }
+                egui::CollapsingHeader::new("Exact corner coordinates").show(ui, |ui| {
+                    for (index, label) in labels.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(*label);
+                            for (axis, value) in candidate.corners[index].iter_mut().enumerate() {
+                                ui.add(egui::DragValue::new(value).range(0.0..=1.0).speed(0.001).prefix(if axis==0 { "X " } else { "Y " }));
+                            }
+                        });
+                    }
+                });
+                ui.label("Source crop · left / top / right / bottom");
+                ui.horizontal(|ui| {
+                    for value in &mut candidate.source {
+                        ui.add(egui::DragValue::new(value).range(0.0..=1.0).speed(0.001));
+                    }
+                });
+                egui::CollapsingHeader::new("Blackout masks").show(ui, |ui| {
+                    ui.weak("Projector coordinates: left / top / right / bottom. Zero width or height disables a mask. Masks apply while Map the external output is on.");
+                    for (index, mask) in candidate.masks.iter_mut().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Mask {}", index+1));
+                            for value in mask.iter_mut() {
+                                ui.add(egui::DragValue::new(value).range(0.0..=1.0).speed(0.001));
+                            }
+                            if ui.small_button("Clear").clicked() { *mask = [0.0;4]; }
+                        });
+                    }
+                });
+                if ui.button("Reset calibration").clicked() {
+                    candidate = virtual_core::ProjectionMapping { enabled: candidate.enabled, ..Default::default() };
+                }
+                if candidate.is_valid() {
+                    state.output_projection = candidate;
+                } else {
+                    ui.colored_label(egui::Color32::YELLOW, "Keep corners clockwise without crossing, and crop/mask edges ordered. Last valid calibration retained.");
+                }
+                ui.weak("Calibration is saved in the project. Use Test card while aligning; Lock output protects calibration.");
+            });
+        });
 }

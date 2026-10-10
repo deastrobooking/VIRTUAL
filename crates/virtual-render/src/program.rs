@@ -29,12 +29,17 @@ struct PresentGlobals {
     content_scale: [f32; 2],
     test_card: u32,
     identify: u32,
+    mapping_rows: [[f32; 4]; 3],
+    source_rect: [f32; 4],
+    masks: [[f32; 4]; 4],
+    mapping_enabled: [u32; 4],
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PresentationOptions {
     pub test_card: bool,
     pub identify: bool,
+    pub projection: virtual_core::ProjectionMapping,
 }
 
 pub struct ProgramTarget {
@@ -1549,6 +1554,14 @@ impl ProgramPresenter {
                 content_scale,
                 test_card: u32::from(options.test_card),
                 identify: u32::from(options.identify),
+                mapping_rows: options
+                    .projection
+                    .inverse_homography()
+                    .filter(|_| options.projection.is_valid())
+                    .unwrap_or([[0.0; 4]; 3]),
+                source_rect: options.projection.source,
+                masks: options.projection.masks,
+                mapping_enabled: [u32::from(options.projection.enabled), 0, 0, 0],
             }),
         );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

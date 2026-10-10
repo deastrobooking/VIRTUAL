@@ -115,6 +115,10 @@ impl ProjectFile {
             )));
         }
         let invalid = [
+            (
+                "output.projection",
+                !self.settings.output.projection.is_valid(),
+            ),
             ("bpm", !self.settings.bpm.is_finite()),
             ("bpm", !(20.0..=400.0).contains(&self.settings.bpm)),
             ("crossfader", !unit(self.settings.crossfader)),
@@ -1026,6 +1030,8 @@ pub struct OutputProject {
     #[serde(default)]
     pub identify: bool,
     pub composition_extent: [u32; 2],
+    #[serde(default)]
+    pub projection: virtual_core::ProjectionMapping,
 }
 
 impl Default for OutputProject {
@@ -1037,6 +1043,7 @@ impl Default for OutputProject {
             test_card: false,
             identify: false,
             composition_extent: [1920, 1080],
+            projection: Default::default(),
         }
     }
 }
@@ -2089,6 +2096,7 @@ mod tests {
             test_card: true,
             identify: true,
             composition_extent: [3840, 2160],
+            projection: Default::default(),
         };
         project.settings.audio_analysis = AudioAnalysisProject {
             gain: 2.5,

@@ -635,6 +635,27 @@ fullscreen state, composition resolution and calibration-overlay state are
 stored in the project. Press `O` for an immediate output-window disable/enable
 action.
 
+### Projection mapping
+
+Expand **Setup → Projection mapping · corner pin, crop & masks** to calibrate
+the projector. Calibration changes only the external **VIRTUAL · PROGRAM**
+output; the operator preview stays undistorted.
+
+1. Turn on **Test card**, then **Map the external output**.
+2. Drag the **TL / TR / BR / BL** handles until the projected image lands on the
+   surface. **Exact corner coordinates** accepts typed values (0–1 of the
+   output) for fine adjustment.
+3. **Source crop** (left / top / right / bottom) chooses which part of the
+   program fills the pinned quad.
+4. **Blackout masks** hide up to four rectangles in projector coordinates, for
+   example to keep light off a doorway or speaker stack. A zero-width or
+   zero-height mask is off. Masks apply while mapping is on.
+5. **Lock output** protects the calibration during the show.
+
+Corners must stay clockwise and must not cross; an invalid edit is not applied
+and the last valid calibration is kept. Calibration is saved with the project.
+**Reset calibration** restores the full frame without turning mapping off.
+
 Expand **Output health** to verify the current display, swapchain size,
 composition size and FIFO presentation mode. The counters distinguish
 presented and skipped frames, automatic reconfigurations, successful

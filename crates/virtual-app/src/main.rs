@@ -1174,6 +1174,7 @@ impl State {
         let presentation = PresentationOptions {
             test_card: self.ui.output_test_card,
             identify: self.ui.output_identify,
+            ..Default::default()
         };
         if render_plan.has_program_output()
             && let Some(frame) = operator_frame.as_ref()
@@ -1227,7 +1228,10 @@ impl State {
                 &mut encoder,
                 &view,
                 [width, height],
-                presentation,
+                PresentationOptions {
+                    projection: self.ui.output_projection,
+                    ..presentation
+                },
             );
         }
 

@@ -11,6 +11,8 @@ pub mod clock;
 pub mod control;
 pub mod media_time;
 pub mod midi_clock;
+pub mod projection;
+pub use projection::ProjectionMapping;
 pub mod tempo;
 
 pub use audio::{

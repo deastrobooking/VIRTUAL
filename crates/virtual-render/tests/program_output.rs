@@ -124,6 +124,7 @@ fn presents_the_offscreen_program_texture() {
         PresentationOptions {
             test_card: true,
             identify: false,
+            ..Default::default()
         },
     );
     encoder.copy_texture_to_buffer(
