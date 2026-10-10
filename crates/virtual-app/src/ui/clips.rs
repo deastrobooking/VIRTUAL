@@ -46,19 +46,6 @@ pub(super) fn draw_clip_grid(
     let camera_recordings = context.camera_recordings;
     let palette = state.theme.palette();
     ui.horizontal(|ui| {
-        let selected_deck = mixer.selected();
-        let selected_address = ClipAddress {
-            deck: selected_deck,
-            slot: clips.selected(selected_deck),
-        };
-        let can_play_selected = clips.movie(selected_address).is_some();
-        if ui
-            .add_enabled(can_play_selected, egui::Button::new("▶"))
-            .on_hover_text("Launch the selected clip independently of scene rows")
-            .clicked()
-        {
-            actions.push(UiAction::Launch(selected_address));
-        }
         for (bank, label, range) in [
             (0, "A", "1–8"),
             (1, "B", "9–16"),
@@ -255,6 +242,31 @@ pub(super) fn draw_clip_grid(
                             ui.add_sized(CLIP_CELL, button)
                         }
                     });
+                    let play_rect = egui::Rect::from_min_size(
+                        response.rect.left_top() + egui::vec2(3.0, 3.0),
+                        egui::vec2(22.0, 20.0),
+                    );
+                    let play = ui.put(
+                        play_rect,
+                        egui::Button::new(egui::RichText::new("▶").small())
+                            .fill(palette.control_tint(palette.success, 0.72)),
+                    );
+                    if play
+                        .on_hover_text(if clips.movie(address).is_some() {
+                            "Play this clip independently of scene launching"
+                        } else {
+                            "Open this clip slot"
+                        })
+                        .clicked()
+                    {
+                        clips.select(address);
+                        mixer.select(deck);
+                        if clips.movie(address).is_some() {
+                            actions.push(UiAction::Launch(address));
+                        } else {
+                            state.clip_editor = Some(address);
+                        }
+                    }
                     drop_targets::register(
                         ui,
                         response.rect,
@@ -290,7 +302,7 @@ pub(super) fn draw_clip_grid(
                             actions.push(UiAction::Launch(address));
                         }
                     }
-                    if response.double_clicked() && clips.movie(address).is_some() {
+                    if response.double_clicked() {
                         clips.select(address);
                         mixer.select(deck);
                         state.clip_editor = Some(address);
