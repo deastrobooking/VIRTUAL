@@ -3,7 +3,7 @@
 use super::*;
 
 const CLIP_CELL: egui::Vec2 = egui::vec2(132.0, 50.0);
-const SCENE_CELL: egui::Vec2 = egui::vec2(48.0, 28.0);
+const SCENE_CELL: egui::Vec2 = egui::vec2(CLIP_CELL.x, 28.0);
 const CLIP_THUMBNAIL: egui::Vec2 = egui::vec2(48.0, 27.0);
 
 /// Gives a grid cell an exact rect. A child scope placed straight into the
@@ -67,53 +67,49 @@ pub(super) fn draw_clip_grid(
             state.scene_bank * 8 + 8
         ));
     });
-    egui::ScrollArea::horizontal()
-        .id_salt("scene-launcher-scroll")
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("SCENES")
-                        .small()
-                        .strong()
-                        .color(palette.grid_text),
-                );
-                for slot in 0..CLIPS_PER_DECK {
-                    let scene_index = state.scene_bank * 8 + slot;
-                    let scene = fixed_cell(ui, SCENE_CELL, |ui| {
-                        mappable(
-                            ui,
-                            midi_map,
-                            ControlTarget::SceneLaunch(scene_index as u8),
-                            actions,
-                            |ui| {
-                                ui.add_sized(
-                                    SCENE_CELL,
-                                    egui::Button::new(
-                                        egui::RichText::new(format!("{}", scene_index + 1))
-                                            .small()
-                                            .color(palette.grid_text),
-                                    )
-                                    .fill(palette.control_tint(palette.secondary, 0.22)),
-                                )
-                            },
-                        )
-                    });
-                    if scene
-                        .on_hover_text(format!(
-                            "Launch scene {} on the next quantized boundary",
-                            scene_index + 1
-                        ))
-                        .clicked()
-                    {
-                        actions.push(UiAction::LaunchScene(scene_index));
-                    }
-                }
-            });
-        });
     egui::Grid::new("clip-grid")
         .num_columns(CLIPS_PER_DECK + 1)
         .spacing([5.0, 5.0])
         .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new("SCENES")
+                    .small()
+                    .strong()
+                    .color(palette.grid_text),
+            );
+            for slot in 0..CLIPS_PER_DECK {
+                let scene_index = state.scene_bank * CLIPS_PER_DECK + slot;
+                let scene = fixed_cell(ui, SCENE_CELL, |ui| {
+                    mappable(
+                        ui,
+                        midi_map,
+                        ControlTarget::SceneLaunch(scene_index as u8),
+                        actions,
+                        |ui| {
+                            ui.add_sized(
+                                SCENE_CELL,
+                                egui::Button::new(
+                                    egui::RichText::new(format!("{}", scene_index + 1))
+                                        .small()
+                                        .color(palette.grid_text),
+                                )
+                                .fill(palette.control_tint(palette.secondary, 0.22)),
+                            )
+                        },
+                    )
+                });
+                if scene
+                    .on_hover_text(format!(
+                        "Launch scene {} on the next quantized boundary",
+                        scene_index + 1
+                    ))
+                    .clicked()
+                {
+                    actions.push(UiAction::LaunchScene(scene_index));
+                }
+            }
+            ui.end_row();
+
             for deck in DeckId::ALL {
                 if mappable(
                     ui,
