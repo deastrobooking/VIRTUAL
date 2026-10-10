@@ -9,12 +9,13 @@ use thiserror::Error;
 use virtual_core::{
     AUDIO_MAP_SOURCES, FIXED_DECK_EFFECT_PARAMETER_COUNT, MAX_AUDIO_BINDINGS, SPECTRUM_BANDS,
 };
+use virtual_generate::GeometryGraph;
 use virtual_graph::ProjectGraph;
 
 pub const PROJECT_FORMAT: &str = "virtual-project";
 /// Pre-rename identity. Still read; never written.
 pub const LEGACY_PROJECT_FORMAT: &str = "oneiroi-project";
-pub const PROJECT_VERSION: u32 = 7;
+pub const PROJECT_VERSION: u32 = 8;
 /// Three LFOs, five audio sources, beat, bar, then eight spectrum bands.
 pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
 /// Enabled, rate, depth, phase and offset.
@@ -35,6 +36,9 @@ pub struct ProjectFile {
     pub takes: Vec<TakeMetadataProject>,
     #[serde(default)]
     pub graph: Option<ProjectGraph>,
+    /// Reusable geometry graph presets saved with this project.
+    #[serde(default)]
+    pub geometry_library: Vec<GeometryGraph>,
     #[serde(default)]
     pub random_seeds: std::collections::BTreeMap<String, u64>,
     pub settings: ProjectSettings,
@@ -53,6 +57,7 @@ impl Default for ProjectFile {
             project_id: new_project_id(),
             takes: Vec::new(),
             graph: None,
+            geometry_library: Vec::new(),
             random_seeds: std::collections::BTreeMap::new(),
             settings: ProjectSettings::default(),
             decks: (0..DECK_COUNT)
@@ -82,6 +87,11 @@ impl ProjectFile {
         if (self.version >= 4 && !valid_identity(&self.project_id))
             || self.takes.len() > 256
             || self.random_seeds.len() > 256
+            || self.geometry_library.len() > 128
+            || self
+                .geometry_library
+                .iter()
+                .any(|graph| virtual_generate::validate_geometry_graph(graph).is_err())
             || self.random_seeds.keys().any(|scope| {
                 scope.is_empty() || scope.len() > 128 || scope.chars().any(char::is_control)
             })
@@ -335,7 +345,30 @@ impl ProjectFile {
                 (
                     "generator",
                     deck.generator.as_ref().is_some_and(|generator| {
-                        generator.resolution.contains(&0) || generator.fps == 0
+                        generator.resolution.contains(&0)
+                            || generator.fps == 0
+                            || !valid_custom_geometry(generator.geometry_graph.as_ref())
+                    }),
+                ),
+                (
+                    "generator_stack",
+                    deck.generator_stack.as_ref().is_some_and(|stack| {
+                        stack.layers.is_empty()
+                            || stack.layers.len() > 4
+                            || stack.layers.iter().any(|layer| {
+                                layer.settings.resolution.contains(&0)
+                                    || layer.settings.fps == 0
+                                    || !valid_custom_geometry(
+                                        layer.settings.geometry_graph.as_ref(),
+                                    )
+                            })
+                            || stack
+                                .layers
+                                .iter()
+                                .map(|layer| layer.id)
+                                .collect::<std::collections::BTreeSet<_>>()
+                                .len()
+                                != stack.layers.len()
                     }),
                 ),
                 (
@@ -459,6 +492,10 @@ fn unit(value: f32) -> bool {
 
 fn effect_value(value: f32, minimum: f32, maximum: f32) -> bool {
     value.is_finite() && (minimum..=maximum).contains(&value)
+}
+
+fn valid_custom_geometry(graph: Option<&GeometryGraph>) -> bool {
+    graph.is_none_or(|graph| virtual_generate::validate_geometry_graph(graph).is_ok())
 }
 
 fn valid_effect_slots(slots: &[EffectSlotProject]) -> bool {
@@ -1664,6 +1701,8 @@ pub struct GeneratorProject {
     pub trace_length: f32,
     pub trace_speed: f32,
     pub trace_spread: f32,
+    #[serde(default)]
+    pub geometry_graph: Option<GeometryGraph>,
 }
 
 impl Default for GeneratorProject {
@@ -1720,6 +1759,7 @@ impl Default for GeneratorProject {
             trace_length: 1.0,
             trace_speed: 0.0,
             trace_spread: 0.0,
+            geometry_graph: None,
         }
     }
 }

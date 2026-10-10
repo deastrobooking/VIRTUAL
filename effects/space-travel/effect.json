@@ -1,0 +1,28 @@
+{
+  "format": "virtual-effect",
+  "version": 2,
+  "id": "space-travel",
+  "name": "Space Travel",
+  "description": "A real-time hyperspace starfield with an animated polar tunnel and adjustable launch point.",
+  "role": "effect",
+  "targets": ["master", "deck"],
+  "abi": "deck-v1",
+  "shader": "space_travel.wgsl",
+  "parameters": [
+    {"id":"speed","label":"Warp speed","minimum":0.0,"maximum":3.0,"default":0.75,"group":"Motion"},
+    {"id":"animate","label":"Animate","minimum":0.0,"maximum":1.0,"default":1.0,"group":"Motion","control":"toggle"},
+    {"id":"stretch","label":"Warp stretch","minimum":0.0,"maximum":1.0,"default":0.45,"group":"Warp"},
+    {"id":"density","label":"Star density","minimum":0.0,"maximum":1.0,"default":0.62,"group":"Stars"},
+    {"id":"pattern","label":"Star pattern","minimum":0.0,"maximum":2.0,"default":0.0,"group":"Stars","control":"choice","options":[{"label":"Natural field","value":0.0},{"label":"Concentric lanes","value":1.0},{"label":"Radial burst","value":2.0}]},
+    {"id":"origin-x","label":"Origin X","minimum":0.0,"maximum":1.0,"default":0.5,"group":"Origin"},
+    {"id":"origin-y","label":"Origin Y","minimum":0.0,"maximum":1.0,"default":0.5,"group":"Origin"},
+    {"id":"tint","label":"Tint hue","minimum":-1.0,"maximum":1.0,"default":0.0,"group":"Color"},
+    {"id":"brightness","label":"Star brightness","minimum":0.0,"maximum":2.0,"default":1.0,"group":"Color"},
+    {"id":"source-mix","label":"Source preservation","minimum":0.0,"maximum":1.0,"default":0.12,"group":"Finish"}
+  ],
+  "presets": [
+    {"id":"hyperspace","label":"Hyperspace","description":"Fast white stars streaking from center frame.","values":{"speed":1.7,"stretch":0.8,"density":0.7,"brightness":1.3,"source-mix":0.05}},
+    {"id":"slow-drift","label":"Slow drift","description":"Sparse points moving gently over the live image.","values":{"speed":0.18,"stretch":0.05,"density":0.36,"brightness":0.75,"source-mix":0.48}},
+    {"id":"neon-launch","label":"Neon launch","description":"A vivid magenta launch with long energetic trails.","values":{"speed":2.3,"stretch":1.0,"density":0.78,"tint":0.82,"brightness":1.5,"source-mix":0.0}}
+  ]
+}

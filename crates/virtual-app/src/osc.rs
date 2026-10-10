@@ -510,7 +510,10 @@ pub(crate) fn feedback_for_control(update: ControlUpdate) -> Option<(String, f32
 fn map_indexed_route(route: &str, value: Option<&OscArgument>) -> Option<OscAction> {
     let parts: Vec<_> = route.trim_matches('/').split('/').collect();
     if let ["scene", slot, "launch"] = parts.as_slice() {
-        return trigger(ControlTarget::SceneLaunch(one_based_index(slot, 8)?), value);
+        return trigger(
+            ControlTarget::SceneLaunch(one_based_index(slot, 32)?),
+            value,
+        );
     }
     let ["deck", deck, tail @ ..] = parts.as_slice() else {
         return None;
@@ -638,6 +641,18 @@ mod tests {
             map_message(&scene),
             Some(OscAction::Control(ControlUpdate {
                 target: ControlTarget::SceneLaunch(0),
+                value: 1.0,
+            }))
+        );
+        let scene_32 = OscMessage {
+            address: "/virtual/scene/32/launch".to_owned(),
+            arguments: Vec::new(),
+            timetag: None,
+        };
+        assert_eq!(
+            map_message(&scene_32),
+            Some(OscAction::Control(ControlUpdate {
+                target: ControlTarget::SceneLaunch(31),
                 value: 1.0,
             }))
         );

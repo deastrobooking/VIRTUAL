@@ -5,6 +5,7 @@
 //! rasterizes those segments into RGBA8 frames for the deck pipeline.
 
 mod geometry;
+mod geometry_graph;
 mod math;
 mod patterns;
 mod render;
@@ -13,6 +14,11 @@ mod turtle;
 
 pub use geometry::{
     AudioBands, Geometry, GeometryBuffers, GeometryParams, Palette, Segment, generate,
+};
+pub use geometry_graph::{
+    CalculatorError, CalculatorExpression, CalculatorValue, GeometryGraph, GeometryGraphError,
+    GeometryNode, GeometryNodeKind, GeometryParameter, GraphAxis, GraphNodeId, MAX_GEOMETRY_NODES,
+    evaluate_geometry_graph, validate_geometry_graph,
 };
 pub use math::{Mat3, Rng, Vec3, hsl_to_rgb};
 pub use render::{Generator, GeneratorStackRenderer, GeneratorStats};

@@ -8,3 +8,5 @@ rust-version.workspace = true
 # Procedural sources. Geometry generation and CPU rasterization only: no GPU,
 # FFmpeg or UI types, so patterns stay testable and renderer-neutral.
 [dependencies]
+serde.workspace = true
+thiserror.workspace = true

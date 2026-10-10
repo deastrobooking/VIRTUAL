@@ -817,12 +817,13 @@ impl State {
                 }
             }
             ControlTarget::SceneLaunch(slot) => {
-                if update.value >= 0.5 && usize::from(slot) < virtual_media::CLIPS_PER_DECK {
+                if update.value >= 0.5 && usize::from(slot) < 32 {
                     for deck in DeckId::ALL {
+                        let clip_slot = usize::from(slot) % virtual_media::CLIPS_PER_DECK;
                         self.queue_clip(
                             ClipAddress {
                                 deck,
-                                slot: usize::from(slot),
+                                slot: clip_slot,
                             },
                             now,
                         );

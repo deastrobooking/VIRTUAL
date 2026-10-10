@@ -57,6 +57,10 @@ use virtual_render::{
 
 /// Everything the overlay owns. All plain data — no GPU handles, no channels.
 pub struct UiState {
+    /// Clip editor target, opened by double-clicking a populated clip cell.
+    pub clip_editor: Option<virtual_media::ClipAddress>,
+    /// Selected bank of eight scene rows (A–D, covering 32 scenes).
+    pub scene_bank: usize,
     pub master_opacity: f32,
     pub blackout: bool,
     pub master_freeze: bool,
@@ -120,6 +124,10 @@ pub struct UiState {
     /// Whether each deck was a generator last frame, to open its window on
     /// the transition into a generator source.
     pub generator_seen: [bool; 4],
+    /// Reusable geometry graphs persisted with the show project.
+    pub geometry_library: Vec<virtual_generate::GeometryGraph>,
+    /// Calculator scratch expressions, one per generator deck.
+    pub geometry_calculator: [String; 4],
     pub audio_device_id: String,
     pub audio_analysis: AudioAnalysisSettings,
     /// Zero-based interface channel to analyse, or `None` to mix all.
@@ -168,6 +176,8 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            clip_editor: None,
+            scene_bank: 0,
             master_opacity: 1.0,
             blackout: false,
             master_freeze: false,
@@ -220,6 +230,8 @@ impl Default for UiState {
             generator_pattern: virtual_generate::RecursivePattern::default(),
             generator_windows: [false; 4],
             generator_seen: [false; 4],
+            geometry_library: Vec::new(),
+            geometry_calculator: std::array::from_fn(|_| "sin(tau*t)".to_owned()),
             audio_device_id: String::new(),
             audio_analysis: AudioAnalysisSettings::default(),
             audio_channel: None,

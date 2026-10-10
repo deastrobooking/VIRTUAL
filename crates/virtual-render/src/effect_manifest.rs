@@ -672,7 +672,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../effects");
         let registry = discover_effect_packages(root);
         assert!(registry.errors.is_empty(), "{:?}", registry.errors);
-        assert_eq!(registry.effects.len(), 23);
+        assert_eq!(registry.effects.len(), 24);
         assert!(
             registry
                 .effects
@@ -695,6 +695,7 @@ mod tests {
             ("recursive-2d", 14),
             ("fractal-volume", 16),
             ("hyper-recursion", 16),
+            ("space-travel", 10),
         ] {
             let effect = registry
                 .effects

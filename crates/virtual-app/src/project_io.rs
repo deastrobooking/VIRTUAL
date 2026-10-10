@@ -407,6 +407,9 @@ impl State {
         self.master_effect_processor.reset_history();
         self.project_id.clone_from(&project_file.project_id);
         self.project_takes.clone_from(&project_file.takes);
+        self.ui
+            .geometry_library
+            .clone_from(&project_file.geometry_library);
         self.project_epoch = self.project_epoch.wrapping_add(1);
         self.pending_project_open = None;
         self.ui.save_status = Default::default();

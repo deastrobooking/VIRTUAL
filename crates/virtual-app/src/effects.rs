@@ -477,7 +477,12 @@ mod tests {
             .collect();
 
         assert!(registry.errors.is_empty(), "{:?}", registry.errors);
-        for id in ["recursive-2d", "fractal-volume", "hyper-recursion"] {
+        for id in [
+            "recursive-2d",
+            "fractal-volume",
+            "hyper-recursion",
+            "space-travel",
+        ] {
             assert!(ids.contains(id), "missing bundled algorithmic effect {id}");
         }
     }

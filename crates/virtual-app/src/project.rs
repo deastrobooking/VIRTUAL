@@ -51,6 +51,7 @@ pub fn snapshot(
         project_id: session.project_id.to_owned(),
         takes: session.takes,
         graph: Some(session.graph),
+        geometry_library: ui.geometry_library.clone(),
         random_seeds: session.random_seeds,
         settings: ProjectSettings {
             bpm: ui.bpm,
@@ -264,6 +265,7 @@ pub fn generator_from_project(project: &GeneratorProject) -> GeneratorSettings {
         trace_length: project.trace_length,
         trace_speed: project.trace_speed,
         trace_spread: project.trace_spread,
+        geometry_graph: project.geometry_graph.clone(),
     }
     .sanitized()
 }
@@ -319,6 +321,7 @@ pub fn generator_to_project(settings: &GeneratorSettings) -> GeneratorProject {
         trace_length: settings.trace_length,
         trace_speed: settings.trace_speed,
         trace_spread: settings.trace_spread,
+        geometry_graph: settings.geometry_graph.clone(),
     }
 }
 
@@ -1421,6 +1424,15 @@ mod tests {
         assert_eq!(settings.pattern, RecursivePattern::default());
         assert_eq!(settings.spread, 0.2);
         assert_eq!(settings.fps, 60);
+    }
+
+    #[test]
+    fn custom_geometry_graph_survives_generator_project_round_trip() {
+        let mut settings = GeneratorSettings::default();
+        settings.geometry_graph = Some(virtual_generate::GeometryGraph::default());
+        let json = serde_json::to_string(&generator_to_project(&settings)).unwrap();
+        let project: GeneratorProject = serde_json::from_str(&json).unwrap();
+        assert_eq!(generator_from_project(&project), settings);
     }
 
     #[test]

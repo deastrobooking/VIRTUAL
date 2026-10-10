@@ -7,8 +7,9 @@
 //! with a button to reopen it.
 
 use virtual_generate::{
-    Dimension, FRAME_RATES, GeneratorSettings, GeneratorStack, GeneratorStats, RESOLUTIONS,
-    RecursivePattern,
+    CalculatorExpression, CalculatorValue, Dimension, FRAME_RATES, GeneratorSettings,
+    GeneratorStack, GeneratorStats, GeometryGraph, GeometryNode, GeometryNodeKind,
+    GeometryParameter, GraphAxis, GraphNodeId, RESOLUTIONS, RecursivePattern,
 };
 use virtual_media::{DeckId, DeckState, FourDeckMixer};
 
@@ -120,7 +121,10 @@ pub(super) fn draw_generator_summary(
 ) {
     ui.horizontal_wrapped(|ui| {
         ui.colored_label(palette.success, "◆ GENERATOR");
-        ui.strong(settings.pattern.label());
+        ui.strong(settings.geometry_graph.as_ref().map_or_else(
+            || settings.pattern.label().to_owned(),
+            |graph| graph.name.clone(),
+        ));
         ui.weak(format!("{} layers", settings.layers.len()));
         if buttons::midi_nav_button(
             ui,
@@ -256,6 +260,8 @@ pub(super) fn draw_generator_windows(
                 ui.weak("Output resolution and frame rate are shared with Layer 1.");
             }
             let controls_output = settings.selected == 0;
+            let calculator = &mut state.geometry_calculator[index];
+            let geometry_library = &mut state.geometry_library;
             draw_window_body(
                 ui,
                 deck,
@@ -264,6 +270,8 @@ pub(super) fn draw_generator_windows(
                 palette,
                 state.show_mode,
                 controls_output,
+                calculator,
+                geometry_library,
                 midi_map,
                 actions,
             );
@@ -409,15 +417,23 @@ fn draw_window_body(
     palette: ThemePalette,
     show_mode: bool,
     controls_output: bool,
+    calculator: &mut String,
+    geometry_library: &mut Vec<GeometryGraph>,
     midi_map: &super::MidiMapUi,
     actions: &mut Vec<UiAction>,
 ) {
     let accent = palette.deck_color(deck);
     ui.horizontal_wrapped(|ui| {
-        ui.heading(settings.pattern.label());
-        ui.weak(settings.pattern.hint());
+        if let Some(graph) = &settings.geometry_graph {
+            ui.heading(&graph.name);
+            ui.weak("Custom node geometry");
+        } else {
+            ui.heading(settings.pattern.label());
+            ui.weak(settings.pattern.hint());
+        }
     });
     stats_line(ui, settings, stats, palette);
+    draw_geometry_lab(ui, settings, calculator, geometry_library);
     ui.separator();
 
     ui.weak("Use MIDI Map in the main window, then click a parameter to learn; right-click clears its mapping.");
@@ -647,4 +663,505 @@ fn draw_window_body(
         });
     });
     *settings = settings.clone().sanitized();
+}
+
+fn draw_geometry_lab(
+    ui: &mut egui::Ui,
+    settings: &mut GeneratorSettings,
+    calculator: &mut String,
+    library: &mut Vec<GeometryGraph>,
+) {
+    let mut clear_graph = false;
+    ui.collapsing("GEOMETRY LAB · node graph & calculator", |ui| {
+        if settings.geometry_graph.is_none() {
+            if ui.button("Create a custom geometry graph").clicked() {
+                settings.geometry_graph = Some(GeometryGraph::default());
+            }
+            ui.weak("Build a 2D curve or 3D surface, then connect geometry mutations.");
+        }
+        let Some(graph) = &mut settings.geometry_graph else {
+            return;
+        };
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.label("Definition");
+            changed |= ui.text_edit_singleline(&mut graph.name).changed();
+            if ui.button("Use built-in pattern").clicked() {
+                clear_graph = true;
+            }
+            if ui.button("Save definition").clicked()
+                && virtual_generate::validate_geometry_graph(graph).is_ok()
+            {
+                if let Some(existing) = library.iter_mut().find(|saved| saved.name == graph.name) {
+                    *existing = graph.clone();
+                } else if library.len() < 128 {
+                    library.push(graph.clone());
+                }
+            }
+        });
+        if !library.is_empty() {
+            ui.horizontal(|ui| {
+                ui.label("Saved geometry");
+                egui::ComboBox::from_id_salt("geometry-graph-library")
+                    .selected_text("Load saved…")
+                    .show_ui(ui, |ui| {
+                        for saved in library.iter() {
+                            if ui.selectable_label(false, &saved.name).clicked() {
+                                *graph = saved.clone();
+                                changed = true;
+                            }
+                        }
+                    });
+            });
+        }
+        ui.collapsing("Exposed parameters", |ui| {
+            for parameter in &mut graph.parameters {
+                ui.horizontal(|ui| {
+                    changed |= ui.text_edit_singleline(&mut parameter.name).changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut parameter.default)
+                                .speed(0.01)
+                                .prefix("Default "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut parameter.min)
+                                .speed(0.01)
+                                .prefix("Min "),
+                        )
+                        .changed();
+                    changed |= ui
+                        .add(
+                            egui::DragValue::new(&mut parameter.max)
+                                .speed(0.01)
+                                .prefix("Max "),
+                        )
+                        .changed();
+                });
+            }
+            if graph.parameters.len() < 32 && ui.button("+ Add parameter").clicked() {
+                let index = graph.parameters.len() + 1;
+                graph.parameters.push(GeometryParameter {
+                    name: format!("p{index}"),
+                    default: 0.5,
+                    min: 0.0,
+                    max: 1.0,
+                });
+                changed = true;
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            for (label, kind) in [
+                (
+                    "Curve",
+                    GeometryNodeKind::Curve {
+                        x: "cos(tau*t)".into(),
+                        y: "sin(tau*t)".into(),
+                        z: "0".into(),
+                        steps: 256,
+                        closed: true,
+                    },
+                ),
+                (
+                    "3D Surface",
+                    GeometryNodeKind::Surface {
+                        x: "cos(tau*u)*cos(tau*v)".into(),
+                        y: "sin(tau*u)*cos(tau*v)".into(),
+                        z: "sin(tau*v)".into(),
+                        u_steps: 64,
+                        v_steps: 32,
+                    },
+                ),
+                (
+                    "Transform",
+                    GeometryNodeKind::Transform {
+                        translate: ["0".into(), "0".into(), "0".into()],
+                        rotate: ["0".into(), "0".into(), "0".into()],
+                        scale: ["1".into(), "1".into(), "1".into()],
+                    },
+                ),
+                (
+                    "Twist",
+                    GeometryNodeKind::Twist {
+                        amount: "0.5".into(),
+                    },
+                ),
+                (
+                    "Radial Repeat",
+                    GeometryNodeKind::RadialRepeat {
+                        copies: 6,
+                        axis: GraphAxis::Z,
+                    },
+                ),
+                (
+                    "Noise",
+                    GeometryNodeKind::Noise {
+                        amount: "0.05".into(),
+                        frequency: "3".into(),
+                        seed: 1,
+                    },
+                ),
+                ("Merge", GeometryNodeKind::Merge),
+            ] {
+                if ui.button(format!("+ {label}")).clicked() {
+                    graph_add_node(graph, kind);
+                    changed = true;
+                }
+            }
+        });
+        ui.separator();
+        ui.label("NODE CANVAS · drag nodes; choose exact connections in each node inspector");
+        changed |= draw_graph_canvas(ui, graph);
+        let ids: Vec<_> = graph.nodes.iter().map(|n| n.id).collect();
+        for node in &mut graph.nodes {
+            egui::Frame::group(ui.style()).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.strong(format!("{} · {}", node.name, graph_node_label(&node.kind)));
+                    if ui
+                        .button(if graph.output == node.id {
+                            "● Output"
+                        } else {
+                            "Set output"
+                        })
+                        .clicked()
+                    {
+                        graph.output = node.id;
+                        changed = true;
+                    }
+                });
+                for input_index in 0..node.inputs.len() {
+                    let mut selected = node.inputs[input_index].0;
+                    egui::ComboBox::from_id_salt(("geometry-input", node.id.0, input_index))
+                        .selected_text(format!("Input {}: node {}", input_index + 1, selected))
+                        .show_ui(ui, |ui| {
+                            for id in &ids {
+                                if id != &node.id
+                                    && ui
+                                        .selectable_value(
+                                            &mut selected,
+                                            id.0,
+                                            format!("Node {}", id.0),
+                                        )
+                                        .clicked()
+                                {}
+                            }
+                        });
+                    if node.inputs[input_index].0 != selected {
+                        node.inputs[input_index] = GraphNodeId(selected);
+                        changed = true;
+                    }
+                }
+                if matches!(node.kind, GeometryNodeKind::Merge)
+                    && node.inputs.len() < 8
+                    && ui.button("+ Input").clicked()
+                {
+                    if let Some(candidate) = ids
+                        .iter()
+                        .copied()
+                        .find(|id| *id != node.id && !node.inputs.contains(id))
+                    {
+                        node.inputs.push(candidate);
+                        changed = true;
+                    }
+                }
+                changed |= draw_node_controls(ui, node);
+            });
+        }
+        ui.separator();
+        ui.horizontal(|ui| {
+            ui.label("Calculator");
+            changed |= ui
+                .add(
+                    egui::TextEdit::singleline(calculator)
+                        .desired_width(320.0)
+                        .hint_text("e.g. sin(tau*t) * 0.8"),
+                )
+                .changed();
+            if ui.button("Test").clicked() {}
+        });
+        let sample = CalculatorValue {
+            values: std::collections::HashMap::from([
+                ("t".into(), 0.25),
+                ("u".into(), 0.25),
+                ("v".into(), 0.5),
+                ("x".into(), 0.5),
+                ("y".into(), -0.25),
+                ("z".into(), 0.0),
+                ("time".into(), 1.0),
+                ("bass".into(), 0.5),
+                ("mid".into(), 0.25),
+                ("high".into(), 0.75),
+            ]),
+        };
+        match CalculatorExpression::compile(calculator).and_then(|expr| expr.evaluate(&sample)) {
+            Ok(value) => {
+                ui.label(format!("Result at t=.25, x=.5, y=-.25, time=1: {value:.5}"));
+            }
+            Err(error) => {
+                ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());
+            }
+        }
+        match virtual_generate::validate_geometry_graph(graph) {
+            Ok(()) => {
+                ui.colored_label(
+                    egui::Color32::LIGHT_GREEN,
+                    format!("Valid graph · {} nodes", graph.nodes.len()),
+                );
+            }
+            Err(error) => {
+                ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());
+            }
+        }
+        if changed {
+            graph.revision = graph.revision.wrapping_add(1).max(1);
+        }
+    });
+    if clear_graph {
+        settings.geometry_graph = None;
+    }
+}
+
+fn graph_add_node(graph: &mut GeometryGraph, kind: GeometryNodeKind) {
+    if graph.nodes.len() >= virtual_generate::MAX_GEOMETRY_NODES {
+        return;
+    }
+    let id = graph
+        .nodes
+        .iter()
+        .map(|n| n.id.0)
+        .max()
+        .unwrap_or(0)
+        .wrapping_add(1)
+        .max(1);
+    let output = graph
+        .nodes
+        .iter()
+        .find(|n| n.id == graph.output)
+        .map(|n| n.id);
+    let input = output.and_then(|out| {
+        graph
+            .nodes
+            .iter()
+            .find(|n| n.id == out)
+            .and_then(|n| n.inputs.first().copied())
+    });
+    let input = if matches!(
+        kind,
+        GeometryNodeKind::Curve { .. } | GeometryNodeKind::Surface { .. }
+    ) {
+        None
+    } else {
+        input
+    };
+    let node = GeometryNode {
+        id: GraphNodeId(id),
+        name: format!("{} {id}", graph_node_label(&kind)),
+        position: [
+            40.0 + ((id.saturating_sub(1) % 4) as f32 * 190.0),
+            40.0 + (((id.saturating_sub(1) / 4) % 3) as f32 * 100.0),
+        ],
+        inputs: input.into_iter().collect(),
+        kind,
+    };
+    graph.nodes.push(node);
+    if let Some(output) = graph.nodes.iter_mut().find(|n| n.id == graph.output) {
+        output.inputs = vec![GraphNodeId(id)];
+    }
+}
+
+fn draw_graph_canvas(ui: &mut egui::Ui, graph: &mut GeometryGraph) -> bool {
+    let content_width = ui.available_width().max(760.0);
+    let content_height = graph
+        .nodes
+        .iter()
+        .map(|node| node.position[1] + 90.0)
+        .fold(280.0, f32::max);
+    let mut changed = false;
+    egui::ScrollArea::both().max_height(300.0).show(ui, |ui| {
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(content_width, content_height),
+            egui::Sense::hover(),
+        );
+        let painter = ui.painter_at(rect);
+        painter.rect_filled(rect, 5.0, ui.visuals().extreme_bg_color);
+        let positions: std::collections::HashMap<_, _> = graph
+            .nodes
+            .iter()
+            .map(|node| (node.id, node.position))
+            .collect();
+        for node in &graph.nodes {
+            let target = rect.min + egui::vec2(node.position[0], node.position[1] + 27.0);
+            for input in &node.inputs {
+                if let Some(position) = positions.get(input) {
+                    let start = rect.min + egui::vec2(position[0] + 170.0, position[1] + 27.0);
+                    painter.line_segment(
+                        [start, target],
+                        egui::Stroke::new(2.0, ui.visuals().selection.stroke.color),
+                    );
+                }
+            }
+        }
+        for node in &mut graph.nodes {
+            let max_x = (content_width - 180.0).max(0.0);
+            let max_y = (content_height - 70.0).max(0.0);
+            node.position[0] = node.position[0].clamp(0.0, max_x);
+            node.position[1] = node.position[1].clamp(0.0, max_y);
+            let node_rect = egui::Rect::from_min_size(
+                rect.min + egui::vec2(node.position[0], node.position[1]),
+                egui::vec2(170.0, 54.0),
+            );
+            let response = ui.interact(
+                node_rect,
+                ui.make_persistent_id(("geometry-node-canvas", node.id.0)),
+                egui::Sense::drag(),
+            );
+            if response.dragged() {
+                let delta = response.drag_delta();
+                node.position[0] = (node.position[0] + delta.x).clamp(0.0, max_x);
+                node.position[1] = (node.position[1] + delta.y).clamp(0.0, max_y);
+                changed = true;
+            }
+            let color = if graph.output == node.id {
+                egui::Color32::from_rgb(40, 100, 75)
+            } else {
+                ui.visuals().window_fill
+            };
+            painter.rect_filled(node_rect, 5.0, color);
+            painter.rect_stroke(
+                node_rect,
+                5.0,
+                ui.visuals().widgets.noninteractive.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                node_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("{}\n{}", node.name, graph_node_label(&node.kind)),
+                egui::FontId::proportional(13.0),
+                ui.visuals().text_color(),
+            );
+            if response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            }
+        }
+    });
+    changed
+}
+
+fn graph_node_label(kind: &GeometryNodeKind) -> &'static str {
+    match kind {
+        GeometryNodeKind::Curve { .. } => "Curve",
+        GeometryNodeKind::Surface { .. } => "Surface",
+        GeometryNodeKind::Transform { .. } => "Transform",
+        GeometryNodeKind::Twist { .. } => "Twist",
+        GeometryNodeKind::RadialRepeat { .. } => "Repeat",
+        GeometryNodeKind::Noise { .. } => "Noise",
+        GeometryNodeKind::Merge => "Merge",
+        GeometryNodeKind::Output => "Output",
+    }
+}
+
+fn draw_node_controls(ui: &mut egui::Ui, node: &mut GeometryNode) -> bool {
+    let mut changed = false;
+    match &mut node.kind {
+        GeometryNodeKind::Curve {
+            x,
+            y,
+            z,
+            steps,
+            closed,
+        } => {
+            ui.horizontal(|ui| {
+                ui.label("x(t)");
+                changed |= ui.text_edit_singleline(x).changed();
+                ui.label("y(t)");
+                changed |= ui.text_edit_singleline(y).changed();
+                ui.label("z(t)");
+                changed |= ui.text_edit_singleline(z).changed();
+            });
+            changed |= ui
+                .add(egui::Slider::new(steps, 2..=2048).text("Samples"))
+                .changed();
+            changed |= ui.checkbox(closed, "Closed curve").changed();
+        }
+        GeometryNodeKind::Surface {
+            x,
+            y,
+            z,
+            u_steps,
+            v_steps,
+        } => {
+            ui.horizontal(|ui| {
+                ui.label("x(u,v)");
+                changed |= ui.text_edit_singleline(x).changed();
+                ui.label("y(u,v)");
+                changed |= ui.text_edit_singleline(y).changed();
+                ui.label("z(u,v)");
+                changed |= ui.text_edit_singleline(z).changed();
+            });
+            changed |= ui
+                .add(egui::Slider::new(u_steps, 2..=256).text("U grid"))
+                .changed();
+            changed |= ui
+                .add(egui::Slider::new(v_steps, 2..=256).text("V grid"))
+                .changed();
+        }
+        GeometryNodeKind::Transform {
+            translate,
+            rotate,
+            scale,
+        } => {
+            for (label, values) in [
+                ("Translate", translate),
+                ("Rotate · radians", rotate),
+                ("Scale", scale),
+            ] {
+                ui.horizontal(|ui| {
+                    ui.label(label);
+                    for expr in values {
+                        changed |= ui
+                            .add(egui::TextEdit::singleline(expr).desired_width(75.0))
+                            .changed();
+                    }
+                });
+            }
+        }
+        GeometryNodeKind::Twist { amount } => {
+            ui.horizontal(|ui| {
+                ui.label("Twist amount(x,y,z,t,time)");
+                changed |= ui.text_edit_singleline(amount).changed();
+            });
+        }
+        GeometryNodeKind::RadialRepeat { copies, axis } => {
+            ui.horizontal(|ui| {
+                changed |= ui
+                    .add(egui::Slider::new(copies, 1..=32).text("Copies"))
+                    .changed();
+                egui::ComboBox::from_id_salt(("repeat-axis", node.id.0))
+                    .selected_text(format!("{axis:?}"))
+                    .show_ui(ui, |ui| {
+                        changed |= ui.selectable_value(axis, GraphAxis::X, "X").changed();
+                        changed |= ui.selectable_value(axis, GraphAxis::Y, "Y").changed();
+                        changed |= ui.selectable_value(axis, GraphAxis::Z, "Z").changed();
+                    });
+            });
+        }
+        GeometryNodeKind::Noise {
+            amount,
+            frequency,
+            seed,
+        } => {
+            ui.horizontal(|ui| {
+                ui.label("Amount");
+                changed |= ui.text_edit_singleline(amount).changed();
+                ui.label("Frequency");
+                changed |= ui.text_edit_singleline(frequency).changed();
+                changed |= ui.add(egui::DragValue::new(seed).prefix("Seed ")).changed();
+            });
+        }
+        GeometryNodeKind::Merge | GeometryNodeKind::Output => {}
+    }
+    changed
 }

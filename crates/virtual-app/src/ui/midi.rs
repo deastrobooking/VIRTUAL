@@ -403,7 +403,7 @@ pub(super) fn midi_targets() -> Vec<ControlTarget> {
         ControlTarget::MasterFreeze,
         ControlTarget::TapTempo,
     ];
-    for slot in 0..8 {
+    for slot in 0..32 {
         targets.push(ControlTarget::SceneLaunch(slot));
     }
     for deck in 0..4 {
@@ -600,5 +600,10 @@ mod tests {
             effect: FIXED_DECK_EFFECT_PARAMETER_COUNT - 1,
             parameter: 0,
         }));
+    }
+
+    #[test]
+    fn midi_targets_include_all_32_scenes() {
+        assert!(midi_targets().contains(&ControlTarget::SceneLaunch(31)));
     }
 }

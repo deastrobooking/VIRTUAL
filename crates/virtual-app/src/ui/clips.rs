@@ -45,28 +45,62 @@ pub(super) fn draw_clip_grid(
     let camera_status = context.camera_status;
     let camera_recordings = context.camera_recordings;
     let palette = state.theme.palette();
+    ui.horizontal(|ui| {
+        let selected_deck = mixer.selected();
+        let selected_address = ClipAddress {
+            deck: selected_deck,
+            slot: clips.selected(selected_deck),
+        };
+        let can_play_selected = clips.movie(selected_address).is_some();
+        if ui
+            .add_enabled(can_play_selected, egui::Button::new("▶"))
+            .on_hover_text("Launch the selected clip independently of scene rows")
+            .clicked()
+        {
+            actions.push(UiAction::Launch(selected_address));
+        }
+        for (bank, label, range) in [
+            (0, "A", "1–8"),
+            (1, "B", "9–16"),
+            (2, "C", "17–24"),
+            (3, "D", "25–32"),
+        ] {
+            let response = ui.selectable_label(state.scene_bank == bank, label);
+            if response.clicked() {
+                state.scene_bank = bank;
+            }
+            response.on_hover_text(format!("Scenes {range}"));
+        }
+        ui.weak(format!(
+            "Scenes {}–{}",
+            state.scene_bank * 8 + 1,
+            state.scene_bank * 8 + 8
+        ));
+    });
     egui::Grid::new("clip-grid")
         .num_columns(CLIPS_PER_DECK + 1)
         .spacing([5.0, 5.0])
         .show(ui, |ui| {
             ui.label(
                 egui::RichText::new("SCENE")
+                    .small()
                     .strong()
                     .color(palette.grid_text),
             );
             for slot in 0..CLIPS_PER_DECK {
+                let scene_index = state.scene_bank * CLIPS_PER_DECK + slot;
                 let scene = fixed_cell(ui, SCENE_CELL, |ui| {
                     mappable(
                         ui,
                         midi_map,
-                        ControlTarget::SceneLaunch(slot as u8),
+                        ControlTarget::SceneLaunch(scene_index as u8),
                         actions,
                         |ui| {
                             ui.add_sized(
                                 SCENE_CELL,
                                 egui::Button::new(
-                                    egui::RichText::new(format!("SCENE {}", slot + 1))
-                                        .strong()
+                                    egui::RichText::new(format!("{}", scene_index + 1))
+                                        .small()
                                         .color(palette.grid_text),
                                 )
                                 .fill(palette.control_tint(palette.secondary, 0.22)),
@@ -77,11 +111,11 @@ pub(super) fn draw_clip_grid(
                 if scene
                     .on_hover_text(format!(
                         "Launch scene {} on the next quantized boundary",
-                        slot + 1
+                        scene_index + 1
                     ))
                     .clicked()
                 {
-                    actions.push(UiAction::LaunchScene(slot));
+                    actions.push(UiAction::LaunchScene(scene_index));
                 }
             }
             ui.end_row();
@@ -256,6 +290,11 @@ pub(super) fn draw_clip_grid(
                             actions.push(UiAction::Launch(address));
                         }
                     }
+                    if response.double_clicked() && clips.movie(address).is_some() {
+                        clips.select(address);
+                        mixer.select(deck);
+                        state.clip_editor = Some(address);
+                    }
                     response
                         .on_hover_text(if let Some(movie) = clips.movie(address) {
                             let mut details = format!(
@@ -427,6 +466,10 @@ pub(super) fn draw_clip_grid(
         }
     });
 
+    if let Some(editor_address) = state.clip_editor {
+        draw_clip_editor(ui.ctx(), state, clips, editor_address);
+    }
+
     if state.show_mode {
         return;
     }
@@ -550,5 +593,110 @@ pub(super) fn draw_clip_grid(
             }
             ui.weak("Trim, launch mode and beat-duration settings will be preserved.");
         });
+    }
+}
+
+fn draw_clip_editor(
+    ctx: &egui::Context,
+    state: &mut UiState,
+    clips: &mut ClipBank,
+    address: ClipAddress,
+) {
+    let Some(movie) = clips.movie(address) else {
+        state.clip_editor = None;
+        return;
+    };
+    let title = format!("Clip Editor · {}", movie.display_name);
+    let media_duration = movie.duration.map(virtual_core::MediaTime::as_seconds);
+    let playback = clips.playback(address).unwrap_or_default();
+    let mut edited = playback;
+    let mut changed = false;
+    let mut open = true;
+    egui::Window::new(title)
+        .id(egui::Id::new(("clip-editor", address.deck.index(), address.slot)))
+        .open(&mut open)
+        .collapsible(false)
+        .resizable(true)
+        .default_width(560.0)
+        .show(ctx, |ui| {
+            ui.label(format!("Deck {} · Clip {}", address.deck.label(), address.slot + 1));
+            ui.weak(format!(
+                "{}×{} · {} · {}",
+                movie.visible_extent[0], movie.visible_extent[1], movie.codec,
+                media_duration.map_or_else(|| "unknown duration".to_owned(), |seconds| format!("{seconds:.3} s source"))
+            ));
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.strong("Source range");
+                let maximum = media_duration.unwrap_or(86_400.0).max(0.001);
+                changed |= ui.add(egui::DragValue::new(&mut edited.in_point).range(0.0..=maximum).speed(0.05).suffix(" s").prefix("In ")).changed();
+                let mut out_enabled = edited.out_point.is_some();
+                if ui.checkbox(&mut out_enabled, "Out").changed() {
+                    edited.out_point = out_enabled.then_some(maximum);
+                    changed = true;
+                }
+                if let Some(out) = &mut edited.out_point {
+                    changed |= ui.add(egui::DragValue::new(out).range(0.001..=maximum).speed(0.05).suffix(" s")).changed();
+                }
+            });
+            let (start, end) = edited.range(media_duration, state.bpm);
+            let effective_end = end.unwrap_or_else(|| media_duration.unwrap_or(start + 1.0));
+            let span = (effective_end - start).max(0.001);
+            ui.add(egui::Slider::new(&mut edited.in_point, 0.0..=media_duration.unwrap_or(86_400.0).max(0.001)).text("Crop start (In)").suffix(" s"));
+            if edited.out_point.is_none() && edited.beat_duration.is_none() {
+                ui.weak("Set an Out point or beat length to crop the clip's end. Otherwise it plays to source end.");
+            }
+            let source_duration = media_duration.unwrap_or(effective_end).max(0.001);
+            let fraction = (span / source_duration).clamp(0.0, 1.0) as f32;
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 30.0), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 4.0, ui.visuals().widgets.inactive.bg_fill);
+            let selected = egui::Rect::from_min_max(
+                egui::pos2(rect.left() + rect.width() * (start / source_duration) as f32, rect.top()),
+                egui::pos2(rect.left() + rect.width() * ((start / source_duration) as f32 + fraction).clamp(0.0, 1.0), rect.bottom()),
+            );
+            ui.painter().rect_filled(selected, 3.0, state.theme.palette().accent);
+            ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, format!("{start:.2}–{effective_end:.2} s · {span:.2} s clip"), egui::FontId::proportional(12.0), ui.visuals().text_color());
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.strong("Length");
+                let mut beat_enabled = edited.beat_duration.is_some();
+                if ui.checkbox(&mut beat_enabled, "Tempo synced").changed() {
+                    edited.beat_duration = beat_enabled.then_some(4.0);
+                    changed = true;
+                }
+                if let Some(beats) = &mut edited.beat_duration {
+                    changed |= ui.add(egui::DragValue::new(beats).range(0.0625..=256.0).speed(0.25).suffix(" beats")).changed();
+                    ui.weak(format!("{:.2} s at {:.1} BPM", *beats * 60.0 / state.bpm, state.bpm));
+                } else if let Some(end) = edited.out_point {
+                    ui.weak(format!("{:.3} s", (end - edited.in_point).max(0.0)));
+                } else if let Some(duration) = media_duration {
+                    ui.weak(format!("{:.3} s", (duration - edited.in_point).max(0.0)));
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.strong("Launch");
+                changed |= ui.selectable_value(&mut edited.launch_mode, ClipLaunchMode::Restart, "Restart at In").changed();
+                changed |= ui.selectable_value(&mut edited.launch_mode, ClipLaunchMode::Resume, "Resume position").changed();
+            });
+            ui.separator();
+            ui.strong("Automation");
+            ui.weak("Clip automation lanes are not yet attached to clip playback. The curve editor will be enabled when that playback path is connected.");
+            ui.horizontal(|ui| {
+                if ui.button("Close").clicked() {
+                    state.clip_editor = None;
+                }
+                if ui.button("Reset crop").clicked() {
+                    edited.in_point = 0.0;
+                    edited.out_point = None;
+                    edited.beat_duration = None;
+                    changed = true;
+                }
+            });
+        });
+    if changed {
+        clips.set_playback(address, edited);
+    }
+    if !open {
+        state.clip_editor = None;
     }
 }

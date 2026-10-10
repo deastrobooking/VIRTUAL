@@ -6,10 +6,12 @@
 //! decoders produce, so generated decks reuse upload, effects, blending,
 //! freeze and recording unchanged.
 
+use std::collections::HashMap;
 use std::f32::consts::{FRAC_PI_2, TAU};
 use std::time::Instant;
 
 use crate::geometry::{AudioBands, Geometry, GeometryParams, Palette, generate};
+use crate::geometry_graph::evaluate_geometry_graph;
 use crate::math::{Mat3, Vec3};
 use crate::settings::{GeneratorBlendMode, GeneratorLayer, GeneratorSettings, GeneratorStack};
 
@@ -33,12 +35,19 @@ struct GeometryKey {
     flatten: bool,
     audio: [i32; 3],
     time: i32,
+    custom_revision: u64,
 }
 
 impl GeometryKey {
     fn new(settings: &GeneratorSettings, audio: AudioBands, time: f32) -> Self {
         let q = |value: f32| (value * 256.0).round() as i32;
-        let reactive = settings.audio_amount > 0.0 && settings.pattern.audio_shapes_geometry();
+        let graph_audio = settings.geometry_graph.as_ref().is_some_and(|graph| {
+            ["bass", "mid", "high"]
+                .into_iter()
+                .any(|name| graph.uses_variable(name))
+        });
+        let reactive = (settings.audio_amount > 0.0 && settings.pattern.audio_shapes_geometry())
+            || graph_audio;
         let audio = if reactive {
             let audio = audio.scaled(settings.audio_amount);
             [q(audio.bass), q(audio.mid), q(audio.high)]
@@ -47,7 +56,13 @@ impl GeometryKey {
         };
         // Only Recursive Web animates its geometry with time, and only while
         // audio drives the displacement.
-        let time = if reactive && settings.pattern == crate::RecursivePattern::RecursiveWeb {
+        let graph_time = settings
+            .geometry_graph
+            .as_ref()
+            .is_some_and(|graph| graph.uses_variable("time"));
+        let time = if graph_time {
+            (time * 60.0) as i32
+        } else if reactive && settings.pattern == crate::RecursivePattern::RecursiveWeb {
             (time * 30.0) as i32
         } else {
             0
@@ -83,6 +98,10 @@ impl GeometryKey {
             flatten: settings.flatten,
             audio,
             time,
+            custom_revision: settings
+                .geometry_graph
+                .as_ref()
+                .map_or(0, |graph| graph.revision),
         }
     }
 }
@@ -387,9 +406,26 @@ impl Generator {
 
         let key = GeometryKey::new(&settings, audio, seconds);
         if self.key != Some(key) {
-            let mut params = GeometryParams::from_settings(&settings, audio, seconds);
-            params.budget = self.segment_budget;
-            self.geometry = generate(&params);
+            if let Some(graph) = &settings.geometry_graph {
+                let mut parameters = graph
+                    .parameters
+                    .iter()
+                    .map(|p| (p.name.clone(), p.default))
+                    .collect::<HashMap<_, _>>();
+                let live = audio.scaled(settings.audio_amount);
+                parameters.insert("bass".into(), live.bass);
+                parameters.insert("mid".into(), live.mid);
+                parameters.insert("high".into(), live.high);
+                if let Ok(geometry) =
+                    evaluate_geometry_graph(graph, seconds, &parameters, self.segment_budget)
+                {
+                    self.geometry = geometry;
+                }
+            } else {
+                let mut params = GeometryParams::from_settings(&settings, audio, seconds);
+                params.budget = self.segment_budget;
+                self.geometry = generate(&params);
+            }
             self.key = Some(key);
             self.stats.generate_micros = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
         }
@@ -909,6 +945,43 @@ mod tests {
             assert!(lit > 50, "{} lit only {lit} pixels", pattern.label());
             assert!(generator.stats().segments > 0);
         }
+    }
+
+    #[test]
+    fn custom_geometry_graph_uses_time_and_keeps_last_valid_geometry_on_error() {
+        let mut settings = GeneratorSettings {
+            resolution: [96, 64],
+            ..GeneratorSettings::default()
+        };
+        let mut graph = crate::GeometryGraph::default();
+        if let crate::GeometryNodeKind::Curve { x, .. } = &mut graph.nodes[0].kind {
+            *x = "cos(tau*t+time)".into();
+        }
+        settings.geometry_graph = Some(graph.clone());
+        let mut generator = Generator::new(settings.clone());
+        let mut out = vec![0; 96 * 64 * 4];
+        generator.render(0.0, AudioBands::default(), &mut out);
+        let initial = generator.geometry().clone();
+        generator.render(0.25, AudioBands::default(), &mut out);
+        assert_ne!(
+            generator.geometry(),
+            &initial,
+            "time-dependent node expressions regenerate"
+        );
+        let previous = generator.geometry().clone();
+        if let Some(graph) = &mut settings.geometry_graph {
+            if let crate::GeometryNodeKind::Curve { x, .. } = &mut graph.nodes[0].kind {
+                *x = "bad_function(t)".into();
+            }
+            graph.revision += 1;
+        }
+        generator.set_settings(settings);
+        generator.render(0.5, AudioBands::default(), &mut out);
+        assert_eq!(
+            generator.geometry(),
+            &previous,
+            "invalid edits retain the last valid result"
+        );
     }
 
     #[test]

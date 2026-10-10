@@ -1,5 +1,7 @@
 //! Pattern catalogue and the operator-facing generator settings.
 
+use crate::GeometryGraph;
+
 /// Every recursive pattern. Ids are persisted in project files; never
 /// rename one, only add.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -315,6 +317,8 @@ pub struct GeneratorSettings {
     pub trace_length: f32,
     pub trace_speed: f32,
     pub trace_spread: f32,
+    /// Optional node graph evaluated in place of the built-in source pattern.
+    pub geometry_graph: Option<GeometryGraph>,
 }
 
 /// How a generator layer is combined with the layers below it.
@@ -495,6 +499,7 @@ impl Default for GeneratorSettings {
             trace_length: 1.0,
             trace_speed: 0.0,
             trace_spread: 0.0,
+            geometry_graph: None,
         }
     }
 }

@@ -467,7 +467,7 @@ impl State {
                 };
                 self.dispatch_control_update(
                     virtual_core::ControlUpdate {
-                        target: ControlTarget::SceneLaunch(slot as u8),
+                        target: ControlTarget::SceneLaunch((self.ui.scene_bank * 8 + slot) as u8),
                         value: 1.0,
                     },
                     CommandOrigin::Keyboard,
