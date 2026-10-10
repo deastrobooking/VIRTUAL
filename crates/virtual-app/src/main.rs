@@ -5,6 +5,7 @@ mod devices;
 mod effects;
 mod link;
 mod media;
+mod ndi;
 mod osc;
 mod output;
 mod paths;
@@ -89,6 +90,7 @@ struct State {
     output: OutputLifecycle,
     gpu: Gpu,
     program: ProgramTarget,
+    ndi: ndi::NdiOutput,
     master_effect_processor: MasterEffectProcessor,
     effect_registry_worker: effects::EffectRegistryWorker,
     operator_presenter: ProgramPresenter,
@@ -672,6 +674,7 @@ impl State {
             output,
             gpu,
             program,
+            ndi: ndi::NdiOutput::default(),
             master_effect_processor,
             effect_registry_worker,
             operator_presenter,
@@ -914,6 +917,7 @@ impl State {
                             output_stats: self.midi_clock_out_stats,
                         },
                     },
+                    ndi: self.ndi.status(),
                     osc: ui::OscMetrics {
                         status: &self.osc_status,
                         connected: self.osc_input.is_some(),
@@ -1170,10 +1174,19 @@ impl State {
             &screen,
         );
 
+        // NDI reads back the finished program frame only while a receiver
+        // is connected; the copy is mapped after this frame's submission.
+        self.ndi.configure(self.ui.ndi_enabled, &self.ui.ndi_name);
+        if render_plan.has_program_output() {
+            self.ndi
+                .capture(&self.gpu.device, &mut encoder, &self.program);
+        }
+
         let operator_frame = self.gpu.acquire();
         let presentation = PresentationOptions {
             test_card: self.ui.output_test_card,
             identify: self.ui.output_identify,
+            ..Default::default()
         };
         if render_plan.has_program_output()
             && let Some(frame) = operator_frame.as_ref()
@@ -1227,13 +1240,17 @@ impl State {
                 &mut encoder,
                 &view,
                 [width, height],
-                presentation,
+                PresentationOptions {
+                    projection: self.ui.output_projection,
+                    ..presentation
+                },
             );
         }
 
         self.gpu
             .queue
             .submit(upload_cmds.into_iter().chain([encoder.finish()]));
+        self.ndi.after_submit(&self.gpu.device);
         if let Some(frame) = operator_frame {
             frame.present();
         }

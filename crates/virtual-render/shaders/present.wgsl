@@ -5,6 +5,10 @@ struct PresentGlobals {
     content_scale: vec2<f32>,
     test_card: u32,
     identify: u32,
+    mapping_rows: array<vec4<f32>, 3>,
+    source_rect: vec4<f32>,
+    masks: array<vec4<f32>, 4>,
+    mapping_enabled: vec4<u32>,
 }
 
 @group(0) @binding(2) var<uniform> globals: PresentGlobals;
@@ -34,11 +38,27 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let source_uv = (input.uv - vec2(0.5)) / globals.content_scale + vec2(0.5);
+    var source_uv = (input.uv - vec2(0.5)) / globals.content_scale + vec2(0.5);
+    if globals.mapping_enabled.x != 0u {
+        let p = vec3(input.uv, 1.0);
+        let w = dot(globals.mapping_rows[2].xyz, p);
+        if abs(w) < 0.00001 { return vec4(0.0, 0.0, 0.0, 1.0); }
+        source_uv = vec2(dot(globals.mapping_rows[0].xyz, p), dot(globals.mapping_rows[1].xyz, p)) / w;
+        for (var i = 0u; i < 4u; i += 1u) {
+            let mask = globals.masks[i];
+            if all(mask.zw > mask.xy) && all(input.uv >= mask.xy) && all(input.uv <= mask.zw) {
+                return vec4(0.0, 0.0, 0.0, 1.0);
+            }
+        }
+    }
     if any(source_uv < vec2(0.0)) || any(source_uv > vec2(1.0)) {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
-    var color = textureSample(program_texture, program_sampler, source_uv).rgb;
+    var sample_uv = source_uv;
+    if globals.mapping_enabled.x != 0u {
+        sample_uv = mix(globals.source_rect.xy, globals.source_rect.zw, source_uv);
+    }
+    var color = textureSampleLevel(program_texture, program_sampler, sample_uv, 0.0).rgb;
     if globals.test_card != 0u {
         let bars = array(
             vec3(0.75, 0.75, 0.75),

@@ -40,6 +40,7 @@ egui-wgpu = "0.35"
 egui-winit = "0.35"
 
 anyhow = "1"
+libloading = "0.8"
 bytemuck = { version = "1", features = ["derive"] }
 cpal = "0.16"
 env_logger = "0.11"

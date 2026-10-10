@@ -9,6 +9,7 @@ pub mod gpu;
 pub mod graph_plan;
 pub mod mixer;
 pub mod program;
+pub mod readback;
 pub mod triangle;
 pub mod upload;
 
@@ -38,5 +39,6 @@ pub use program::{
     MasterEffectSlot, MasterLfo, MasterModulation, MasterModulationRoute, PROGRAM_FORMAT,
     PresentationOptions, ProgramPresenter, ProgramTarget,
 };
+pub use readback::{ProgramReadback, ReadbackFrame};
 pub use triangle::{Globals, TrianglePass};
 pub use upload::{CompressedTexture, UploadError};

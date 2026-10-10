@@ -64,6 +64,11 @@ pub fn snapshot(
                 test_card: ui.output_test_card,
                 identify: ui.output_identify,
                 composition_extent: ui.composition_extent,
+                projection: ui.output_projection,
+                ndi: virtual_io::NdiProject {
+                    enabled: ui.ndi_enabled,
+                    name: ui.ndi_name.clone(),
+                },
             },
             audio_analysis: audio_analysis_to_project(ui.audio_analysis),
             // The device is filled in by the caller, which knows whether the
@@ -363,6 +368,9 @@ pub fn apply_master(project: &ProjectFile, ui: &mut UiState) {
     ui.output_display_id = project.settings.output.display_id.clone();
     ui.output_test_card = project.settings.output.test_card;
     ui.output_identify = project.settings.output.identify;
+    ui.output_projection = project.settings.output.projection;
+    ui.ndi_enabled = project.settings.output.ndi.enabled;
+    ui.ndi_name = project.settings.output.ndi.name.clone();
     ui.composition_extent = project.settings.output.composition_extent;
     ui.custom_composition_extent = project.settings.output.composition_extent;
     ui.audio_analysis = audio_analysis_from_project(project.settings.audio_analysis);
