@@ -111,11 +111,6 @@ jobs:
           ./scripts/build-windows.ps1 -VcpkgRoot "$env:RUNNER_TEMP/vcpkg"
           cargo test --locked --target x86_64-pc-windows-msvc -p virtual-core -p virtual-graph -p virtual-hap -p virtual-media -p virtual-io -p virtual-session --lib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/cache/save@v4
-        if: always() && steps.native-cache.outputs.cache-hit != 'true'
-        with:
-          path: ${{ env.VCPKG_DEFAULT_BINARY_CACHE }}
-          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v4
         with:
           name: VIRTUAL-windows-x86_64
