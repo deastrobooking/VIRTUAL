@@ -672,7 +672,7 @@ mod tests {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../effects");
         let registry = discover_effect_packages(root);
         assert!(registry.errors.is_empty(), "{:?}", registry.errors);
-        assert_eq!(registry.effects.len(), 22);
+        assert_eq!(registry.effects.len(), 23);
         assert!(
             registry
                 .effects
@@ -691,6 +691,7 @@ mod tests {
         }));
         for (id, parameter_count) in [
             ("chromatic-split", 3),
+            ("crowd-night-vision", 13),
             ("recursive-2d", 14),
             ("fractal-volume", 16),
             ("hyper-recursion", 16),
@@ -705,7 +706,9 @@ mod tests {
             assert_eq!(effect.abi, EffectPackageAbi::DeckV1, "{id}");
             assert_eq!(effect.pass_count, 1, "{id}");
             assert_eq!(effect.parameters.len(), parameter_count, "{id}");
-            if id != "chromatic-split" {
+            if id == "crowd-night-vision" {
+                assert_eq!(effect.presets.len(), 4, "{id}");
+            } else if id != "chromatic-split" {
                 assert_eq!(effect.presets.len(), 3, "{id}");
             }
             if id != "chromatic-split" {

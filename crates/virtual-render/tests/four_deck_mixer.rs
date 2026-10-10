@@ -1235,6 +1235,7 @@ fn new_deck_packages_render_presets_and_preserve_bypass_and_transparency() {
     };
     let ids = [
         "analog-crt",
+        "crowd-night-vision",
         "thermal-contours",
         "gravitational-lens",
         "kaleidoscope",

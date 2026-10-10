@@ -1006,6 +1006,7 @@ fn new_master_packages_render_and_preserve_dry_identity() {
     };
     let ids = [
         "analog-crt",
+        "crowd-night-vision",
         "thermal-contours",
         "gravitational-lens",
         "anamorphic-flare",

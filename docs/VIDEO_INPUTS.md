@@ -17,6 +17,22 @@ decoded by this path; select an audio-analysis input separately.
 6. Click **Connect to Deck**. Check the live status and preview before enabling
    program output. Save the project to retain the deck's device and format.
 
+For dark crowd footage, open the deck's **GPU effects** and choose the
+**Crowd Night Vision** package in its algorithmic package slot. Start with
+**Silhouette Edge** for bright contours on black, **Neon Crowd** for cyan
+outlines, **Night Vision** for lifted green/amber detail, or
+**High-Contrast Mono** for thresholded silhouettes. Adjust **Shadow lift** and
+**Black point** first, then tune **Edge / luma threshold** and **Threshold
+softness**. **Source detail** mixes the camera image back under the treatment;
+**Edge width** changes the contour sampling scale. Grain and phosphor animation
+are optional and can be driven through the usual effect modulation or MIDI
+mapping. These looks enhance detail present in the captured signal; they cannot
+recover detail the sensor did not record.
+
+Camera-to-clip recording stores the incoming source frames before deck effects,
+so you can change the look later. Use program recording when you need a file
+with the full mixed and processed output; that is a separate planned feature.
+
 **Manual input / custom size** accepts an AVFoundation name or index and custom
 dimensions. A native device identity is stored for discovered inputs and
 resolved at connection time. Names that could match multiple devices are

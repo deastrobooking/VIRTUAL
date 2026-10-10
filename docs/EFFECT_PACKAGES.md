@@ -33,11 +33,12 @@ package. Invalid edits to a previously loaded manifest retain that manifest's
 last-known-good descriptor and GPU pipeline until the exact file becomes valid
 again, changes identity, or is removed.
 
-## Added performance looks (September 2026)
+## Added performance looks (September–October 2026)
 
 | Package | Placement | Passes | Controls and looks |
 |---|---|---|---|
 | Analog CRT | Deck or master | 1 | Curvature, scanlines, RGB mask, bleed, jitter, grain; Broadcast, Arcade, Worn tape |
+| Crowd Night Vision | Deck or master | 1 | Shadow lift, black point, gamma-corrected Sobel edges, threshold softness, white/cyan/green/amber palettes, source detail, optional grain; Silhouette Edge, Neon Crowd, Night Vision, High-Contrast Mono |
 | Thermal Contours | Deck or master | 1 | Iron/Aurora/Monochrome palettes, heat contrast, contours, edge detail; Iron heat, Aurora map, Topography |
 | Gravitational Lens | Deck or master | 1 | Mass, radius, vortex, falloff, movable center, pulse; Singularity, Liquid orbit, Repulsor |
 | Anamorphic Flare | Master | 2 | Soft highlight extraction, horizontal streaks, tint and dispersion; Cinema blue, Golden hour, Laser streaks |

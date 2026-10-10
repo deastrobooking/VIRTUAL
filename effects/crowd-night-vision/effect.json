@@ -1,0 +1,213 @@
+{
+  "format": "virtual-effect",
+  "version": 2,
+  "id": "crowd-night-vision",
+  "name": "Crowd Night Vision",
+  "description": "Low-light crowd looks with lifted shadows, readable silhouette edges, phosphor palettes and optional signal grain.",
+  "role": "effect",
+  "targets": [
+    "master",
+    "deck"
+  ],
+  "abi": "deck-v1",
+  "shader": "crowd_night_vision.wgsl",
+  "parameters": [
+    {
+      "id": "look",
+      "label": "Look",
+      "minimum": 0,
+      "maximum": 3,
+      "default": 0,
+      "group": "Look",
+      "control": "choice",
+      "options": [
+        { "label": "Silhouette edge", "value": 0 },
+        { "label": "Neon crowd", "value": 1 },
+        { "label": "Night vision", "value": 2 },
+        { "label": "High-contrast mono", "value": 3 }
+      ]
+    },
+    {
+      "id": "exposure",
+      "label": "Shadow lift",
+      "minimum": 0.5,
+      "maximum": 4,
+      "default": 2.2,
+      "group": "Input"
+    },
+    {
+      "id": "black-point",
+      "label": "Black point",
+      "minimum": 0,
+      "maximum": 0.5,
+      "default": 0.06,
+      "group": "Input"
+    },
+    {
+      "id": "gamma",
+      "label": "Shadow gamma",
+      "minimum": 0.4,
+      "maximum": 2,
+      "default": 0.8,
+      "group": "Input"
+    },
+    {
+      "id": "threshold",
+      "label": "Edge / luma threshold",
+      "minimum": 0.01,
+      "maximum": 0.8,
+      "default": 0.16,
+      "group": "Edges"
+    },
+    {
+      "id": "softness",
+      "label": "Threshold softness",
+      "minimum": 0.005,
+      "maximum": 0.4,
+      "default": 0.1,
+      "group": "Edges"
+    },
+    {
+      "id": "edge-strength",
+      "label": "Edge gain",
+      "minimum": 0,
+      "maximum": 4,
+      "default": 2,
+      "group": "Edges"
+    },
+    {
+      "id": "edge-width",
+      "label": "Edge width",
+      "minimum": 0.5,
+      "maximum": 3,
+      "default": 1,
+      "group": "Edges"
+    },
+    {
+      "id": "palette",
+      "label": "Palette",
+      "minimum": 0,
+      "maximum": 3,
+      "default": 0,
+      "group": "Color",
+      "control": "choice",
+      "options": [
+        { "label": "White", "value": 0 },
+        { "label": "Cyan", "value": 1 },
+        { "label": "Green phosphor", "value": 2 },
+        { "label": "Amber phosphor", "value": 3 }
+      ]
+    },
+    {
+      "id": "source-mix",
+      "label": "Source detail",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0.12,
+      "group": "Finish"
+    },
+    {
+      "id": "edge-lift",
+      "label": "Edge lift",
+      "minimum": 0,
+      "maximum": 2,
+      "default": 0.35,
+      "group": "Finish"
+    },
+    {
+      "id": "grain",
+      "label": "Signal grain",
+      "minimum": 0,
+      "maximum": 0.12,
+      "default": 0,
+      "group": "Finish"
+    },
+    {
+      "id": "animate",
+      "label": "Animate phosphor / grain",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 0,
+      "control": "toggle",
+      "group": "Finish"
+    }
+  ],
+  "presets": [
+    {
+      "id": "silhouette-edge",
+      "label": "Silhouette Edge",
+      "values": {
+        "look": 0,
+        "exposure": 2.4,
+        "black-point": 0.05,
+        "gamma": 0.72,
+        "threshold": 0.17,
+        "softness": 0.1,
+        "edge-strength": 2.2,
+        "edge-width": 1.2,
+        "palette": 0,
+        "source-mix": 0,
+        "edge-lift": 0.5,
+        "grain": 0,
+        "animate": 0
+      }
+    },
+    {
+      "id": "neon-crowd",
+      "label": "Neon Crowd",
+      "values": {
+        "look": 1,
+        "exposure": 2.2,
+        "black-point": 0.04,
+        "gamma": 0.78,
+        "threshold": 0.14,
+        "softness": 0.09,
+        "edge-strength": 2.6,
+        "edge-width": 1.7,
+        "palette": 1,
+        "source-mix": 0.08,
+        "edge-lift": 0.65,
+        "grain": 0,
+        "animate": 1
+      }
+    },
+    {
+      "id": "night-vision",
+      "label": "Night Vision",
+      "values": {
+        "look": 2,
+        "exposure": 2.8,
+        "black-point": 0.035,
+        "gamma": 0.68,
+        "threshold": 0.2,
+        "softness": 0.12,
+        "edge-strength": 1.7,
+        "edge-width": 1,
+        "palette": 2,
+        "source-mix": 0.18,
+        "edge-lift": 0.25,
+        "grain": 0.012,
+        "animate": 1
+      }
+    },
+    {
+      "id": "high-contrast-mono",
+      "label": "High-Contrast Mono",
+      "values": {
+        "look": 3,
+        "exposure": 1.8,
+        "black-point": 0.08,
+        "gamma": 0.9,
+        "threshold": 0.34,
+        "softness": 0.06,
+        "edge-strength": 1.35,
+        "edge-width": 0.8,
+        "palette": 0,
+        "source-mix": 0,
+        "edge-lift": 0.4,
+        "grain": 0,
+        "animate": 0
+      }
+    }
+  ]
+}

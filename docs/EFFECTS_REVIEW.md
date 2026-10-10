@@ -24,6 +24,7 @@ already work. This pass adds visual variety without changing the runtime ABI.
 | Effect | Placement | Presets |
 |---|---|---|
 | Analog CRT | Deck and master | Broadcast, Arcade, Worn tape |
+| Crowd Night Vision | Deck and master | Silhouette Edge, Neon Crowd, Night Vision, High-Contrast Mono |
 | Thermal Contours | Deck and master | Iron heat, Aurora map, Topography |
 | Gravitational Lens | Deck and master | Singularity, Liquid orbit, Repulsor |
 | Anamorphic Flare | Master, two passes | Cinema blue, Golden hour, Laser streaks |
@@ -65,6 +66,18 @@ are development samples, not a show-machine soak or UHD certification. Flare
 was GPU-tested and visually checked but was not included in this deck-only
 benchmark. It uses five extraction samples plus 51 gather samples per pixel.
 
+### Crowd Night Vision prototype (October 2026)
+
+The new one-pass package compiles and renders in both deck and master slots;
+GPU coverage exercises all four looks, dry identity and alpha handling. A
+single release benchmark run on Apple M3 Pro / Metal with four 1920×1080 RGBA8
+sources, the default Silhouette Edge parameters, 30 warmup and 120 measured
+frames reported 6.70 ms sustained per frame (149 fps), 16.97 ms synchronous
+p95 latency, and 5.38 ms for the measured deck-package stage. This is an early
+synthetic sample, not a camera decode or venue-lighting test. The companion
+four-deck HAP run measured 4.50 ms sustained. Both leave room at 60 fps in the
+throughput harness; physical show-machine testing remains required.
+
 ## Next work
 
 1. Run the new looks with four real sources, the intended master chain and
@@ -74,3 +87,7 @@ benchmark. It uses five extraction samples plus 51 gather samples per pixel.
    duplicated globals/sampling conventions are currently easy to drift.
 4. Keep multi-frame slit-scan, optical flow and temporal deck packages separate
    from this stateless expansion; they need additional resource contracts.
+5. Tune Crowd Night Vision with recorded low-light crowd/capture-card footage;
+   the synthetic preview does not prove edge quality under sensor noise,
+   backlight, haze or moving club lights. Per-deck trails remain a separate
+   bounded-history renderer feature.
