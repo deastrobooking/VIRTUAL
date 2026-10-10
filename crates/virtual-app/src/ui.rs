@@ -62,6 +62,12 @@ pub struct UiState {
     pub clip_editor_lane: usize,
     pub clip_editor_keyframe: usize,
     pub clip_editor_draw_mode: bool,
+    /// Beat subdivision used by the clip automation editor's draw grid.
+    pub clip_editor_snap_beats: f64,
+    /// Draw-tool interpolation mode for creating held square steps.
+    pub clip_editor_square_steps: bool,
+    /// Last normalized pointer sample during a continuous automation stroke.
+    pub clip_editor_draw_last: Option<[f32; 2]>,
     /// Selected bank of eight scene rows (A–D, covering 32 scenes).
     pub scene_bank: usize,
     pub master_opacity: f32,
@@ -191,6 +197,9 @@ impl Default for UiState {
             clip_editor_lane: 0,
             clip_editor_keyframe: 0,
             clip_editor_draw_mode: false,
+            clip_editor_snap_beats: 1.0,
+            clip_editor_square_steps: true,
+            clip_editor_draw_last: None,
             scene_bank: 0,
             master_opacity: 1.0,
             blackout: false,

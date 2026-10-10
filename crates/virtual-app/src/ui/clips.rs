@@ -3,7 +3,7 @@
 use super::*;
 
 const CLIP_CELL: egui::Vec2 = egui::vec2(132.0, 50.0);
-const SCENE_CELL: egui::Vec2 = egui::vec2(132.0, 28.0);
+const SCENE_CELL: egui::Vec2 = egui::vec2(48.0, 28.0);
 const CLIP_THUMBNAIL: egui::Vec2 = egui::vec2(48.0, 27.0);
 
 /// Gives a grid cell an exact rect. A child scope placed straight into the
@@ -67,49 +67,53 @@ pub(super) fn draw_clip_grid(
             state.scene_bank * 8 + 8
         ));
     });
+    egui::ScrollArea::horizontal()
+        .id_salt("scene-launcher-scroll")
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("SCENES")
+                        .small()
+                        .strong()
+                        .color(palette.grid_text),
+                );
+                for slot in 0..CLIPS_PER_DECK {
+                    let scene_index = state.scene_bank * 8 + slot;
+                    let scene = fixed_cell(ui, SCENE_CELL, |ui| {
+                        mappable(
+                            ui,
+                            midi_map,
+                            ControlTarget::SceneLaunch(scene_index as u8),
+                            actions,
+                            |ui| {
+                                ui.add_sized(
+                                    SCENE_CELL,
+                                    egui::Button::new(
+                                        egui::RichText::new(format!("{}", scene_index + 1))
+                                            .small()
+                                            .color(palette.grid_text),
+                                    )
+                                    .fill(palette.control_tint(palette.secondary, 0.22)),
+                                )
+                            },
+                        )
+                    });
+                    if scene
+                        .on_hover_text(format!(
+                            "Launch scene {} on the next quantized boundary",
+                            scene_index + 1
+                        ))
+                        .clicked()
+                    {
+                        actions.push(UiAction::LaunchScene(scene_index));
+                    }
+                }
+            });
+        });
     egui::Grid::new("clip-grid")
         .num_columns(CLIPS_PER_DECK + 1)
         .spacing([5.0, 5.0])
         .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new("SCENE")
-                    .small()
-                    .strong()
-                    .color(palette.grid_text),
-            );
-            for slot in 0..CLIPS_PER_DECK {
-                let scene_index = state.scene_bank * CLIPS_PER_DECK + slot;
-                let scene = fixed_cell(ui, SCENE_CELL, |ui| {
-                    mappable(
-                        ui,
-                        midi_map,
-                        ControlTarget::SceneLaunch(scene_index as u8),
-                        actions,
-                        |ui| {
-                            ui.add_sized(
-                                SCENE_CELL,
-                                egui::Button::new(
-                                    egui::RichText::new(format!("{}", scene_index + 1))
-                                        .small()
-                                        .color(palette.grid_text),
-                                )
-                                .fill(palette.control_tint(palette.secondary, 0.22)),
-                            )
-                        },
-                    )
-                });
-                if scene
-                    .on_hover_text(format!(
-                        "Launch scene {} on the next quantized boundary",
-                        scene_index + 1
-                    ))
-                    .clicked()
-                {
-                    actions.push(UiAction::LaunchScene(scene_index));
-                }
-            }
-            ui.end_row();
-
             for deck in DeckId::ALL {
                 if mappable(
                     ui,
@@ -222,8 +226,8 @@ pub(super) fn draw_clip_grid(
                         && (slot_state.movie.is_some()
                             || slot_state.pending_path.is_some()
                             || slot_state.error.is_some());
-                    let response = fixed_cell(ui, CLIP_CELL, |ui| {
-                        if midi_map.active {
+                    let (response, play) = fixed_cell(ui, CLIP_CELL, |ui| {
+                        let response = if midi_map.active {
                             mappable(
                                 ui,
                                 midi_map,
@@ -246,33 +250,34 @@ pub(super) fn draw_clip_grid(
                             .inner
                         } else {
                             ui.add_sized(CLIP_CELL, button)
-                        }
-                    });
-                    let play_rect = egui::Rect::from_min_size(
-                        response.rect.left_top() + egui::vec2(3.0, 3.0),
-                        egui::vec2(22.0, 20.0),
-                    );
-                    let play = ui.put(
-                        play_rect,
-                        egui::Button::new(
-                            egui::RichText::new(
-                                if automation_playing && clips.movie(address).is_none() {
-                                    "■"
-                                } else {
-                                    "▶"
-                                },
+                        };
+                        let play_rect = egui::Rect::from_min_size(
+                            response.rect.left_top() + egui::vec2(3.0, 3.0),
+                            egui::vec2(16.0, 16.0),
+                        );
+                        let play = ui.put(
+                            play_rect,
+                            egui::Button::new(
+                                egui::RichText::new(
+                                    if automation_playing && clips.movie(address).is_none() {
+                                        "■"
+                                    } else {
+                                        "▶"
+                                    },
+                                )
+                                .small(),
                             )
-                            .small(),
-                        )
-                        .fill(palette.control_tint(
-                            if automation_playing {
-                                palette.success
-                            } else {
-                                palette.secondary
-                            },
-                            0.72,
-                        )),
-                    );
+                            .fill(palette.control_tint(
+                                if automation_playing {
+                                    palette.success
+                                } else {
+                                    palette.secondary
+                                },
+                                0.72,
+                            )),
+                        );
+                        (response, play)
+                    });
                     if play
                         .on_hover_text(if automation_playing && clips.movie(address).is_none() {
                             "Stop this automation clip"
@@ -939,19 +944,54 @@ fn draw_automation_editor(
             }
         });
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         if ui.button("Select").clicked() {
             state.clip_editor_draw_mode = false;
+            state.clip_editor_draw_last = None;
         }
         if ui.button("Draw").clicked() {
             state.clip_editor_draw_mode = true;
+            state.clip_editor_draw_last = None;
+        }
+        egui::ComboBox::from_id_salt(("automation-snap", address.deck.index(), address.slot))
+            .selected_text(format!("Snap · {} beat", state.clip_editor_snap_beats))
+            .show_ui(ui, |ui| {
+                for (label, beats) in [
+                    ("1/4 beat", 0.25),
+                    ("1/2 beat", 0.5),
+                    ("1 beat", 1.0),
+                    ("2 beats", 2.0),
+                    ("4 beats", 4.0),
+                ] {
+                    ui.selectable_value(&mut state.clip_editor_snap_beats, beats, label);
+                }
+            });
+        ui.checkbox(&mut state.clip_editor_square_steps, "Square steps");
+        if ui
+            .button("Fill grid steps")
+            .on_hover_text("Replace the selected lane with one held automation point per snapped tempo-grid step.")
+            .clicked()
+            && let Some(lane) = automation.lanes.get_mut(state.clip_editor_lane)
+        {
+            fill_automation_steps(
+                lane,
+                automation.loop_beats,
+                state.clip_editor_snap_beats,
+            );
         }
         ui.weak(if state.clip_editor_draw_mode {
-            "Click to add · right-click point to remove"
+            "Drag to draw points on the tempo grid · right-click removes"
         } else {
             "Click point to select · drag to edit"
         });
     });
+    let effective_snap =
+        automation_effective_snap(automation.loop_beats, state.clip_editor_snap_beats);
+    if effective_snap > state.clip_editor_snap_beats {
+        ui.weak(format!(
+            "Long loop: grid widened to {effective_snap:.2} beats to stay within the 128-point lane limit."
+        ));
+    }
 
     for lane_index in 0..automation.lanes.len() {
         let mut remove_lane = false;
@@ -1008,12 +1048,17 @@ fn draw_automation_editor(
         );
         ui.painter()
             .rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
-        for division in 0..=16 {
-            let x = rect.left() + rect.width() * division as f32 / 16.0;
+        let grid_steps = (automation.loop_beats / effective_snap).ceil().max(1.0) as usize;
+        let line_stride = grid_steps
+            .div_ceil(virtual_core::MAX_AUTOMATION_KEYFRAMES - 1)
+            .max(1);
+        for division in (0..=grid_steps).step_by(line_stride) {
+            let beat = (division as f64 * effective_snap).min(automation.loop_beats);
+            let x = rect.left() + rect.width() * (beat / automation.loop_beats) as f32;
             ui.painter().line_segment(
                 [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
                 egui::Stroke::new(
-                    if division % 4 == 0 { 1.0 } else { 0.5 },
+                    if beat % 4.0 < 0.000_001 { 1.0 } else { 0.5 },
                     ui.visuals().widgets.noninteractive.bg_stroke.color,
                 ),
             );
@@ -1046,19 +1091,36 @@ fn draw_automation_editor(
                 rect.bottom() - rect.height() * ((key.value - minimum) / range),
             )
         };
-        let mut previous = point_position(AutomationKeyframe::new(
-            0.0,
-            lane.value_at(0.0).unwrap_or(0.0),
-        ));
-        for step in 1..=96 {
-            let t = step as f64 / 96.0;
-            let current =
-                point_position(AutomationKeyframe::new(t, lane.value_at(t).unwrap_or(0.0)));
-            ui.painter().line_segment(
-                [previous, current],
-                egui::Stroke::new(2.0, state.theme.palette().accent),
-            );
-            previous = current;
+        for keyframes in lane.keyframes.windows(2) {
+            let start = keyframes[0];
+            let end = keyframes[1];
+            let start_point = point_position(start);
+            let end_point = point_position(end);
+            if start.interpolation == CurveType::Step {
+                let corner = egui::pos2(end_point.x, start_point.y);
+                ui.painter().line_segment(
+                    [start_point, corner],
+                    egui::Stroke::new(2.0, state.theme.palette().accent),
+                );
+                ui.painter().line_segment(
+                    [corner, end_point],
+                    egui::Stroke::new(2.0, state.theme.palette().accent),
+                );
+            } else {
+                let mut previous = start_point;
+                for sample in 1..=16 {
+                    let t = start.position + (end.position - start.position) * sample as f64 / 16.0;
+                    let current = point_position(AutomationKeyframe::new(
+                        t,
+                        lane.value_at(t).unwrap_or(start.value),
+                    ));
+                    ui.painter().line_segment(
+                        [previous, current],
+                        egui::Stroke::new(2.0, state.theme.palette().accent),
+                    );
+                    previous = current;
+                }
+            }
         }
         for (index, key) in lane.keyframes.iter().copied().enumerate() {
             ui.painter().circle_filled(
@@ -1082,6 +1144,7 @@ fn draw_automation_editor(
         };
         if let Some(pointer) = response.interact_pointer_pos() {
             if response.secondary_clicked() {
+                state.clip_editor_draw_last = None;
                 if let Some((index, _)) =
                     lane.keyframes.iter().enumerate().min_by(|(_, a), (_, b)| {
                         point_position(**a)
@@ -1091,11 +1154,45 @@ fn draw_automation_editor(
                 {
                     lane.remove_keyframe(index);
                 }
-            } else if state.clip_editor_draw_mode && response.clicked() {
-                lane.set_keyframe(AutomationKeyframe::new(
-                    position_from_pointer(pointer),
+            } else if state.clip_editor_draw_mode {
+                let current = [
+                    position_from_pointer(pointer) as f32,
                     value_from_pointer(pointer),
-                ));
+                ];
+                if response.drag_started() {
+                    draw_automation_stroke(
+                        lane,
+                        current,
+                        current,
+                        automation.loop_beats,
+                        effective_snap,
+                        state.clip_editor_square_steps,
+                    );
+                    state.clip_editor_draw_last = Some(current);
+                } else if response.dragged() || response.drag_stopped() {
+                    let previous = state.clip_editor_draw_last.unwrap_or(current);
+                    draw_automation_stroke(
+                        lane,
+                        previous,
+                        current,
+                        automation.loop_beats,
+                        effective_snap,
+                        state.clip_editor_square_steps,
+                    );
+                    state.clip_editor_draw_last = Some(current);
+                } else if response.clicked() {
+                    draw_automation_stroke(
+                        lane,
+                        current,
+                        current,
+                        automation.loop_beats,
+                        effective_snap,
+                        state.clip_editor_square_steps,
+                    );
+                }
+                if response.drag_stopped() {
+                    state.clip_editor_draw_last = None;
+                }
             } else if response.clicked() || response.dragged() {
                 let nearest = lane
                     .keyframes
@@ -1128,6 +1225,129 @@ fn draw_automation_editor(
         }
     }
     clips.set_automation(address, automation);
+}
+
+fn draw_automation_stroke(
+    lane: &mut virtual_core::ClipAutomationLane,
+    from: [f32; 2],
+    to: [f32; 2],
+    loop_beats: f64,
+    snap_beats: f64,
+    square_steps: bool,
+) {
+    use virtual_core::{AutomationKeyframe, CurveType};
+
+    if !loop_beats.is_finite() || loop_beats <= 0.0 || !snap_beats.is_finite() || snap_beats <= 0.0
+    {
+        return;
+    }
+    let snap_beats = automation_effective_snap(loop_beats, snap_beats);
+    let snap = |position: f32| {
+        let beat = position.clamp(0.0, 1.0) as f64 * loop_beats;
+        if loop_beats - beat <= snap_beats * 0.5 {
+            return 1.0;
+        }
+        ((beat / snap_beats).round() * snap_beats / loop_beats).clamp(0.0, 1.0)
+    };
+    let from_position = snap(from[0]);
+    let to_position = snap(to[0]);
+    let from_value = from[1];
+    let to_value = to[1];
+    let interpolation = if square_steps {
+        CurveType::Step
+    } else {
+        CurveType::Linear
+    };
+
+    if square_steps {
+        for keyframe in &mut lane.keyframes {
+            keyframe.interpolation = CurveType::Step;
+        }
+    }
+
+    if (to_position - from_position).abs() < f64::EPSILON {
+        lane.set_keyframe(AutomationKeyframe {
+            position: to_position,
+            value: to_value,
+            interpolation,
+        });
+        return;
+    }
+
+    let min_beat = from_position.min(to_position) * loop_beats;
+    let max_beat = from_position.max(to_position) * loop_beats;
+    let first_grid = (min_beat / snap_beats - 1e-9).ceil() as usize;
+    let last_grid = (max_beat / snap_beats + 1e-9).floor() as usize;
+    let max_grid = (loop_beats / snap_beats).ceil() as usize;
+    for grid in first_grid..=last_grid.min(max_grid) {
+        let position = (grid as f64 * snap_beats / loop_beats).clamp(0.0, 1.0);
+        let amount = ((position - from_position) / (to_position - from_position)) as f32;
+        lane.set_keyframe(AutomationKeyframe {
+            position,
+            value: from_value + (to_value - from_value) * amount.clamp(0.0, 1.0),
+            interpolation,
+        });
+    }
+    if from_position == 1.0 {
+        lane.set_keyframe(AutomationKeyframe {
+            position: 1.0,
+            value: from_value,
+            interpolation,
+        });
+    }
+    if to_position == 1.0 {
+        lane.set_keyframe(AutomationKeyframe {
+            position: 1.0,
+            value: to_value,
+            interpolation,
+        });
+    }
+}
+
+fn fill_automation_steps(
+    lane: &mut virtual_core::ClipAutomationLane,
+    loop_beats: f64,
+    snap_beats: f64,
+) {
+    use virtual_core::{AutomationKeyframe, CurveType, MAX_AUTOMATION_KEYFRAMES};
+
+    if !loop_beats.is_finite() || loop_beats <= 0.0 || !snap_beats.is_finite() || snap_beats <= 0.0
+    {
+        return;
+    }
+    let snap_beats = automation_effective_snap(loop_beats, snap_beats);
+    let source = lane.clone();
+    let step_count = (loop_beats / snap_beats)
+        .ceil()
+        .clamp(1.0, (MAX_AUTOMATION_KEYFRAMES - 1) as f64) as usize;
+    lane.keyframes.clear();
+    for step in 0..step_count {
+        let position = (step as f64 * snap_beats / loop_beats).min(1.0);
+        lane.keyframes.push(AutomationKeyframe {
+            position,
+            value: source.value_at(position).unwrap_or(0.0),
+            interpolation: CurveType::Step,
+        });
+    }
+    lane.keyframes.push(AutomationKeyframe {
+        position: 1.0,
+        value: source.value_at(1.0).unwrap_or(0.0),
+        interpolation: CurveType::Step,
+    });
+}
+
+fn automation_effective_snap(loop_beats: f64, snap_beats: f64) -> f64 {
+    use virtual_core::MAX_AUTOMATION_KEYFRAMES;
+
+    if !loop_beats.is_finite() || loop_beats <= 0.0 || !snap_beats.is_finite() || snap_beats <= 0.0
+    {
+        return 1.0;
+    }
+    let steps = (loop_beats / snap_beats).ceil();
+    let stride = (steps / (MAX_AUTOMATION_KEYFRAMES - 1) as f64)
+        .ceil()
+        .max(1.0);
+    snap_beats * stride
 }
 
 fn effect_parameter_short_name(effect: u8) -> &'static str {
@@ -1163,4 +1383,57 @@ fn effect_parameter_short_name(effect: u8) -> &'static str {
     .get(effect as usize)
     .copied()
     .unwrap_or("Video FX")
+}
+
+#[cfg(test)]
+mod automation_draw_tests {
+    use super::{draw_automation_stroke, fill_automation_steps};
+    use virtual_core::{ClipAutomationLane, ControlTarget, CurveType};
+
+    #[test]
+    fn square_draw_stroke_fills_every_tempo_grid_position() {
+        let mut lane = ClipAutomationLane::flat(ControlTarget::MasterOpacity, 0.0);
+        draw_automation_stroke(&mut lane, [0.0, 0.2], [1.0, 0.8], 16.0, 1.0, true);
+
+        assert_eq!(lane.keyframes.len(), 17);
+        for (index, keyframe) in lane.keyframes.iter().enumerate() {
+            assert!((keyframe.position - index as f64 / 16.0).abs() < 1e-9);
+            assert_eq!(keyframe.interpolation, CurveType::Step);
+        }
+        assert!((lane.keyframes[0].value - 0.2).abs() < 1e-6);
+        assert!((lane.keyframes[16].value - 0.8).abs() < 1e-6);
+        let midpoint = lane.value_at(0.5 / 16.0).unwrap();
+        assert!((midpoint - lane.keyframes[0].value).abs() < 1e-6);
+    }
+
+    #[test]
+    fn fill_grid_steps_replaces_a_curve_with_snapped_points_and_endpoint() {
+        let mut lane = ClipAutomationLane::flat(ControlTarget::MasterOpacity, 0.0);
+        lane.keyframes[1].value = 1.0;
+        fill_automation_steps(&mut lane, 8.0, 0.5);
+
+        assert_eq!(lane.keyframes.len(), 17);
+        for (index, keyframe) in lane.keyframes.iter().enumerate() {
+            assert_eq!(keyframe.interpolation, CurveType::Step);
+            if index < 16 {
+                assert!((keyframe.position - index as f64 / 16.0).abs() < 1e-9);
+            }
+        }
+        assert_eq!(lane.keyframes.last().unwrap().position, 1.0);
+        assert!((lane.keyframes.last().unwrap().value - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn long_automation_loops_coarsen_the_grid_instead_of_dropping_the_tail() {
+        let mut lane = ClipAutomationLane::flat(ControlTarget::MasterOpacity, 0.0);
+        draw_automation_stroke(&mut lane, [0.0, 0.1], [1.0, 0.9], 256.0, 0.25, true);
+        assert!(lane.keyframes.len() <= virtual_core::MAX_AUTOMATION_KEYFRAMES);
+        assert_eq!(lane.keyframes.last().unwrap().position, 1.0);
+        assert!((lane.keyframes.last().unwrap().value - 0.9).abs() < 1e-6);
+
+        fill_automation_steps(&mut lane, 256.0, 0.25);
+        assert!(lane.keyframes.len() <= virtual_core::MAX_AUTOMATION_KEYFRAMES);
+        assert!(lane.keyframes.len() > 100);
+        assert_eq!(lane.keyframes.last().unwrap().position, 1.0);
+    }
 }
