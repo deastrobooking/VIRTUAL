@@ -548,7 +548,7 @@ fn evaluate_node(
                             + p.y * f * 37.719
                             + p.z * f * 11.17)
                             .sin()
-                            * 43758.5453)
+                            * 43_758.547)
                             .fract();
                         let n = (h * 2.0 - 1.0) * a;
                         p.x += n;
@@ -651,6 +651,7 @@ fn rotate_point(p: Vec3, r: Vec3) -> Vec3 {
     Vec3::new(p.x * cz - p.y * sz, p.x * sz + p.y * cz, p.z)
 }
 
+#[allow(clippy::too_many_arguments)] // These are the named scalar variables exposed to expressions.
 fn context(
     t: f32,
     x: f32,

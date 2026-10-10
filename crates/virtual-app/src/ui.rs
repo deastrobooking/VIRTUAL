@@ -70,6 +70,8 @@ pub struct UiState {
     pub clip_editor_draw_last: Option<[f32; 2]>,
     /// Selected bank of eight scene rows (A–D, covering 32 scenes).
     pub scene_bank: usize,
+    /// Independent clip/stop selections for each of the 32 scene rows.
+    pub scenes: [virtual_io::SceneProject; virtual_io::SCENE_COUNT],
     pub master_opacity: f32,
     pub blackout: bool,
     pub master_freeze: bool,
@@ -201,6 +203,7 @@ impl Default for UiState {
             clip_editor_square_steps: true,
             clip_editor_draw_last: None,
             scene_bank: 0,
+            scenes: virtual_io::default_scenes(),
             master_opacity: 1.0,
             blackout: false,
             master_freeze: false,

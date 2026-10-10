@@ -27,6 +27,7 @@ pub(crate) struct StructuralSnapshot {
     deck_packages: [DeckPackageSlot; 4],
     master_effects: MasterEffectChain,
     master_modulation: MasterModulation,
+    scenes: [virtual_io::SceneProject; virtual_io::SCENE_COUNT],
 }
 
 impl StructuralSnapshot {
@@ -44,6 +45,7 @@ impl StructuralSnapshot {
             deck_packages: ui.deck_packages.clone(),
             master_effects: ui.master_effects.clone(),
             master_modulation: ui.master_modulation,
+            scenes: ui.scenes,
         }
     }
 
@@ -64,6 +66,7 @@ impl StructuralSnapshot {
         ui.deck_packages = self.deck_packages.clone();
         ui.master_effects = self.master_effects.clone();
         ui.master_modulation = self.master_modulation;
+        ui.scenes = self.scenes;
     }
 
     pub(crate) fn commands_to(&self, next: &Self) -> Vec<CommandOperation> {
@@ -133,6 +136,20 @@ impl StructuralSnapshot {
             self.master_modulation,
             next.master_modulation,
         );
+        for scene in 0..virtual_io::SCENE_COUNT {
+            for deck in 0..4 {
+                if self.scenes[scene].clip_slots[deck] != next.scenes[scene].clip_slots[deck]
+                    || self.scenes[scene].stop_decks[deck] != next.scenes[scene].stop_decks[deck]
+                {
+                    changed_text(
+                        &mut commands,
+                        format!("scene.{scene}.deck.{deck}"),
+                        &scene_deck_value(self.scenes[scene], deck),
+                        &scene_deck_value(next.scenes[scene], deck),
+                    );
+                }
+            }
+        }
         commands
     }
 }
@@ -145,6 +162,24 @@ pub(crate) fn apply_session_parameters(
     mixer: &mut FourDeckMixer,
     parameters: &BTreeMap<String, ParameterValue>,
 ) {
+    for scene in 0..virtual_io::SCENE_COUNT {
+        for deck in 0..4 {
+            if let Some(value) = text_at(parameters, &format!("scene.{scene}.deck.{deck}")) {
+                let assignment = &mut ui.scenes[scene];
+                assignment.clip_slots[deck] = None;
+                assignment.stop_decks[deck] = false;
+                if value == "stop" {
+                    assignment.stop_decks[deck] = true;
+                } else if let Some(slot) = value
+                    .strip_prefix("clip:")
+                    .and_then(|slot| slot.parse::<u8>().ok())
+                    .filter(|slot| usize::from(*slot) < virtual_media::CLIPS_PER_DECK)
+                {
+                    assignment.clip_slots[deck] = Some(slot);
+                }
+            }
+        }
+    }
     if let Some(value) = bool_at(parameters, "mixer.equal_power") {
         ui.equal_power = value;
     }
@@ -220,6 +255,16 @@ pub(crate) fn apply_session_parameters(
     }
     apply_master_effect_structure(ui, parameters);
     apply_master_modulation_structure(ui, parameters);
+}
+
+fn scene_deck_value(scene: virtual_io::SceneProject, deck: usize) -> String {
+    if scene.stop_decks[deck] {
+        "stop".to_owned()
+    } else if let Some(slot) = scene.clip_slots[deck] {
+        format!("clip:{slot}")
+    } else {
+        "none".to_owned()
+    }
 }
 
 fn apply_deck_package(
@@ -1050,6 +1095,8 @@ mod tests {
         after.lfos[2].lanes[1].waveform = LfoWaveform::Square;
         after.deck_packages[3].package_id = "hyper-recursion".to_owned();
         after.master_effects.slots[0].kind = MasterEffectKind::Blur;
+        after.scenes[12].clip_slots[2] = Some(6);
+        after.scenes[12].stop_decks[2] = false;
 
         let commands = after_paths(before.commands_to(&after));
         assert!(
@@ -1065,6 +1112,7 @@ mod tests {
                 .any(|path| path == "deck.3.package.package_id")
         );
         assert!(commands.iter().any(|path| path == "master.effect.0.kind"));
+        assert!(commands.iter().any(|path| path == "scene.12.deck.2"));
     }
 
     #[test]
@@ -1118,6 +1166,8 @@ mod tests {
         desired.master_modulation.lfos[0].offset = -0.3;
         desired.master_modulation.lfos[0].unipolar = true;
         desired.master_modulation.lfos[0].invert = true;
+        desired.scenes[31].clip_slots = [Some(1), None, None, Some(7)];
+        desired.scenes[31].stop_decks = [false, true, false, false];
         let parameters = before
             .commands_to(&desired)
             .into_iter()

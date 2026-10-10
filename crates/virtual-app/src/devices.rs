@@ -817,13 +817,35 @@ impl State {
                 }
             }
             ControlTarget::SceneLaunch(slot) => {
-                if update.value >= 0.5 && usize::from(slot) < 32 {
+                if update.value >= 0.5 && usize::from(slot) < virtual_io::SCENE_COUNT {
                     let elapsed = now
                         .saturating_duration_since(self.performance_started)
                         .as_secs_f64();
                     let beat = self.tempo.beat_at(elapsed);
+                    let scene = self.ui.scenes[usize::from(slot)];
                     for deck in DeckId::ALL {
-                        let clip_slot = usize::from(slot) % virtual_media::CLIPS_PER_DECK;
+                        let index = deck.index();
+                        if scene.stop_decks[index] {
+                            self.stop_camera_recording(deck);
+                            self.master_effect_processor.reset_history();
+                            self.clips
+                                .remember_position(deck, self.transports[index].position);
+                            self.launches.cancel(deck);
+                            self.clips.deactivate(deck);
+                            self.clips.stop_automation(deck);
+                            self.mixer.eject(deck);
+                            self.live_configs[index] = None;
+                            let generation = self.mixer.deck(deck).generation;
+                            self.reset_playback(deck, generation);
+                            self.transports[index].playing = false;
+                            continue;
+                        }
+                        let Some(clip_slot) = scene.clip_slots[index].map(usize::from) else {
+                            continue;
+                        };
+                        if clip_slot >= virtual_media::CLIPS_PER_DECK {
+                            continue;
+                        }
                         let address = ClipAddress {
                             deck,
                             slot: clip_slot,

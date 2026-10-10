@@ -410,6 +410,8 @@ impl State {
         self.ui
             .geometry_library
             .clone_from(&project_file.geometry_library);
+        self.ui.scenes = project_file.settings.scenes;
+        self.ui.scene_bank = 0;
         self.project_epoch = self.project_epoch.wrapping_add(1);
         self.pending_project_open = None;
         self.ui.save_status = Default::default();

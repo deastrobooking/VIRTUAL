@@ -27,7 +27,7 @@ libraries; end users do not need a package manager or developer tools.
 | Path | What VIRTUAL provides |
 |---|---|
 | Media | Direct block-compressed HAP playback, conventional FFmpeg decode, stills and low-latency cameras |
-| Performance | Four decks, 32 clip slots, eight scenes, A/B buses, 35 blend modes, MIDI (including beat-clock sync in and out), OSC and audio/beat modulation |
+| Performance | Four decks, 32 clip slots, 32 independently assignable scenes in A–D banks, A/B buses, 35 blend modes, MIDI (including beat-clock sync in and out), OSC and audio/beat modulation |
 | Output | One offscreen program shared by the operator preview and a clean display-selectable output window |
 | Safety | Bounded workers and queues, generation-safe media, last-known-good shaders, atomic projects and crash-recoverable takes |
 | Extensibility | Typed graph contracts plus manifest-driven one/two-pass WGSL packages in two master slots |
@@ -175,8 +175,10 @@ The current source tree includes:
   hard 32-slot assignment bound.
 - Per-slot In/Out trim, restart-or-resume launch policy and optional
   BPM-relative beat duration, shared by seek, loop and one-shot boundaries.
-- Eight scene launch buttons and `1`–`8` shortcuts that trigger the same slot
-  across all four decks.
+- Thirty-two saved scene rows in A–D banks. Each deck can launch one of its
+  eight clips, remain unchanged, or stop; right-click a scene to assign decks
+  or capture the currently selected clips. Number keys `1`–`8` launch the
+  visible bank.
 - Internal 20–400 BPM clock with immediate, next-beat and next-bar launch
   quantization, preserving musical phase across tempo changes.
 - Aggregate dropped, repeated and late-frame monitoring in the operator UI.
@@ -284,7 +286,7 @@ cargo run -p virtual-render --example dump_frame > frame.raw \
 
 Safety/performance keys: `B` toggles blackout, `Space` toggles master freeze,
 `O` toggles program output, arrow keys move the crossfader, `Home` centers it,
-`1`–`8` launch scenes, and `Delete`/`Backspace` removes the selected clip when
+`1`–`8` launch scenes in the visible A–D bank, and `Delete`/`Backspace` removes the selected clip when
 Show Mode is off and no text field owns the key. `Cmd/Ctrl+S` saves to the
 project path shown in the operator window, `Cmd/Ctrl+Shift+S` is Save As and
 `Cmd/Ctrl+O` opens a show (both unavailable in Show Mode).

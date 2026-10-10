@@ -61,6 +61,7 @@ pub fn snapshot(
             master_opacity: ui.master_opacity,
             layer_order: ui.layer_order,
             pinned_deck: ui.pinned_deck.map(|deck| deck.index() as u8),
+            scenes: ui.scenes,
             output: OutputProject {
                 enabled: ui.output_enabled,
                 fullscreen: ui.output_fullscreen,
@@ -1436,8 +1437,10 @@ mod tests {
 
     #[test]
     fn custom_geometry_graph_survives_generator_project_round_trip() {
-        let mut settings = GeneratorSettings::default();
-        settings.geometry_graph = Some(virtual_generate::GeometryGraph::default());
+        let settings = GeneratorSettings {
+            geometry_graph: Some(virtual_generate::GeometryGraph::default()),
+            ..GeneratorSettings::default()
+        };
         let json = serde_json::to_string(&generator_to_project(&settings)).unwrap();
         let project: GeneratorProject = serde_json::from_str(&json).unwrap();
         assert_eq!(generator_from_project(&project), settings);

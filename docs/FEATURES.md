@@ -6,14 +6,14 @@ This matrix reflects the current source tree, not the aspirational MVP notes.
 
 | Area | Current implementation |
 |---|---|
-| Decks and clips | Four decks, eight persistent slots per deck and eight scene/row launches across all decks |
+| Decks and clips | Four decks, eight persistent slots per deck and 32 independently assignable scene rows in A–D banks |
 | Import | File/folder drag/drop, bounded recursive scanning, deterministic slot assignment, probing, thumbnails, first-frame launch previews, movie metadata and PNG/JPEG stills |
 | Codecs | Direct HAP family path plus FFmpeg fallback for conventional codecs |
 | Cameras | AVFoundation discovery/manual ID, requested size/FPS and any-deck assignment |
 | Generators | Fourteen recursive 2D/3D line-geometry sources plus a project-saved Geometry Lab with typed node graphs, safe expression calculator, parametric curves/surfaces, transforms, twists, repeats, noise and merge/output; live time/audio variables, bounded evaluation and per-layer project persistence — see [generators](GENERATORS.md) and [Geometry Lab](GEOMETRY_LAB.md) |
 | Playback | Play, pause, restart, freeze, seek, loop/one-shot, 0.25–4× speed and per-slot In/Out ranges |
 | Timing | Exact timestamps, bounded keyframe indexes, indexed conventional-codec reopen, bounded schedulers and generation-safe stale-frame rejection |
-| Triggering | Immediate, next-beat and next-bar clip/scene launches, per-slot restart/resume and BPM-relative beat duration; row launch currently addresses the same slot on all four decks |
+| Triggering | Immediate, next-beat and next-bar clip/scene launches, per-slot restart/resume and BPM-relative beat duration; scenes independently launch, stop or leave unchanged each deck, and can capture selected clip slots |
 | Mixing | Independent A/B composites, 35 blend modes, Solo/Bypass, transforms, crop/source modes, linear/equal-power crossfade, master opacity and blackout |
 | Output | Offscreen preset/custom program target, clean second window, display selection, aspect preservation, enable/fullscreen, calibration overlays, surface-health diagnostics, persisted single-quad projection warp with source crop, draggable/resizable blackout masks, per-edge feathering, gamma and black-floor calibration, optional NDI sender |
 | Built-in deck effects | Fused Geometry UV prepass plus Color + Levels and Stylize + Key groups; only Color/Stylize change relative pixel order. Includes grading, mirror, fractal fold (plus spiral, Kali and Koch fold variants), neon, jitter, edges, bit reduction, black light, pixelate, luma key and bloom |
@@ -22,7 +22,7 @@ This matrix reflects the current source tree, not the aspirational MVP notes.
 | OSC | Bounded OSC 1.0 UDP input/output, nested bundles, NTP-timetag scheduling, initial state snapshots, live health counters and origin-aware routes for mixer, decks, clips, scenes, tempo and output |
 | Musical control | Manual BPM, Tap, half/double, beat/bar phase and synchronized LFO divisions |
 | Audio modulation | Native input capture with interface channel selection, bounded queue, RMS/FFT bands, 8-band spectrum EQ with per-band gain and dB scale, transient, adaptive normalization, live meters, band-to-control mappings (continuous, trigger, gate) and thirteen audio plus beat/bar matrix sources |
-| Persistence | Atomic background save with persistent pending/failure status, save-before-open, autosave, recovery, asynchronous restore, automatic v1–v5-to-v6 loading, show-folder-relative media paths, stable project/take identity, deterministic seeds, active graph metadata and missing-media relinking |
+| Persistence | Atomic background save with persistent pending/failure status, save-before-open, autosave, recovery, asynchronous restore, automatic v1–v9-to-v10 loading, saved scene assignments, show-folder-relative media paths, stable project/take identity, deterministic seeds, active graph metadata and missing-media relinking |
 | Operator safety | Selected-deck primary editor, direct deck-row targeting, Show Mode performance lock enforced at UI and action level, fixed (non-scrolling) emergency toolbar, preflight rail covering devices, effects and saves, text-safe keyboard shortcuts and button/keyboard clip deletion |
 | Diagnostics | FPS, decoder drop/repeat/late counters, RGBA allocation/reuse/live/discard telemetry, output surface state, presentation skips/recovery and display-topology changes |
 

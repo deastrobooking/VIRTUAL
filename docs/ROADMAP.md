@@ -13,12 +13,11 @@ preservation, raw-recording storage estimates and a v6 golden project fixture.
 Next: certify these changes with the physical failure matrix, produce the
 self-contained macOS bundle, and add frame-time/decode/upload diagnostics.
 Camera recording still uses uncompressed RGBA; compressed recording and disk
-capacity feedback remain open. Clip automation has a tested core evaluator but
-still needs application wiring, persistence and an editor. The existing scene
-controls already launch a slot across all four decks; the next clip work is to
-add automation-only cells for live/generator decks, tempo-locked 1–64 bar loops,
-Draw/Select editing and reverse playback. Program-output recording is separate
-from the implemented camera-to-clip recorder. See [feature designs](FEATURE_DESIGNS.md).
+capacity feedback remain open. Clip automation now has application wiring,
+persistence, automation-only slots, tempo-grid editing and scene launches.
+Thirty-two independently assignable scenes are persisted in A–D banks.
+Reverse playback and program-output recording remain open. See
+[feature designs](FEATURE_DESIGNS.md).
 
 ## Current execution sequence
 
@@ -65,8 +64,9 @@ Before another large subsystem lands:
    remains)
 5. Complete the operator UI split. Clip grid, deck, master FX, MIDI, theme,
    toolbar, setup and diagnostics modules are implemented. (implemented)
-6. Maintain checked-in golden v1-v6 projects and migration/save-reload tests
-   before introducing further schema changes. (implemented)
+6. Maintain checked-in golden v1-v6 projects, plus current-schema migration
+   tests, before introducing further schema changes. (implemented; v1-v9
+   fixture coverage remains a useful extension)
 
 Acceptance criteria:
 

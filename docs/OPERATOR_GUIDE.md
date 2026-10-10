@@ -171,8 +171,11 @@ It is bounded to 16 directory levels and 4,096 entries per directory. Files
 that fail probing remain visible in their assigned slot with an error while
 the rest continue importing.
 
-Scene buttons and number keys `1`–`8` launch the same slot across all four
-decks. Choose Immediate, Next beat or Next bar before triggering.
+The A–D scene banks hold 32 independent launch rows. Click a numbered scene
+to launch its deck assignments on the selected quantization boundary. Right-
+click a scene to capture the currently selected clips or set each deck to a
+specific clip, Stop, or No change. Number keys `1`–`8` launch scenes in the
+visible bank. Choose Immediate, Next beat or Next bar before triggering.
 
 A filled circle means the bounded first-frame launch preview is ready. An open
 circle means metadata is ready but the preview worker is still decoding. The

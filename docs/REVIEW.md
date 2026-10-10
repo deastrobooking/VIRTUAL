@@ -1,14 +1,15 @@
 # Application review
 
-Review date: 2026-09-25
+Review date: 2026-10-10
 
 Open rehearsal and certification items from the event and finalization
 reviews are tracked under [Phase 7 in the roadmap](ROADMAP.md#phase-7-release-hardening).
 
-September follow-up: project writes now run on a bounded background worker;
+October follow-up: project writes now run on a bounded background worker;
 active camera reads support cancellation/deadlines; camera recordings retain
-capture timing across dropped frames; and golden fixtures cover v1-v6. These
-changes have automated coverage. Physical camera/display/storage failure
+capture timing across dropped frames; and project schema v10 stores 32 distinct
+scenes with per-deck clip, stop and no-change actions. Older projects receive
+legacy scene assignments. Physical camera/display/storage failure
 certification and macOS packaging remain open. See the reliability entry in
 [release notes](RELEASE_NOTES.md) for behavior and limits.
 
@@ -26,8 +27,8 @@ Per-deck package execution, selection and persistence are now implemented for
 one stateless pass per deck. Stable deck-package modulation, MIDI and OSC
 identities, alpha/culling diagnostics and non-blocking per-deck GPU pass timing
 are implemented; show-machine certification remains. External stage
-integrations such as tempo sync and video sharing should follow the release
-gates rather than displace them.
+work still centers on multi-projector routing and hardware validation. Link
+tempo sync and optional NDI output are already implemented.
 
 ## Current strengths
 
@@ -49,7 +50,8 @@ gates rather than displace them.
 
 ### Performance workflow
 
-- The 4 × 8 clip grid supports scene launches, quantization, folder import,
+- The 4 × 8 clip grid supports 32 independently assigned scenes in four banks,
+  quantization, folder import,
   missing-media relink, safe slot movement and explicit clip deletion.
 - The selected deck has one primary, always-visible editor. Deck row labels and
   clip slots retarget it directly; secondary deck editors no longer bury the
@@ -65,8 +67,8 @@ gates rather than displace them.
 
 ### Persistence and validation
 
-- Project schema v6 migrates supported v1-v5 projects, validates values and
-  persists graph, take identity and deterministic seeds.
+- Project schema v10 migrates supported older projects, validates scene and
+  graph values, and persists take identity and deterministic seeds.
 - Structural edits and performance controls enter an origin-aware command log.
   Bounded JSONL journals, checkpoints, recovery branches, markers and exported
   take copies are implemented.
@@ -86,9 +88,10 @@ Use [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) for every candidate.
 
 The repository now produces a locally ad-hoc-signed macOS application bundle
 with privacy usage strings and bundled effects. *Updated 2026-10-05:*
-`build-macos.sh --portable` now bundles FFmpeg and its dependencies. Developer
-ID signing, notarization, distribution notices and a pre-macOS-26 FFmpeg build
-remain open before public release.
+`build-macos.sh --portable` now bundles FFmpeg and its dependencies. Native
+Windows and Linux archives are also built in CI. Developer ID signing,
+notarization, distribution notices and a pre-macOS-26 FFmpeg build remain open
+before public release.
 
 ### 3. Diagnostics depth
 
@@ -105,6 +108,13 @@ invisible-branch counters and per-deck pass-time telemetry are implemented.
 Target-machine measurement remains a release gate. HDR, arbitrary pass graphs
 and compute remain later work.
 See [Shader system](SHADER_SYSTEM.md) for the accepted sequence and invariants.
+
+### 5. Stage workflow gaps
+
+Projection calibration currently targets one output with a single quad, crop,
+rectangular masks and edge feathering. Multiple projector outputs, mesh/polygon
+warps and 3D projector simulation remain future work. Video and automation
+reverse playback also remain unimplemented; see [feature designs](FEATURE_DESIGNS.md).
 
 ## Engineering risks
 
@@ -127,15 +137,14 @@ checkpoints.
 ### Project migration discipline
 
 Schema evolution reached v5 before golden project files were established. The
-repository now checks in v1-v6 fixtures and proves migration, current-schema
-save/reload and typed-graph compilation. Keep that fixture chain mandatory for
-every future schema revision.
+repository checks in v1-v6 fixtures and tests a v9-to-v10 migration for scenes.
+Extend the golden chain as part of release hardening and keep migration and
+current-schema save/reload coverage mandatory for every schema revision.
 
 ### External integration and licensing
 
-- Update: GPL-2.0-or-later is selected and Link tempo/phase integration is
-  implemented. Network/hardware certification and transport sync remain;
-  see [Link](ABLETON_LINK.md).
+- GPL-2.0-or-later is selected and Link tempo/phase integration is implemented;
+  network/hardware certification remains. See [Link](ABLETON_LINK.md).
 - NDI requires its SDK and redistribution terms. Keep any integration in an
   optional crate/feature with a build that remains functional without the SDK.
 - Syphon/Spout requires platform-specific native texture interop and should not
@@ -146,15 +155,11 @@ every future schema revision.
 ## Recommended order
 
 ```text
-repeatable release certification and golden project fixtures
-    -> shader ABI conformance and GPU timing diagnostics
-    -> selective deck-branch extraction and one bounded deck package slot
-    -> four-deck show-machine certification of the new path
+physical show-machine certification and release packaging
+    -> frame-time/decode/upload diagnostics on target hardware
+    -> bounded video reverse playback and recording workflow
+    -> multi-output projection routing and mesh mapping
     -> remaining behavior-preserving media-session seam
-    -> signed macOS release and FFmpeg licensing decision
-    -> tempo sync (after Ableton Link licensing decision)
-    -> feature-gated NDI output
-    -> projection mapping and additional stage I/O
 ```
 
 This ordering protects the working show path while turning the next external

@@ -98,13 +98,77 @@ pub(super) fn draw_clip_grid(
                         },
                     )
                 });
-                if scene
-                    .on_hover_text(format!(
-                        "Launch scene {} on the next quantized boundary",
-                        scene_index + 1
-                    ))
-                    .clicked()
-                {
+                let scene = scene.on_hover_text(format!(
+                    "Launch scene {} on the next quantized boundary · right-click to edit",
+                    scene_index + 1
+                ));
+                scene.context_menu(|ui| {
+                    if state.show_mode {
+                        ui.weak("Scene assignments are locked in Show Mode");
+                        return;
+                    }
+                    if ui.button("Capture selected clips from all decks").clicked() {
+                        for deck in DeckId::ALL {
+                            state.scenes[scene_index].clip_slots[deck.index()] =
+                                Some(clips.selected(deck) as u8);
+                            state.scenes[scene_index].stop_decks[deck.index()] = false;
+                        }
+                        ui.close();
+                    }
+                    ui.separator();
+                    for deck in DeckId::ALL {
+                        let index = deck.index();
+                        let scene_choice = if state.scenes[scene_index].stop_decks[index] {
+                            "Stop".to_owned()
+                        } else if let Some(slot) = state.scenes[scene_index].clip_slots[index] {
+                            format!("Clip {}", slot + 1)
+                        } else {
+                            "No change".to_owned()
+                        };
+                        ui.menu_button(format!("Deck {} · {scene_choice}", deck.label()), |ui| {
+                            if ui
+                                .selectable_label(
+                                    !state.scenes[scene_index].stop_decks[index]
+                                        && state.scenes[scene_index].clip_slots[index].is_none(),
+                                    "No change",
+                                )
+                                .clicked()
+                            {
+                                state.scenes[scene_index].clip_slots[index] = None;
+                                state.scenes[scene_index].stop_decks[index] = false;
+                                ui.close();
+                            }
+                            if ui
+                                .selectable_label(
+                                    state.scenes[scene_index].stop_decks[index],
+                                    "Stop deck",
+                                )
+                                .clicked()
+                            {
+                                state.scenes[scene_index].clip_slots[index] = None;
+                                state.scenes[scene_index].stop_decks[index] = true;
+                                ui.close();
+                            }
+                            ui.separator();
+                            for slot in 0..CLIPS_PER_DECK {
+                                if ui
+                                    .selectable_label(
+                                        !state.scenes[scene_index].stop_decks[index]
+                                            && state.scenes[scene_index].clip_slots[index]
+                                                == Some(slot as u8),
+                                        format!("Clip {}", slot + 1),
+                                    )
+                                    .clicked()
+                                {
+                                    state.scenes[scene_index].clip_slots[index] = Some(slot as u8);
+                                    state.scenes[scene_index].stop_decks[index] = false;
+                                    ui.close();
+                                }
+                            }
+                        });
+                    }
+                });
+                if scene.clicked() {
                     actions.push(UiAction::LaunchScene(scene_index));
                 }
             }

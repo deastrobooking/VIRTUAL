@@ -16,7 +16,7 @@ use virtual_graph::ProjectGraph;
 pub const PROJECT_FORMAT: &str = "virtual-project";
 /// Pre-rename identity. Still read; never written.
 pub const LEGACY_PROJECT_FORMAT: &str = "oneiroi-project";
-pub const PROJECT_VERSION: u32 = 9;
+pub const PROJECT_VERSION: u32 = 10;
 /// Three LFOs, five audio sources, beat, bar, then eight spectrum bands.
 pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
 /// Enabled, rate, depth, phase and offset.
@@ -26,6 +26,7 @@ pub const GENERATOR_PARAMETER_COUNT: u8 = 46;
 const MINIMUM_PROJECT_VERSION: u32 = 1;
 pub const DECK_COUNT: usize = 4;
 pub const CLIPS_PER_DECK: usize = 8;
+pub const SCENE_COUNT: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectFile {
@@ -420,6 +421,16 @@ impl ProjectFile {
                 "MIDI device identity is invalid".to_owned(),
             ));
         }
+        if self.settings.scenes.iter().any(|scene| {
+            (0..DECK_COUNT).any(|deck| {
+                scene.clip_slots[deck].is_some_and(|slot| usize::from(slot) >= CLIPS_PER_DECK)
+                    || (scene.stop_decks[deck] && scene.clip_slots[deck].is_some())
+            })
+        }) {
+            return Err(ProjectError::InvalidValue(
+                "scene contains an invalid clip slot or conflicting stop action".to_owned(),
+            ));
+        }
         for mapping in &self.midi_mappings {
             if mapping.channel > 15
                 || mapping.number > 127
@@ -613,7 +624,7 @@ fn valid_control_target(target: ControlTargetProject) -> bool {
         | ControlTargetProject::DeckLayerDown { deck } => deck < 4,
         ControlTargetProject::LayerReset | ControlTargetProject::UiButton { .. } => true,
         ControlTargetProject::ClipLaunch { deck, slot } => deck < 4 && slot < 8,
-        ControlTargetProject::SceneLaunch { slot } => slot < 8,
+        ControlTargetProject::SceneLaunch { slot } => usize::from(slot) < SCENE_COUNT,
         ControlTargetProject::EffectParameter {
             deck,
             effect,
@@ -674,6 +685,42 @@ pub struct ProjectSettings {
     /// Deck drawn over the crossfaded mix.
     #[serde(default)]
     pub pinned_deck: Option<u8>,
+    /// Thirty-two independent scene rows. `None` leaves that deck unchanged;
+    /// `stop_decks` explicitly stops and clears it.
+    #[serde(default = "legacy_scenes")]
+    pub scenes: [SceneProject; SCENE_COUNT],
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SceneProject {
+    pub clip_slots: [Option<u8>; DECK_COUNT],
+    pub stop_decks: [bool; DECK_COUNT],
+}
+
+/// Initial new-show content: the first eight scenes launch slots 1–8 on all
+/// decks; the remaining rows stay unassigned until the performer sets them.
+pub fn default_scenes() -> [SceneProject; SCENE_COUNT] {
+    std::array::from_fn(|scene| {
+        if scene < CLIPS_PER_DECK {
+            SceneProject {
+                clip_slots: [Some(scene as u8); DECK_COUNT],
+                stop_decks: [false; DECK_COUNT],
+            }
+        } else {
+            SceneProject::default()
+        }
+    })
+}
+
+/// Preserve the old numbered launcher behavior when loading projects without
+/// scene data: each row launches the same numbered slot across all decks,
+/// wrapping every eight scenes.
+fn legacy_scenes() -> [SceneProject; SCENE_COUNT] {
+    std::array::from_fn(|scene| SceneProject {
+        clip_slots: [Some((scene % CLIPS_PER_DECK) as u8); DECK_COUNT],
+        stop_decks: [false; DECK_COUNT],
+    })
 }
 
 fn default_layer_order() -> [u8; 4] {
@@ -698,6 +745,7 @@ impl Default for ProjectSettings {
             midi_clock: MidiClockProject::default(),
             layer_order: default_layer_order(),
             pinned_deck: None,
+            scenes: default_scenes(),
         }
     }
 }
@@ -2164,6 +2212,8 @@ mod tests {
             ..ProjectFile::default()
         };
         project.random_seeds.insert("particles".to_owned(), 42);
+        project.settings.scenes[9].clip_slots = [Some(2), None, Some(7), None];
+        project.settings.scenes[9].stop_decks = [false, false, false, true];
         project.takes.push(TakeMetadataProject {
             take_id: new_project_id(),
             name: "Opening take".to_owned(),
@@ -2397,6 +2447,59 @@ mod tests {
             soft_takeover: false,
             feedback: None,
         });
+        assert!(matches!(
+            project.validate(),
+            Err(ProjectError::InvalidValue(_))
+        ));
+    }
+
+    #[test]
+    fn old_projects_receive_legacy_scene_rows_and_high_scene_midi_is_valid() {
+        assert_eq!(default_scenes()[7].clip_slots, [Some(7); DECK_COUNT]);
+        assert_eq!(default_scenes()[8], SceneProject::default());
+        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
+        value["version"] = serde_json::json!(9);
+        value["settings"].as_object_mut().unwrap().remove("scenes");
+        let path = test_path("migrate-v9-scenes.virtual");
+        fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
+        let project = load_project(&path).unwrap();
+        fs::remove_file(path).unwrap();
+        assert_eq!(project.version, PROJECT_VERSION);
+        assert_eq!(project.settings.scenes.len(), SCENE_COUNT);
+        assert_eq!(project.settings.scenes[0].clip_slots, [Some(0); DECK_COUNT]);
+        assert_eq!(
+            project.settings.scenes[31].clip_slots,
+            [Some(7); DECK_COUNT]
+        );
+
+        let mut project = ProjectFile::default();
+        project.midi_mappings.push(MidiMappingProject {
+            device: "controller".to_owned(),
+            channel: 0,
+            message: MidiMessageProject::Note,
+            number: 1,
+            target: ControlTargetProject::SceneLaunch { slot: 31 },
+            input_range: [0.0, 1.0],
+            output_range: [0.0, 1.0],
+            invert: false,
+            mode: MappingModeProject::Momentary,
+            soft_takeover: false,
+            feedback: None,
+        });
+        project.validate().unwrap();
+    }
+
+    #[test]
+    fn scene_assignments_reject_invalid_clip_slots_and_conflicting_stops() {
+        let mut project = ProjectFile::default();
+        project.settings.scenes[0].clip_slots[0] = Some(CLIPS_PER_DECK as u8);
+        assert!(matches!(
+            project.validate(),
+            Err(ProjectError::InvalidValue(_))
+        ));
+
+        project.settings.scenes[0].clip_slots[0] = Some(0);
+        project.settings.scenes[0].stop_decks[0] = true;
         assert!(matches!(
             project.validate(),
             Err(ProjectError::InvalidValue(_))

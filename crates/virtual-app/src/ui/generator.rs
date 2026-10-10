@@ -889,15 +889,13 @@ fn draw_geometry_lab(
                 if matches!(node.kind, GeometryNodeKind::Merge)
                     && node.inputs.len() < 8
                     && ui.button("+ Input").clicked()
-                {
-                    if let Some(candidate) = ids
+                    && let Some(candidate) = ids
                         .iter()
                         .copied()
                         .find(|id| *id != node.id && !node.inputs.contains(id))
-                    {
-                        node.inputs.push(candidate);
-                        changed = true;
-                    }
+                {
+                    node.inputs.push(candidate);
+                    changed = true;
                 }
                 changed |= draw_node_controls(ui, node);
             });
@@ -1228,13 +1226,12 @@ fn draw_graphing_calculator(
                             .iter()
                             .position(|node| matches!(node.kind, GeometryNodeKind::Curve { .. }))
                     });
-                if let Some(node) = target.and_then(|index| graph.nodes.get_mut(index)) {
-                    if let GeometryNodeKind::Curve { x, y, .. } = &mut node.kind {
-                        *x = x_mapping.clone();
-                        *y =
-                            replace_calculator_variable(expression, "x", &format!("({x_mapping})"));
-                        changed = true;
-                    }
+                if let Some(node) = target.and_then(|index| graph.nodes.get_mut(index))
+                    && let GeometryNodeKind::Curve { x, y, .. } = &mut node.kind
+                {
+                    *x = x_mapping.clone();
+                    *y = replace_calculator_variable(expression, "x", &format!("({x_mapping})"));
+                    changed = true;
                 }
             }
             if ui.button("Reset view").clicked() {

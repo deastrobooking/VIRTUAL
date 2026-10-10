@@ -142,6 +142,10 @@ impl ClipBank {
         self.active[deck.index()] = None;
     }
 
+    pub fn stop_automation(&mut self, deck: DeckId) {
+        self.automation_active[deck.index()] = None;
+    }
+
     pub fn restore_active(&mut self, deck: DeckId, slot: Option<usize>) {
         self.active[deck.index()] = slot.filter(|slot| *slot < CLIPS_PER_DECK);
     }

@@ -28,8 +28,9 @@ pub use project::{
     MasterEffectSlotProject, MasterEffectsProject, MasterLfoProject, MasterModulationProject,
     MasterModulationRouteProject, MidiClockProject, MidiMappingProject, MidiMessageProject,
     ModRouteProject, NdiProject, OutputProject, PROJECT_FORMAT, PROJECT_VERSION, ProjectError,
-    ProjectFile, ProjectSettings, QuantizationProject, SourceModeProject, TakeMetadataProject,
-    ThemeAppearanceProject, ThemeProject, TransformProject, TransportProject, autosave_path,
-    load_project, new_project_id, recovery_is_newer, relativize_media_paths, resolve_media_paths,
-    save_project_atomic, save_project_portable,
+    ProjectFile, ProjectSettings, QuantizationProject, SCENE_COUNT, SceneProject,
+    SourceModeProject, TakeMetadataProject, ThemeAppearanceProject, ThemeProject, TransformProject,
+    TransportProject, autosave_path, default_scenes, load_project, new_project_id,
+    recovery_is_newer, relativize_media_paths, resolve_media_paths, save_project_atomic,
+    save_project_portable,
 };
