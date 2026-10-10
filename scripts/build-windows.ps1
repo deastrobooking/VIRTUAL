@@ -35,6 +35,14 @@ Invoke-Native "$VcpkgRoot/vcpkg.exe" @('install', "--x-manifest-root=$Manifest",
 # which manifest-mode installs do not always create.
 New-Item -ItemType Directory -Force (Join-Path $Installed 'vcpkg/updates') | Out-Null
 $Native = Join-Path $Installed 'x64-windows'
+# vcpkg-rs 0.2.15 ignores VCPKG_INSTALLED_ROOT. Point ffmpeg-sys-next
+# directly at the manifest installation instead of its legacy global probe.
+$env:FFMPEG_DIR = $Native
+foreach ($Library in @('avcodec', 'avdevice', 'avformat', 'avutil', 'swscale')) {
+    if (-not (Test-Path "$Native/lib/$Library.lib")) {
+        throw "Missing FFmpeg import library: $Native/lib/$Library.lib"
+    }
+}
 $env:PATH = "$Native/bin;$env:PATH"
 $Target = 'x86_64-pc-windows-msvc'
 Push-Location $ProjectRoot
