@@ -498,6 +498,11 @@ impl State {
         let generation = self.mixer.activate(address.deck, movie);
         self.live_configs[address.deck.index()] = None;
         self.clips.activate(address);
+        let elapsed = Instant::now()
+            .saturating_duration_since(self.performance_started)
+            .as_secs_f64();
+        self.clips
+            .launch_automation(address, self.tempo.beat_at(elapsed), false);
         self.reset_playback(address.deck, generation);
         self.transports[address.deck.index()].reset_range(in_point, out_point);
         self.transports[address.deck.index()].position = launch_position;

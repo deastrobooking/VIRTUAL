@@ -10,7 +10,7 @@ use virtual_io::{
     AudioInput, AudioInputSnapshot, MidiClockSender, MidiInputConnection, MidiInputMessage,
     discover_audio_inputs, discover_midi_inputs, discover_midi_outputs,
 };
-use virtual_media::{ClipAddress, DeckId};
+use virtual_media::{ClipAddress, DeckId, DeckState};
 use virtual_session::{CommandOperation, CommandOrigin};
 
 use super::{State, current_control_value, deck_id, set_effect_parameter};
@@ -818,15 +818,24 @@ impl State {
             }
             ControlTarget::SceneLaunch(slot) => {
                 if update.value >= 0.5 && usize::from(slot) < 32 {
+                    let elapsed = now
+                        .saturating_duration_since(self.performance_started)
+                        .as_secs_f64();
+                    let beat = self.tempo.beat_at(elapsed);
                     for deck in DeckId::ALL {
                         let clip_slot = usize::from(slot) % virtual_media::CLIPS_PER_DECK;
-                        self.queue_clip(
-                            ClipAddress {
-                                deck,
-                                slot: clip_slot,
-                            },
-                            now,
-                        );
+                        let address = ClipAddress {
+                            deck,
+                            slot: clip_slot,
+                        };
+                        if self.clips.movie(address).is_some() {
+                            self.queue_clip(address, now);
+                        } else if matches!(
+                            self.mixer.deck(deck).state,
+                            DeckState::Ready(_) | DeckState::Live(_) | DeckState::Generator(_)
+                        ) {
+                            self.clips.launch_automation(address, beat, false);
+                        }
                     }
                 }
             }

@@ -125,6 +125,47 @@ pub enum ControlTarget {
     UiButton(u64),
 }
 
+impl ControlTarget {
+    /// True for continuous parameters that can safely be written by a clip
+    /// envelope. Trigger and topology actions are deliberately excluded.
+    pub const fn is_clip_automatable(self) -> bool {
+        match self {
+            Self::Crossfader | Self::MasterOpacity => true,
+            Self::DeckLevel(deck) | Self::DeckSpeed(deck) => deck < 4,
+            Self::EffectParameter { deck, effect, .. } => deck < 4 && effect < 27,
+            Self::LfoParameter {
+                deck,
+                lfo,
+                parameter,
+            } => deck < 4 && lfo < 3 && parameter >= 1 && parameter <= 4,
+            Self::ModRouteParameter {
+                deck,
+                route,
+                parameter,
+            } => deck < 4 && route < 8 && parameter == 1,
+            Self::GeneratorParameter { deck, parameter } => deck < 4 && parameter < 64,
+            Self::DeckEffectParameter { deck, .. } => deck < 4,
+            Self::MasterEffectParameter { slot, .. } => slot < 2,
+            Self::MasterBlackout
+            | Self::MasterFreeze
+            | Self::TapTempo
+            | Self::DeckPlay(_)
+            | Self::DeckFreeze(_)
+            | Self::DeckSelect(_)
+            | Self::DeckRestart(_)
+            | Self::ClipLaunch { .. }
+            | Self::SceneLaunch(_)
+            | Self::DeckMute(_)
+            | Self::DeckPin(_)
+            | Self::DeckLayerTop(_)
+            | Self::DeckLayerUp(_)
+            | Self::DeckLayerDown(_)
+            | Self::LayerReset
+            | Self::UiButton(_) => false,
+        }
+    }
+}
+
 /// Stable identity for a package parameter across manifest reordering.
 pub fn effect_parameter_key(package_id: &str, parameter_id: &str) -> u64 {
     const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;

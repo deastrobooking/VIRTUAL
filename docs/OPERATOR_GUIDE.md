@@ -661,7 +661,7 @@ NDI® is a registered trademark of Vizrt NDI AB.
 
 ### Projection mapping
 
-Expand **Setup → Projection mapping · corner pin, crop & masks** to calibrate
+Expand **Setup → Projection mapping · corner pin, crop, masks & blend** to calibrate
 the projector. Calibration changes only the external **VIRTUAL · PROGRAM**
 output; the operator preview stays undistorted.
 
@@ -672,13 +672,21 @@ output; the operator preview stays undistorted.
 3. **Source crop** (left / top / right / bottom) chooses which part of the
    program fills the pinned quad.
 4. **Blackout masks** hide up to four rectangles in projector coordinates, for
-   example to keep light off a doorway or speaker stack. A zero-width or
-   zero-height mask is off. Masks apply while mapping is on.
-5. **Lock output** protects the calibration during the show.
+   example to keep light off a doorway or speaker stack. Enable **Draw mask on
+   canvas** and drag a rectangle on the preview; select a mask to move it by its
+   body, resize it from the white corner handle, or enter exact coordinates.
+   A zero-width or zero-height mask is off. Masks apply while mapping is on.
+5. **Edge feather** fades selected projector edges over a normalized width.
+   **Output gamma** and **Black floor compensation** help match the output to a
+   projector or to an adjacent projector's measured levels.
+6. **Lock output** protects the calibration during the show.
 
 Corners must stay clockwise and must not cross; an invalid edit is not applied
 and the last valid calibration is kept. Calibration is saved with the project.
 **Reset calibration** restores the full frame without turning mapping off.
+Feathering and color calibration apply to this program output; automatic
+multi-projector overlap solving and 3D model-based calibration are not part of
+this single-output workflow yet.
 
 Expand **Output health** to verify the current display, swapchain size,
 composition size and FIFO presentation mode. The counters distinguish

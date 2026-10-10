@@ -59,6 +59,9 @@ use virtual_render::{
 pub struct UiState {
     /// Clip editor target, opened by double-clicking a populated clip cell.
     pub clip_editor: Option<virtual_media::ClipAddress>,
+    pub clip_editor_lane: usize,
+    pub clip_editor_keyframe: usize,
+    pub clip_editor_draw_mode: bool,
     /// Selected bank of eight scene rows (A–D, covering 32 scenes).
     pub scene_bank: usize,
     pub master_opacity: f32,
@@ -74,6 +77,10 @@ pub struct UiState {
     pub output_test_card: bool,
     pub output_identify: bool,
     pub output_projection: virtual_core::ProjectionMapping,
+    /// Selected mask and draw-mode state for the projection calibration canvas.
+    pub projection_selected_mask: usize,
+    pub projection_mask_draw_mode: bool,
+    pub projection_mask_origin: Option<[f32; 2]>,
     pub ndi_enabled: bool,
     pub ndi_name: String,
     pub composition_extent: [u32; 2],
@@ -128,6 +135,10 @@ pub struct UiState {
     pub geometry_library: Vec<virtual_generate::GeometryGraph>,
     /// Calculator scratch expressions, one per generator deck.
     pub geometry_calculator: [String; 4],
+    /// Graphing-calculator view bounds per generator deck: xmin, xmax, ymin, ymax.
+    pub geometry_plot_bounds: [[f32; 4]; 4],
+    /// Focused geometry node per generator deck.
+    pub geometry_selected_node: [u64; 4],
     pub audio_device_id: String,
     pub audio_analysis: AudioAnalysisSettings,
     /// Zero-based interface channel to analyse, or `None` to mix all.
@@ -177,6 +188,9 @@ impl Default for UiState {
     fn default() -> Self {
         Self {
             clip_editor: None,
+            clip_editor_lane: 0,
+            clip_editor_keyframe: 0,
+            clip_editor_draw_mode: false,
             scene_bank: 0,
             master_opacity: 1.0,
             blackout: false,
@@ -190,6 +204,9 @@ impl Default for UiState {
             output_test_card: false,
             output_identify: false,
             output_projection: Default::default(),
+            projection_selected_mask: 0,
+            projection_mask_draw_mode: false,
+            projection_mask_origin: None,
             ndi_enabled: false,
             ndi_name: crate::ndi::DEFAULT_SOURCE_NAME.to_owned(),
             composition_extent: [1920, 1080],
@@ -232,6 +249,8 @@ impl Default for UiState {
             generator_seen: [false; 4],
             geometry_library: Vec::new(),
             geometry_calculator: std::array::from_fn(|_| "sin(tau*t)".to_owned()),
+            geometry_plot_bounds: [[-10.0, 10.0, -5.0, 5.0]; 4],
+            geometry_selected_node: [0; 4],
             audio_device_id: String::new(),
             audio_analysis: AudioAnalysisSettings::default(),
             audio_channel: None,
@@ -411,6 +430,7 @@ pub enum UiAction {
     Restart(DeckId),
     Seek(DeckId),
     Launch(ClipAddress),
+    LaunchAutomation(ClipAddress),
     LaunchScene(usize),
     ClearSlot(ClipAddress),
     MoveClip {
@@ -933,6 +953,8 @@ pub fn draw(
                     cameras: metrics.cameras,
                     camera_status: metrics.camera_status,
                     camera_recordings: metrics.camera_recordings,
+                    transports,
+                    beat_position: metrics.tempo.beat_at(metrics.now_seconds),
                 },
                 &mut actions,
             );

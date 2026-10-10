@@ -7,7 +7,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use virtual_core::{
-    AUDIO_MAP_SOURCES, FIXED_DECK_EFFECT_PARAMETER_COUNT, MAX_AUDIO_BINDINGS, SPECTRUM_BANDS,
+    AUDIO_MAP_SOURCES, ClipAutomation, FIXED_DECK_EFFECT_PARAMETER_COUNT, MAX_AUDIO_BINDINGS,
+    SPECTRUM_BANDS,
 };
 use virtual_generate::GeometryGraph;
 use virtual_graph::ProjectGraph;
@@ -15,7 +16,7 @@ use virtual_graph::ProjectGraph;
 pub const PROJECT_FORMAT: &str = "virtual-project";
 /// Pre-rename identity. Still read; never written.
 pub const LEGACY_PROJECT_FORMAT: &str = "oneiroi-project";
-pub const PROJECT_VERSION: u32 = 8;
+pub const PROJECT_VERSION: u32 = 9;
 /// Three LFOs, five audio sources, beat, bar, then eight spectrum bands.
 pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
 /// Enabled, rate, depth, phase and offset.
@@ -202,6 +203,21 @@ impl ProjectFile {
                 return Err(ProjectError::InvalidShape(format!(
                     "deck {index} expected {CLIPS_PER_DECK} clip playback entries, found {}",
                     deck.clip_playback.len()
+                )));
+            }
+            if deck.clip_automation.len() != CLIPS_PER_DECK {
+                return Err(ProjectError::InvalidShape(format!(
+                    "decks[{index}].clip_automation must contain {CLIPS_PER_DECK} slots, got {}",
+                    deck.clip_automation.len()
+                )));
+            }
+            if deck
+                .clip_automation
+                .iter()
+                .any(|automation| automation.clone().sanitized() != automation.clone())
+            {
+                return Err(ProjectError::InvalidShape(format!(
+                    "decks[{index}].clip_automation contains an invalid loop, lane, target, or keyframe"
                 )));
             }
             let invalid = [
@@ -1119,6 +1135,8 @@ pub struct DeckProject {
     pub clips: Vec<Option<PathBuf>>,
     #[serde(default = "default_clip_playback")]
     pub clip_playback: Vec<ClipPlaybackProject>,
+    #[serde(default = "default_clip_automation")]
+    pub clip_automation: Vec<ClipAutomation>,
     pub selected_slot: usize,
     pub active_slot: Option<usize>,
     pub level: f32,
@@ -1155,6 +1173,7 @@ impl Default for DeckProject {
         Self {
             clips: vec![None; CLIPS_PER_DECK],
             clip_playback: default_clip_playback(),
+            clip_automation: default_clip_automation(),
             selected_slot: 0,
             active_slot: None,
             level: 1.0,
@@ -1230,6 +1249,10 @@ fn default_unit() -> f32 {
 
 fn default_clip_playback() -> Vec<ClipPlaybackProject> {
     vec![ClipPlaybackProject::default(); CLIPS_PER_DECK]
+}
+
+fn default_clip_automation() -> Vec<ClipAutomation> {
+    vec![ClipAutomation::default(); CLIPS_PER_DECK]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -2149,6 +2172,13 @@ mod tests {
         });
         project.decks[3].clips[7] = Some(PathBuf::from("/show/clip.mov"));
         project.decks[3].active_slot = Some(7);
+        project.decks[3].clip_automation[7].loop_beats = 32.0;
+        project.decks[3].clip_automation[7]
+            .lanes
+            .push(virtual_core::ClipAutomationLane::flat(
+                virtual_core::ControlTarget::MasterOpacity,
+                0.75,
+            ));
         project.decks[2].camera = Some(CameraProject {
             backend: "avfoundation".to_owned(),
             device_id: "0".to_owned(),
@@ -2210,7 +2240,13 @@ mod tests {
             test_card: true,
             identify: true,
             composition_extent: [3840, 2160],
-            projection: Default::default(),
+            projection: virtual_core::ProjectionMapping {
+                enabled: true,
+                edge_blend: [0.12, 0.08, 0.0, 0.0],
+                gamma: 1.1,
+                black_level: 0.03,
+                ..Default::default()
+            },
             ndi: NdiProject {
                 enabled: true,
                 name: "Stage left".to_owned(),
@@ -2541,6 +2577,7 @@ mod tests {
             deck.remove("lfos").unwrap();
             deck.remove("mod_routes").unwrap();
             deck.remove("clip_playback").unwrap();
+            deck.remove("clip_automation").unwrap();
             let effects = deck["effects"].as_object_mut().unwrap();
             effects.remove("slots").unwrap();
             for field in [
@@ -2562,6 +2599,11 @@ mod tests {
         assert!(project.midi_mappings.is_empty());
         assert_eq!(project.settings.layer_order, [0, 1, 2, 3]);
         assert_eq!(project.settings.pinned_deck, None);
+        assert!(project.decks.iter().all(|deck| {
+            deck.clip_automation
+                .iter()
+                .all(|clip| clip.loop_beats == 16.0 && clip.lanes.is_empty())
+        }));
         assert!(
             project
                 .decks
@@ -2591,10 +2633,17 @@ mod tests {
         output.remove("display_id").unwrap();
         output.remove("test_card").unwrap();
         output.remove("identify").unwrap();
+        let projection = output["projection"].as_object_mut().unwrap();
+        projection.remove("edge_blend").unwrap();
+        projection.remove("gamma").unwrap();
+        projection.remove("black_level").unwrap();
         let project: ProjectFile = serde_json::from_value(value).unwrap();
         assert!(project.settings.output.display_id.is_empty());
         assert!(!project.settings.output.test_card);
         assert!(!project.settings.output.identify);
+        assert_eq!(project.settings.output.projection.edge_blend, [0.0; 4]);
+        assert_eq!(project.settings.output.projection.gamma, 1.0);
+        assert_eq!(project.settings.output.projection.black_level, 0.0);
         project.validate().unwrap();
     }
 

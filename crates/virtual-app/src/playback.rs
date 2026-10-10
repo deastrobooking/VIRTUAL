@@ -180,6 +180,44 @@ impl State {
                 log::error!("deck {} upload failed: {error}", deck.label());
             }
         }
+        self.update_clip_automation(now);
+    }
+
+    fn update_clip_automation(&mut self, now: Instant) {
+        if self.ui.master_freeze {
+            return;
+        }
+        let elapsed = now
+            .saturating_duration_since(self.performance_started)
+            .as_secs_f64();
+        let beat = self.tempo.beat_at(elapsed);
+        let mut updates = Vec::new();
+        for deck in DeckId::ALL {
+            let transport = self.transports[deck.index()];
+            if !transport.playing || transport.frozen {
+                continue;
+            }
+            let Some((slot, start_beat)) = self.clips.active_automation(deck) else {
+                continue;
+            };
+            let address = ClipAddress { deck, slot };
+            let Some(automation) = self.clips.automation(address) else {
+                continue;
+            };
+            if !automation.loop_beats.is_finite() || automation.loop_beats <= 0.0 {
+                continue;
+            }
+            let phase = ((beat - start_beat).rem_euclid(automation.loop_beats)
+                / automation.loop_beats)
+                .clamp(0.0, 1.0);
+            updates.extend(automation.values_at(phase));
+        }
+        for (target, value) in updates {
+            self.apply_control_update_unrecorded(
+                virtual_core::ControlUpdate { target, value },
+                now,
+            );
+        }
     }
 
     /// Forwards in-place UI edits and the live audio bands to a generator

@@ -9,6 +9,8 @@ struct PresentGlobals {
     source_rect: vec4<f32>,
     masks: array<vec4<f32>, 4>,
     mapping_enabled: vec4<u32>,
+    edge_blend: vec4<f32>,
+    color_calibration: vec4<f32>,
 }
 
 @group(0) @binding(2) var<uniform> globals: PresentGlobals;
@@ -92,6 +94,19 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         if border < 0.012 || cross < 0.002 {
             color = vec3(1.0, 0.0, 0.7);
         }
+    }
+    if globals.mapping_enabled.x != 0u {
+        let edge = globals.edge_blend;
+        var weight = 1.0;
+        if edge.x > 0.0 { weight *= smoothstep(0.0, edge.x, source_uv.x); }
+        if edge.y > 0.0 { weight *= smoothstep(0.0, edge.y, source_uv.y); }
+        if edge.z > 0.0 { weight *= smoothstep(0.0, edge.z, 1.0 - source_uv.x); }
+        if edge.w > 0.0 { weight *= smoothstep(0.0, edge.w, 1.0 - source_uv.y); }
+        let gamma = max(globals.color_calibration.x, 0.01);
+        color = max(
+            pow(max(color, vec3(0.0)), vec3(1.0 / gamma)),
+            vec3(globals.color_calibration.y),
+        ) * weight;
     }
     return vec4(color, 1.0);
 }

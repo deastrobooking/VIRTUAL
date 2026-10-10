@@ -5,7 +5,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use virtual_core::{Quantization, TempoClock};
+use virtual_core::{ClipAutomation, Quantization, TempoClock};
 
 use crate::{DeckId, MovieMetadata, ProbeError, probe_movie};
 
@@ -98,6 +98,7 @@ pub struct ClipSlot {
     pub pending_path: Option<PathBuf>,
     pub error: Option<String>,
     pub playback: ClipPlayback,
+    pub automation: ClipAutomation,
     resume_position: f64,
 }
 
@@ -105,6 +106,8 @@ pub struct ClipBank {
     slots: [[ClipSlot; CLIPS_PER_DECK]; 4],
     selected: [usize; 4],
     active: [Option<usize>; 4],
+    automation_active: [Option<usize>; 4],
+    automation_start_beat: [f64; 4],
 }
 
 impl Default for ClipBank {
@@ -113,6 +116,8 @@ impl Default for ClipBank {
             slots: std::array::from_fn(|_| std::array::from_fn(|_| ClipSlot::default())),
             selected: [0; 4],
             active: [None; 4],
+            automation_active: [None; 4],
+            automation_start_beat: [0.0; 4],
         }
     }
 }
@@ -227,6 +232,48 @@ impl ClipBank {
             .map(virtual_core::MediaTime::as_seconds);
         slot.playback = playback.sanitized(duration);
         true
+    }
+
+    pub fn automation(&self, address: ClipAddress) -> Option<&ClipAutomation> {
+        Some(&self.slot(address)?.automation)
+    }
+
+    pub fn automation_mut(&mut self, address: ClipAddress) -> Option<&mut ClipAutomation> {
+        self.slots
+            .get_mut(address.deck.index())?
+            .get_mut(address.slot)
+            .map(|slot| &mut slot.automation)
+    }
+
+    pub fn set_automation(&mut self, address: ClipAddress, automation: ClipAutomation) -> bool {
+        let Some(slot) = self
+            .slots
+            .get_mut(address.deck.index())
+            .and_then(|row| row.get_mut(address.slot))
+        else {
+            return false;
+        };
+        slot.automation = automation.sanitized();
+        true
+    }
+
+    pub fn launch_automation(&mut self, address: ClipAddress, beat: f64, toggle: bool) -> bool {
+        let deck = address.deck.index();
+        if address.slot >= CLIPS_PER_DECK || !beat.is_finite() {
+            return false;
+        }
+        if toggle && self.automation_active[deck] == Some(address.slot) {
+            self.automation_active[deck] = None;
+        } else {
+            self.automation_active[deck] = Some(address.slot);
+            self.automation_start_beat[deck] = beat;
+        }
+        true
+    }
+
+    pub fn active_automation(&self, deck: DeckId) -> Option<(usize, f64)> {
+        self.automation_active[deck.index()]
+            .map(|slot| (slot, self.automation_start_beat[deck.index()]))
     }
 
     pub fn remember_position(&mut self, deck: DeckId, position: f64) {
@@ -352,6 +399,11 @@ impl ClipBank {
             } else if self.active[deck] == Some(to.slot) {
                 self.active[deck] = Some(from.slot);
             }
+            if self.automation_active[deck] == Some(from.slot) {
+                self.automation_active[deck] = Some(to.slot);
+            } else if self.automation_active[deck] == Some(to.slot) {
+                self.automation_active[deck] = Some(from.slot);
+            }
         } else {
             let (low, high) = if from.deck.index() < to.deck.index() {
                 (from.deck.index(), to.deck.index())
@@ -370,6 +422,12 @@ impl ClipBank {
             }
             if self.active[to.deck.index()] == Some(to.slot) {
                 self.active[to.deck.index()] = None;
+            }
+            if self.automation_active[from.deck.index()] == Some(from.slot) {
+                self.automation_active[from.deck.index()] = None;
+            }
+            if self.automation_active[to.deck.index()] == Some(to.slot) {
+                self.automation_active[to.deck.index()] = None;
             }
         }
         true
@@ -590,6 +648,38 @@ mod tests {
         assert!(bank.assign(address, movie("clip.mov")));
         assert_eq!(bank.movie(address).unwrap().display_name, "clip.mov");
         assert_eq!(bank.selected(DeckId::D), 7);
+    }
+
+    #[test]
+    fn empty_slots_start_with_sixteen_beat_automation_and_keep_it_when_media_is_assigned() {
+        let mut bank = ClipBank::default();
+        let address = ClipAddress {
+            deck: DeckId::A,
+            slot: 3,
+        };
+        assert_eq!(bank.automation(address).unwrap().loop_beats, 16.0);
+        bank.automation_mut(address)
+            .unwrap()
+            .lanes
+            .push(virtual_core::ClipAutomationLane::flat(
+                virtual_core::ControlTarget::MasterOpacity,
+                0.4,
+            ));
+        bank.assign(address, movie("clip.mov"));
+        assert_eq!(bank.automation(address).unwrap().lanes.len(), 1);
+    }
+
+    #[test]
+    fn automation_clips_start_at_a_beat_and_toggle_off() {
+        let mut bank = ClipBank::default();
+        let address = ClipAddress {
+            deck: DeckId::C,
+            slot: 5,
+        };
+        assert!(bank.launch_automation(address, 24.0, true));
+        assert_eq!(bank.active_automation(DeckId::C), Some((5, 24.0)));
+        assert!(bank.launch_automation(address, 40.0, true));
+        assert_eq!(bank.active_automation(DeckId::C), None);
     }
 
     #[test]

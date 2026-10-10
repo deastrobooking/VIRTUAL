@@ -13,6 +13,11 @@ pub struct ProjectionMapping {
     pub source: [f32; 4],
     /// Black rectangular masks in normalized projector coordinates; zero area disables a mask.
     pub masks: [[f32; 4]; 4],
+    /// Normalized feather width for projector-space left, top, right and bottom edges.
+    pub edge_blend: [f32; 4],
+    /// Output gamma adjustment and black floor used to match projector calibration.
+    pub gamma: f32,
+    pub black_level: f32,
 }
 
 impl Default for ProjectionMapping {
@@ -22,6 +27,9 @@ impl Default for ProjectionMapping {
             corners: UNIT_QUAD,
             source: [0.0, 0.0, 1.0, 1.0],
             masks: [[0.0; 4]; 4],
+            edge_blend: [0.0; 4],
+            gamma: 1.0,
+            black_level: 0.0,
         }
     }
 }
@@ -37,6 +45,14 @@ impl ProjectionMapping {
             && self.source[2] - self.source[0] >= 0.001
             && self.source[3] - self.source[1] >= 0.001
             && self.masks.iter().all(|r| rect(*r))
+            && self
+                .edge_blend
+                .iter()
+                .all(|width| width.is_finite() && (0.0..=0.5).contains(width))
+            && self.gamma.is_finite()
+            && (0.25..=4.0).contains(&self.gamma)
+            && self.black_level.is_finite()
+            && (0.0..=0.25).contains(&self.black_level)
             && self.inverse_homography().is_some()
     }
 
@@ -148,5 +164,19 @@ mod tests {
             .is_valid()
         );
         assert!(ProjectionMapping::default().is_valid());
+        assert!(
+            !ProjectionMapping {
+                edge_blend: [0.6, 0.0, 0.0, 0.0],
+                ..Default::default()
+            }
+            .is_valid()
+        );
+        assert!(
+            !ProjectionMapping {
+                gamma: f32::NAN,
+                ..Default::default()
+            }
+            .is_valid()
+        );
     }
 }

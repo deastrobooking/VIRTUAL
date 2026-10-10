@@ -115,6 +115,14 @@ pub fn snapshot(
                             )
                         })
                         .collect(),
+                    clip_automation: (0..CLIPS_PER_DECK)
+                        .map(|slot| {
+                            clips
+                                .automation(ClipAddress { deck, slot })
+                                .cloned()
+                                .unwrap_or_default()
+                        })
+                        .collect(),
                     selected_slot: clips.selected(deck),
                     active_slot: clips.active(deck),
                     level: live.level,

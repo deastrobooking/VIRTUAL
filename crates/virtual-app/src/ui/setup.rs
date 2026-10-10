@@ -487,42 +487,190 @@ pub(super) fn draw_setup(
 }
 
 fn draw_projection_mapping(ui: &mut egui::Ui, state: &mut UiState) {
-    egui::CollapsingHeader::new("Projection mapping · corner pin, crop & masks")
+    egui::CollapsingHeader::new("Projection mapping · corner pin, crop, masks & blend")
         .show(ui, |ui| {
             ui.add_enabled_ui(!state.output_locked, |ui| {
                 let mut candidate = state.output_projection;
                 ui.checkbox(&mut candidate.enabled, "Map the external output");
                 ui.weak("Drag corners to align the projector. The operator preview stays unchanged.");
-                let width = ui.available_width().min(360.0);
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(width, width * 9.0 / 16.0), egui::Sense::hover());
-                // Inset handles so points at the edge remain easy to grab.
+                let width = ui.available_width().min(480.0);
+                let (rect, _) = ui.allocate_exact_size(
+                    egui::vec2(width, width * 9.0 / 16.0),
+                    egui::Sense::hover(),
+                );
                 let canvas = rect.shrink(10.0);
-                let point = |p: [f32; 2]| egui::pos2(canvas.left() + p[0] * canvas.width(), canvas.top() + p[1] * canvas.height());
+                let point = |p: [f32; 2]| {
+                    egui::pos2(
+                        canvas.left() + p[0] * canvas.width(),
+                        canvas.top() + p[1] * canvas.height(),
+                    )
+                };
+                let normalized = |p: egui::Pos2| {
+                    [
+                        ((p.x - canvas.left()) / canvas.width()).clamp(0.0, 1.0),
+                        ((p.y - canvas.top()) / canvas.height()).clamp(0.0, 1.0),
+                    ]
+                };
                 ui.painter().rect_filled(canvas, 0.0, egui::Color32::BLACK);
+
+                let draw_mode = ui
+                    .checkbox(&mut state.projection_mask_draw_mode, "Draw mask on canvas")
+                    .on_hover_text("Drag across the projector preview to create a blackout mask.");
+                let _ = draw_mode;
+                let draw_response = ui.interact(
+                    canvas,
+                    ui.id().with("projection-mask-draw"),
+                    egui::Sense::drag(),
+                );
+                if draw_response.drag_started() {
+                    state.projection_mask_origin = draw_response.interact_pointer_pos().map(normalized);
+                }
+                if state.projection_mask_draw_mode
+                    && (draw_response.dragged() || draw_response.drag_stopped())
+                    && let (Some(start), Some(pointer)) = (
+                        state.projection_mask_origin,
+                        draw_response.interact_pointer_pos().map(normalized),
+                    )
+                {
+                    let slot = state
+                        .projection_selected_mask
+                        .min(candidate.masks.len().saturating_sub(1));
+                    candidate.masks[slot] = [
+                        start[0].min(pointer[0]),
+                        start[1].min(pointer[1]),
+                        start[0].max(pointer[0]),
+                        start[1].max(pointer[1]),
+                    ];
+                }
+                if draw_response.drag_stopped() {
+                    state.projection_mask_origin = None;
+                    state.projection_mask_draw_mode = false;
+                }
+
+                for (index, mask) in candidate.masks.iter_mut().enumerate() {
+                    if mask[2] <= mask[0] || mask[3] <= mask[1] {
+                        continue;
+                    }
+                    let mask_rect = egui::Rect::from_min_max(
+                        point([mask[0], mask[1]]),
+                        point([mask[2], mask[3]]),
+                    );
+                    let selected = index == state.projection_selected_mask;
+                    ui.painter().rect_filled(
+                        mask_rect,
+                        0.0,
+                        egui::Color32::from_rgba_unmultiplied(
+                            255,
+                            40,
+                            40,
+                            if selected { 125 } else { 75 },
+                        ),
+                    );
+                    ui.painter().rect_stroke(
+                        mask_rect,
+                        0.0,
+                        egui::Stroke::new(
+                            if selected { 2.0 } else { 1.0 },
+                            egui::Color32::LIGHT_RED,
+                        ),
+                        egui::StrokeKind::Inside,
+                    );
+                    let response = ui.interact(
+                        mask_rect,
+                        ui.id().with(("projection-mask", index)),
+                        if state.projection_mask_draw_mode {
+                            egui::Sense::hover()
+                        } else {
+                            egui::Sense::drag()
+                        },
+                    );
+                    if response.clicked() {
+                        state.projection_selected_mask = index;
+                    }
+                    if response.dragged() && !state.projection_mask_draw_mode {
+                        state.projection_selected_mask = index;
+                        let delta = response.drag_motion();
+                        let dx = delta.x / canvas.width();
+                        let dy = delta.y / canvas.height();
+                        let mask_width = mask[2] - mask[0];
+                        let mask_height = mask[3] - mask[1];
+                        mask[0] = (mask[0] + dx).clamp(0.0, 1.0 - mask_width);
+                        mask[1] = (mask[1] + dy).clamp(0.0, 1.0 - mask_height);
+                        mask[2] = mask[0] + mask_width;
+                        mask[3] = mask[1] + mask_height;
+                    }
+                    let handle = egui::Rect::from_center_size(
+                        mask_rect.right_bottom(),
+                        egui::vec2(14.0, 14.0),
+                    );
+                    ui.painter()
+                        .circle_filled(handle.center(), 4.0, egui::Color32::WHITE);
+                    let resize = ui.interact(
+                        handle,
+                        ui.id().with(("projection-mask-resize", index)),
+                        if state.projection_mask_draw_mode {
+                            egui::Sense::hover()
+                        } else {
+                            egui::Sense::drag()
+                        },
+                    );
+                    if resize.dragged() && !state.projection_mask_draw_mode {
+                        state.projection_selected_mask = index;
+                        if let Some(pointer) = resize.interact_pointer_pos() {
+                            let p = normalized(pointer);
+                            mask[2] = p[0].max(mask[0] + 0.005);
+                            mask[3] = p[1].max(mask[1] + 0.005);
+                        }
+                    }
+                }
+
                 let labels = ["TL", "TR", "BR", "BL"];
                 for (index, label) in labels.iter().enumerate() {
                     let pos = point(candidate.corners[index]);
-                    let response = ui.interact(egui::Rect::from_center_size(pos, egui::vec2(20.0,20.0)), ui.id().with(("projection-corner",index)), egui::Sense::drag());
-                    if response.dragged() && let Some(pointer) = response.interact_pointer_pos() {
-                        candidate.corners[index] = [((pointer.x-canvas.left())/canvas.width()).clamp(0.0,1.0), ((pointer.y-canvas.top())/canvas.height()).clamp(0.0,1.0)];
+                    let response = ui.interact(
+                        egui::Rect::from_center_size(pos, egui::vec2(20.0, 20.0)),
+                        ui.id().with(("projection-corner", index)),
+                        if state.projection_mask_draw_mode {
+                            egui::Sense::hover()
+                        } else {
+                            egui::Sense::drag()
+                        },
+                    );
+                    if response.dragged()
+                        && let Some(pointer) = response.interact_pointer_pos()
+                    {
+                        candidate.corners[index] = normalized(pointer);
                     }
-                    ui.painter().circle_filled(pos, 5.0, egui::Color32::LIGHT_BLUE);
-                    ui.painter().text(pos + egui::vec2(7.0,7.0), egui::Align2::LEFT_TOP, label, egui::FontId::proportional(11.0), egui::Color32::WHITE);
+                    ui.painter()
+                        .circle_filled(pos, 5.0, egui::Color32::LIGHT_BLUE);
+                    ui.painter().text(
+                        pos + egui::vec2(7.0, 7.0),
+                        egui::Align2::LEFT_TOP,
+                        label,
+                        egui::FontId::proportional(11.0),
+                        egui::Color32::WHITE,
+                    );
                 }
-                for i in 0..4 {
-                    ui.painter().line_segment([point(candidate.corners[i]), point(candidate.corners[(i+1)%4])], egui::Stroke::new(1.5,egui::Color32::LIGHT_BLUE));
-                }
-                for mask in candidate.masks {
-                    if mask[2] > mask[0] && mask[3] > mask[1] {
-                        ui.painter().rect_filled(egui::Rect::from_min_max(point([mask[0],mask[1]]), point([mask[2],mask[3]])), 0.0, egui::Color32::from_rgba_unmultiplied(255,40,40,100));
-                    }
+                for index in 0..4 {
+                    ui.painter().line_segment(
+                        [
+                            point(candidate.corners[index]),
+                            point(candidate.corners[(index + 1) % 4]),
+                        ],
+                        egui::Stroke::new(1.5, egui::Color32::LIGHT_BLUE),
+                    );
                 }
                 egui::CollapsingHeader::new("Exact corner coordinates").show(ui, |ui| {
                     for (index, label) in labels.iter().enumerate() {
                         ui.horizontal(|ui| {
                             ui.label(*label);
                             for (axis, value) in candidate.corners[index].iter_mut().enumerate() {
-                                ui.add(egui::DragValue::new(value).range(0.0..=1.0).speed(0.001).prefix(if axis==0 { "X " } else { "Y " }));
+                                ui.add(
+                                    egui::DragValue::new(value)
+                                        .range(0.0..=1.0)
+                                        .speed(0.001)
+                                        .prefix(if axis == 0 { "X " } else { "Y " }),
+                                );
                             }
                         });
                     }
@@ -534,19 +682,46 @@ fn draw_projection_mapping(ui: &mut egui::Ui, state: &mut UiState) {
                     }
                 });
                 egui::CollapsingHeader::new("Blackout masks").show(ui, |ui| {
-                    ui.weak("Projector coordinates: left / top / right / bottom. Zero width or height disables a mask. Masks apply while Map the external output is on.");
+                    ui.weak("Select a mask to edit it. Drag its body to move or its white corner to resize.");
                     for (index, mask) in candidate.masks.iter_mut().enumerate() {
                         ui.horizontal(|ui| {
-                            ui.label(format!("Mask {}", index+1));
+                            if ui
+                                .selectable_label(
+                                    state.projection_selected_mask == index,
+                                    format!("Mask {}", index + 1),
+                                )
+                                .clicked()
+                            {
+                                state.projection_selected_mask = index;
+                            }
                             for value in mask.iter_mut() {
                                 ui.add(egui::DragValue::new(value).range(0.0..=1.0).speed(0.001));
                             }
-                            if ui.small_button("Clear").clicked() { *mask = [0.0;4]; }
+                            if ui.small_button("Clear").clicked() {
+                                *mask = [0.0; 4];
+                            }
                         });
                     }
                 });
+                egui::CollapsingHeader::new("Edge feather & projector matching").show(ui, |ui| {
+                    ui.weak("Feather normalized output edges. Gamma and black level help match projector calibration.");
+                    for (index, label) in ["Left", "Top", "Right", "Bottom"].iter().enumerate() {
+                        ui.add(
+                            egui::Slider::new(&mut candidate.edge_blend[index], 0.0..=0.5)
+                                .text(format!("{label} feather")),
+                        );
+                    }
+                    ui.add(egui::Slider::new(&mut candidate.gamma, 0.25..=4.0).text("Output gamma"));
+                    ui.add(
+                        egui::Slider::new(&mut candidate.black_level, 0.0..=0.25)
+                            .text("Black floor compensation"),
+                    );
+                });
                 if ui.button("Reset calibration").clicked() {
-                    candidate = virtual_core::ProjectionMapping { enabled: candidate.enabled, ..Default::default() };
+                    candidate = virtual_core::ProjectionMapping {
+                        enabled: candidate.enabled,
+                        ..Default::default()
+                    };
                 }
                 if candidate.is_valid() {
                     state.output_projection = candidate;

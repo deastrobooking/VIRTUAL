@@ -147,6 +147,7 @@ fn projection_crops_warps_masks_and_preserves_the_unmapped_program() {
         corners: [[0.25, 0.25], [0.75, 0.25], [0.9, 0.9], [0.1, 0.9]],
         source: [0.5, 0.0, 1.0, 1.0],
         masks: [[0.45, 0.45, 0.55, 0.55], [0.0; 4], [0.0; 4], [0.0; 4]],
+        ..Default::default()
     };
     let pixels = draw(mapping);
     let pixel = |x: usize, y: usize| &pixels[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
@@ -173,6 +174,31 @@ fn projection_crops_warps_masks_and_preserves_the_unmapped_program() {
     assert_eq!(
         &normal[20 * 256 + 50 * 4..20 * 256 + 50 * 4 + 4],
         [0, 255, 0, 255]
+    );
+    let unfeathered = draw(ProjectionMapping {
+        enabled: true,
+        ..Default::default()
+    });
+    let feathered = draw(ProjectionMapping {
+        enabled: true,
+        edge_blend: [0.5, 0.0, 0.0, 0.0],
+        ..Default::default()
+    });
+    let near_edge = (32 * 64 + 8) * 4;
+    let farther_in = (32 * 64 + 24) * 4;
+    assert!(
+        feathered[near_edge] < unfeathered[near_edge]
+            && feathered[farther_in] > feathered[near_edge],
+        "edge feather should smoothly reduce output toward the selected edge"
+    );
+    let black_compensated = draw(ProjectionMapping {
+        enabled: true,
+        black_level: 0.1,
+        ..Default::default()
+    });
+    assert!(
+        black_compensated[near_edge + 2] > 70,
+        "black-level compensation should lift dark color channels"
     );
     let invalid = draw(ProjectionMapping {
         corners: [[0.0; 2]; 4],

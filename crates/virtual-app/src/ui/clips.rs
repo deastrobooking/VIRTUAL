@@ -29,6 +29,8 @@ pub(super) struct ClipGridContext<'a> {
     pub cameras: &'a [CameraDevice],
     pub camera_status: &'a str,
     pub camera_recordings: [CameraRecordingStatus; 4],
+    pub transports: &'a [DeckTransport; 4],
+    pub beat_position: f64,
 }
 
 pub(super) fn draw_clip_grid(
@@ -44,6 +46,7 @@ pub(super) fn draw_clip_grid(
     let cameras = context.cameras;
     let camera_status = context.camera_status;
     let camera_recordings = context.camera_recordings;
+    let transports = context.transports;
     let palette = state.theme.palette();
     ui.horizontal(|ui| {
         for (bank, label, range) in [
@@ -139,6 +142,9 @@ pub(super) fn draw_clip_grid(
                     let first_frame_ready = state
                         .preloaded_frame(address, clips.path(address))
                         .is_some();
+                    let automation_playing = clips
+                        .active_automation(deck)
+                        .is_some_and(|(active_slot, _)| active_slot == slot);
                     let label = if let Some(movie) = &slot_state.movie {
                         let name = movie
                             .display_name
@@ -248,11 +254,29 @@ pub(super) fn draw_clip_grid(
                     );
                     let play = ui.put(
                         play_rect,
-                        egui::Button::new(egui::RichText::new("▶").small())
-                            .fill(palette.control_tint(palette.success, 0.72)),
+                        egui::Button::new(
+                            egui::RichText::new(
+                                if automation_playing && clips.movie(address).is_none() {
+                                    "■"
+                                } else {
+                                    "▶"
+                                },
+                            )
+                            .small(),
+                        )
+                        .fill(palette.control_tint(
+                            if automation_playing {
+                                palette.success
+                            } else {
+                                palette.secondary
+                            },
+                            0.72,
+                        )),
                     );
                     if play
-                        .on_hover_text(if clips.movie(address).is_some() {
+                        .on_hover_text(if automation_playing && clips.movie(address).is_none() {
+                            "Stop this automation clip"
+                        } else if clips.movie(address).is_some() {
                             "Play this clip independently of scene launching"
                         } else {
                             "Open this clip slot"
@@ -263,6 +287,11 @@ pub(super) fn draw_clip_grid(
                         mixer.select(deck);
                         if clips.movie(address).is_some() {
                             actions.push(UiAction::Launch(address));
+                        } else if matches!(
+                            mixer.deck(deck).state,
+                            DeckState::Ready(_) | DeckState::Live(_) | DeckState::Generator(_)
+                        ) {
+                            actions.push(UiAction::LaunchAutomation(address));
                         } else {
                             state.clip_editor = Some(address);
                         }
@@ -479,7 +508,23 @@ pub(super) fn draw_clip_grid(
     });
 
     if let Some(editor_address) = state.clip_editor {
-        draw_clip_editor(ui.ctx(), state, clips, editor_address);
+        let transport = transports[editor_address.deck.index()];
+        let playhead_phase = clips
+            .active_automation(editor_address.deck)
+            .filter(|(slot, _)| {
+                *slot == editor_address.slot
+                    && transport.playing
+                    && !transport.frozen
+                    && !state.master_freeze
+            })
+            .and_then(|(_, start)| {
+                clips.automation(editor_address).map(|automation| {
+                    ((context.beat_position - start).rem_euclid(automation.loop_beats)
+                        / automation.loop_beats)
+                        .clamp(0.0, 1.0)
+                })
+            });
+        draw_clip_editor(ui.ctx(), state, clips, editor_address, playhead_phase);
     }
 
     if state.show_mode {
@@ -613,13 +658,20 @@ fn draw_clip_editor(
     state: &mut UiState,
     clips: &mut ClipBank,
     address: ClipAddress,
+    playhead_phase: Option<f64>,
 ) {
-    let Some(movie) = clips.movie(address) else {
-        state.clip_editor = None;
-        return;
-    };
-    let title = format!("Clip Editor · {}", movie.display_name);
-    let media_duration = movie.duration.map(virtual_core::MediaTime::as_seconds);
+    let movie = clips.movie(address).cloned();
+    let title = format!(
+        "Clip Editor · {}",
+        movie.as_ref().map_or_else(
+            || format!("{}{} automation", address.deck.label(), address.slot + 1),
+            |movie| movie.display_name.clone()
+        )
+    );
+    let media_duration = movie
+        .as_ref()
+        .and_then(|movie| movie.duration)
+        .map(virtual_core::MediaTime::as_seconds);
     let playback = clips.playback(address).unwrap_or_default();
     let mut edited = playback;
     let mut changed = false;
@@ -632,12 +684,14 @@ fn draw_clip_editor(
         .default_width(560.0)
         .show(ctx, |ui| {
             ui.label(format!("Deck {} · Clip {}", address.deck.label(), address.slot + 1));
-            ui.weak(format!(
-                "{}×{} · {} · {}",
-                movie.visible_extent[0], movie.visible_extent[1], movie.codec,
-                media_duration.map_or_else(|| "unknown duration".to_owned(), |seconds| format!("{seconds:.3} s source"))
-            ));
+            if let Some(movie) = movie.as_ref() {
+                ui.weak(format!("{}×{} · {} · {}", movie.visible_extent[0], movie.visible_extent[1], movie.codec,
+                    media_duration.map_or_else(|| "unknown duration".to_owned(), |seconds| format!("{seconds:.3} s source"))));
+            } else {
+                ui.weak("Automation slot · runs over the active video, camera, or generator on this deck");
+            }
             ui.separator();
+            if movie.is_some() {
             ui.horizontal(|ui| {
                 ui.strong("Source range");
                 let maximum = media_duration.unwrap_or(86_400.0).max(0.001);
@@ -690,9 +744,10 @@ fn draw_clip_editor(
                 changed |= ui.selectable_value(&mut edited.launch_mode, ClipLaunchMode::Restart, "Restart at In").changed();
                 changed |= ui.selectable_value(&mut edited.launch_mode, ClipLaunchMode::Resume, "Resume position").changed();
             });
+            }
             ui.separator();
             ui.strong("Automation");
-            ui.weak("Clip automation lanes are not yet attached to clip playback. The curve editor will be enabled when that playback path is connected.");
+            draw_automation_editor(ui, state, clips, address, playhead_phase);
             ui.horizontal(|ui| {
                 if ui.button("Close").clicked() {
                     state.clip_editor = None;
@@ -711,4 +766,401 @@ fn draw_clip_editor(
     if !open {
         state.clip_editor = None;
     }
+}
+
+fn draw_automation_editor(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    clips: &mut ClipBank,
+    address: ClipAddress,
+    playhead_phase: Option<f64>,
+) {
+    use virtual_core::{AutomationKeyframe, ClipAutomationLane, ControlTarget, CurveType};
+
+    let mut targets = vec![
+        ("Master · Opacity".to_owned(), ControlTarget::MasterOpacity),
+        ("Mixer · Crossfader".to_owned(), ControlTarget::Crossfader),
+        (
+            format!("Deck {} · Level", address.deck.label()),
+            ControlTarget::DeckLevel(address.deck.index() as u8),
+        ),
+        (
+            format!("Deck {} · Speed", address.deck.label()),
+            ControlTarget::DeckSpeed(address.deck.index() as u8),
+        ),
+    ];
+    for (parameter, info) in virtual_generate::GENERATOR_PARAMETERS.iter().enumerate() {
+        targets.push((
+            format!("Deck {} · Generator · {}", address.deck.label(), info.name),
+            ControlTarget::GeneratorParameter {
+                deck: address.deck.index() as u8,
+                parameter: parameter as u8,
+            },
+        ));
+    }
+    for effect in 0..virtual_core::FIXED_DECK_EFFECT_PARAMETER_COUNT {
+        targets.push((
+            format!(
+                "Deck {} · Video FX · {}",
+                address.deck.label(),
+                effect_parameter_short_name(effect)
+            ),
+            ControlTarget::EffectParameter {
+                deck: address.deck.index() as u8,
+                effect,
+                parameter: 0,
+            },
+        ));
+    }
+    for parameter in &state.deck_packages[address.deck.index()].parameters {
+        targets.push((
+            format!(
+                "Deck {} · {} · {}",
+                address.deck.label(),
+                state.deck_packages[address.deck.index()].package_id,
+                parameter.id
+            ),
+            ControlTarget::DeckEffectParameter {
+                deck: address.deck.index() as u8,
+                parameter_key: virtual_core::effect_parameter_key(
+                    &state.deck_packages[address.deck.index()].package_id,
+                    &parameter.id,
+                ),
+            },
+        ));
+    }
+    for (slot, effect) in state.master_effects.slots.iter().enumerate() {
+        for parameter in &effect.parameters {
+            targets.push((
+                format!("Master · {} · {}", effect.package_id, parameter.id),
+                ControlTarget::MasterEffectParameter {
+                    slot: slot as u8,
+                    parameter_key: virtual_core::effect_parameter_key(
+                        &effect.package_id,
+                        &parameter.id,
+                    ),
+                },
+            ));
+        }
+    }
+    targets.retain(|(_, target)| target.is_clip_automatable());
+
+    let mut automation = clips.automation(address).cloned().unwrap_or_default();
+    ui.horizontal(|ui| {
+        ui.label("Loop");
+        ui.add(
+            egui::DragValue::new(&mut automation.loop_beats)
+                .range(1.0..=256.0)
+                .speed(1.0)
+                .suffix(" beats"),
+        );
+        ui.weak("Internal, MIDI, or Link tempo");
+        ui.weak(format!("0 — {:.0} beats", automation.loop_beats));
+    });
+    let choice_id = egui::Id::new((
+        "clip-automation-target-index",
+        address.deck.index(),
+        address.slot,
+    ));
+    let mut selected_target_index = ui
+        .ctx()
+        .data(|data| data.get_temp::<usize>(choice_id))
+        .unwrap_or(0)
+        .min(targets.len().saturating_sub(1));
+    egui::ComboBox::from_id_salt(("clip-automation-target", address.deck.index(), address.slot))
+        .selected_text(
+            targets
+                .get(selected_target_index)
+                .map_or("Choose parameter", |(label, _)| label.as_str()),
+        )
+        .show_ui(ui, |ui| {
+            for (index, (label, _target)) in targets.iter().enumerate() {
+                ui.selectable_value(&mut selected_target_index, index, label);
+            }
+        });
+    ui.ctx()
+        .data_mut(|data| data.insert_temp(choice_id, selected_target_index));
+    let new_target = targets
+        .get(selected_target_index)
+        .map(|(_, target)| *target)
+        .unwrap_or(ControlTarget::MasterOpacity);
+    if let Some((label, _)) = targets.get(selected_target_index) {
+        ui.horizontal(|ui| {
+            ui.weak(label);
+            if automation.lanes.len() < virtual_core::MAX_AUTOMATION_LANES
+                && ui.button("+ Add lane").clicked()
+            {
+                let initial = match new_target {
+                    ControlTarget::MasterOpacity => state.master_opacity,
+                    ControlTarget::Crossfader => state.crossfader,
+                    ControlTarget::DeckLevel(_) => 1.0,
+                    ControlTarget::DeckSpeed(_) => 1.0,
+                    ControlTarget::GeneratorParameter { .. }
+                    | ControlTarget::EffectParameter { .. } => 0.0,
+                    ControlTarget::DeckEffectParameter {
+                        deck,
+                        parameter_key,
+                    } => state.deck_packages[deck as usize]
+                        .parameters
+                        .iter()
+                        .find(|p| {
+                            virtual_core::effect_parameter_key(
+                                &state.deck_packages[deck as usize].package_id,
+                                &p.id,
+                            ) == parameter_key
+                        })
+                        .map_or(0.0, |p| p.value),
+                    ControlTarget::MasterEffectParameter {
+                        slot,
+                        parameter_key,
+                    } => state
+                        .master_effects
+                        .slots
+                        .get(slot as usize)
+                        .and_then(|fx| {
+                            fx.parameters.iter().find(|p| {
+                                virtual_core::effect_parameter_key(&fx.package_id, &p.id)
+                                    == parameter_key
+                            })
+                        })
+                        .map_or(0.0, |p| p.value),
+                    _ => 0.0,
+                };
+                if automation
+                    .lanes
+                    .iter()
+                    .all(|lane| lane.target != new_target)
+                {
+                    automation
+                        .lanes
+                        .push(ClipAutomationLane::flat(new_target, initial));
+                    state.clip_editor_lane = automation.lanes.len() - 1;
+                }
+            }
+        });
+    }
+    ui.horizontal(|ui| {
+        if ui.button("Select").clicked() {
+            state.clip_editor_draw_mode = false;
+        }
+        if ui.button("Draw").clicked() {
+            state.clip_editor_draw_mode = true;
+        }
+        ui.weak(if state.clip_editor_draw_mode {
+            "Click to add · right-click point to remove"
+        } else {
+            "Click point to select · drag to edit"
+        });
+    });
+
+    for lane_index in 0..automation.lanes.len() {
+        let mut remove_lane = false;
+        ui.horizontal(|ui| {
+            let lane = &mut automation.lanes[lane_index];
+            ui.checkbox(&mut lane.enabled, "");
+            let lane_label = targets
+                .iter()
+                .find(|(_, target)| *target == lane.target)
+                .map_or_else(|| format!("{:?}", lane.target), |(label, _)| label.clone());
+            if ui
+                .selectable_label(state.clip_editor_lane == lane_index, lane_label)
+                .clicked()
+            {
+                state.clip_editor_lane = lane_index;
+            }
+            let selected_index = state
+                .clip_editor_keyframe
+                .min(lane.keyframes.len().saturating_sub(1));
+            if state.clip_editor_lane == lane_index
+                && let Some(selected) = lane.keyframes.get_mut(selected_index)
+            {
+                ui.add(
+                    egui::DragValue::new(&mut selected.value)
+                        .range(-100.0..=100.0)
+                        .speed(0.01)
+                        .prefix("Value "),
+                );
+                egui::ComboBox::from_id_salt((
+                    "clip-curve-type",
+                    address.deck.index(),
+                    address.slot,
+                    lane_index,
+                ))
+                .selected_text(selected.interpolation.label())
+                .show_ui(ui, |ui| {
+                    for curve in CurveType::ALL {
+                        ui.selectable_value(&mut selected.interpolation, curve, curve.label());
+                    }
+                });
+            }
+            if ui.small_button("−").clicked() {
+                remove_lane = true;
+            }
+        });
+        if remove_lane {
+            automation.remove_lane(lane_index);
+            continue;
+        }
+        let lane = &mut automation.lanes[lane_index];
+        let (rect, response) = ui.allocate_exact_size(
+            egui::vec2(ui.available_width().max(200.0), 92.0),
+            egui::Sense::click_and_drag(),
+        );
+        ui.painter()
+            .rect_filled(rect, 3.0, ui.visuals().extreme_bg_color);
+        for division in 0..=16 {
+            let x = rect.left() + rect.width() * division as f32 / 16.0;
+            ui.painter().line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(
+                    if division % 4 == 0 { 1.0 } else { 0.5 },
+                    ui.visuals().widgets.noninteractive.bg_stroke.color,
+                ),
+            );
+        }
+        for beat in 0..=4 {
+            let y = rect.top() + rect.height() * beat as f32 / 4.0;
+            ui.painter().line_segment(
+                [egui::pos2(rect.left(), y), egui::pos2(rect.right(), y)],
+                egui::Stroke::new(0.5, ui.visuals().widgets.noninteractive.bg_stroke.color),
+            );
+        }
+        if let Some(phase) = playhead_phase.filter(|phase| phase.is_finite()) {
+            let phase = phase as f32;
+            let x = rect.left() + rect.width() * phase;
+            ui.painter().line_segment(
+                [egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())],
+                egui::Stroke::new(2.0, state.theme.palette().warning),
+            );
+        }
+        let (minimum, maximum) = lane
+            .keyframes
+            .iter()
+            .fold((0.0f32, 1.0f32), |(min, max), key| {
+                (min.min(key.value), max.max(key.value))
+            });
+        let range = (maximum - minimum).max(0.001);
+        let point_position = |key: AutomationKeyframe| {
+            egui::pos2(
+                rect.left() + rect.width() * key.position as f32,
+                rect.bottom() - rect.height() * ((key.value - minimum) / range),
+            )
+        };
+        let mut previous = point_position(AutomationKeyframe::new(
+            0.0,
+            lane.value_at(0.0).unwrap_or(0.0),
+        ));
+        for step in 1..=96 {
+            let t = step as f64 / 96.0;
+            let current =
+                point_position(AutomationKeyframe::new(t, lane.value_at(t).unwrap_or(0.0)));
+            ui.painter().line_segment(
+                [previous, current],
+                egui::Stroke::new(2.0, state.theme.palette().accent),
+            );
+            previous = current;
+        }
+        for (index, key) in lane.keyframes.iter().copied().enumerate() {
+            ui.painter().circle_filled(
+                point_position(key),
+                if lane_index == state.clip_editor_lane && index == state.clip_editor_keyframe {
+                    5.0
+                } else {
+                    3.5
+                },
+                if lane_index == state.clip_editor_lane && index == state.clip_editor_keyframe {
+                    state.theme.palette().warning
+                } else {
+                    state.theme.palette().accent
+                },
+            );
+        }
+        let position_from_pointer =
+            |pos: egui::Pos2| ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0) as f64;
+        let value_from_pointer = |pos: egui::Pos2| {
+            minimum + range * (1.0 - (pos.y - rect.top()) / rect.height()).clamp(0.0, 1.0)
+        };
+        if let Some(pointer) = response.interact_pointer_pos() {
+            if response.secondary_clicked() {
+                if let Some((index, _)) =
+                    lane.keyframes.iter().enumerate().min_by(|(_, a), (_, b)| {
+                        point_position(**a)
+                            .distance(pointer)
+                            .total_cmp(&point_position(**b).distance(pointer))
+                    })
+                {
+                    lane.remove_keyframe(index);
+                }
+            } else if state.clip_editor_draw_mode && response.clicked() {
+                lane.set_keyframe(AutomationKeyframe::new(
+                    position_from_pointer(pointer),
+                    value_from_pointer(pointer),
+                ));
+            } else if response.clicked() || response.dragged() {
+                let nearest = lane
+                    .keyframes
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        point_position(**a)
+                            .distance(pointer)
+                            .total_cmp(&point_position(**b).distance(pointer))
+                    })
+                    .map(|(index, _)| index);
+                if let Some(index) = nearest {
+                    state.clip_editor_lane = lane_index;
+                    state.clip_editor_keyframe = index;
+                    if response.dragged() {
+                        let moved = AutomationKeyframe {
+                            position: position_from_pointer(pointer),
+                            value: value_from_pointer(pointer),
+                            ..lane.keyframes[index]
+                        };
+                        lane.remove_keyframe(index);
+                        lane.set_keyframe(moved);
+                        state.clip_editor_keyframe = lane
+                            .keyframes
+                            .partition_point(|keyframe| keyframe.position <= moved.position)
+                            .saturating_sub(1);
+                    }
+                }
+            }
+        }
+    }
+    clips.set_automation(address, automation);
+}
+
+fn effect_parameter_short_name(effect: u8) -> &'static str {
+    [
+        "Hue",
+        "Contrast",
+        "Saturation",
+        "Black level",
+        "White level",
+        "Gamma",
+        "Pixelate",
+        "Luma key",
+        "Neon",
+        "Fractal",
+        "Jitter",
+        "Edges",
+        "Bit reduction",
+        "Blacklight",
+        "Bloom",
+        "Bloom threshold",
+        "Bloom radius",
+        "Bloom chroma",
+        "Spiral fold",
+        "Kali fold",
+        "Koch fold",
+        "Wave",
+        "Vortex",
+        "Block jitter",
+        "RGB jitter",
+        "Julia fold",
+        "Polynomial fold",
+    ]
+    .get(effect as usize)
+    .copied()
+    .unwrap_or("Video FX")
 }

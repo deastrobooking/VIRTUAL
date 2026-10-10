@@ -467,6 +467,9 @@ impl State {
                     self.clips
                         .set_playback(address, project::clip_playback_from_project(*playback));
                 }
+                if let Some(automation) = deck_project.clip_automation.get(slot) {
+                    self.clips.set_automation(address, automation.clone());
+                }
                 let Some(path) = path else {
                     continue;
                 };

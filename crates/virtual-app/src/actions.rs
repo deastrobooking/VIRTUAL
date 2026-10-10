@@ -53,6 +53,13 @@ impl State {
                         now,
                     );
                 }
+                ui::UiAction::LaunchAutomation(address) => {
+                    let elapsed = now
+                        .saturating_duration_since(self.performance_started)
+                        .as_secs_f64();
+                    self.clips
+                        .launch_automation(address, self.tempo.beat_at(elapsed), true);
+                }
                 ui::UiAction::LaunchScene(slot) => {
                     self.dispatch_control_update(
                         virtual_core::ControlUpdate {
@@ -289,7 +296,7 @@ impl ui::UiAction {
     pub(crate) fn allowed_in_show_mode(&self) -> bool {
         matches!(
             self,
-            Self::Restart(_) | Self::Seek(_) | Self::Launch(_) | Self::LaunchScene(_)
+            Self::Restart(_) | Self::Seek(_) | Self::Launch(_) | Self::LaunchAutomation(_) | Self::LaunchScene(_)
             | Self::SaveProject | Self::TapTempo | Self::HalfTempo | Self::DoubleTempo
             | Self::MidiCancelLearn | Self::MidiClockContinue
             | Self::SetOutputEnabled(true)

@@ -9,6 +9,8 @@
 //! at a position every frame, so nothing here allocates or searches beyond the
 //! keyframe list.
 
+use serde::{Deserialize, Serialize};
+
 use crate::ControlTarget;
 
 /// Lanes one clip may hold. Each lane costs one control write per frame.
@@ -22,7 +24,8 @@ pub const MAX_AUTOMATION_KEYFRAMES: usize = 128;
 /// The curve belongs to the keyframe the segment *starts* at, which is what a
 /// drawing tool implies: grabbing a point and changing its curve reshapes the
 /// span to its right.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum CurveType {
     #[default]
     Linear,
@@ -60,7 +63,8 @@ impl CurveType {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct AutomationKeyframe {
     /// Normalized position in the clip's play range, 0–1.
     pub position: f64,
@@ -83,13 +87,19 @@ impl AutomationKeyframe {
 }
 
 /// One parameter's curve across a clip.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClipAutomationLane {
     pub target: ControlTarget,
+    #[serde(default = "automation_enabled_default")]
     pub enabled: bool,
     /// Keyframes in ascending position order. `sanitized` is what guarantees
     /// that; the evaluator assumes it rather than sorting every frame.
+    #[serde(default)]
     pub keyframes: Vec<AutomationKeyframe>,
+}
+
+fn automation_enabled_default() -> bool {
+    true
 }
 
 impl ClipAutomationLane {
@@ -226,9 +236,21 @@ impl ClipAutomationLane {
 }
 
 /// Every lane a clip owns.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ClipAutomation {
+    /// Length of the repeating automation loop in beats.
+    pub loop_beats: f64,
     pub lanes: Vec<ClipAutomationLane>,
+}
+
+impl Default for ClipAutomation {
+    fn default() -> Self {
+        Self {
+            loop_beats: 16.0,
+            lanes: Vec::new(),
+        }
+    }
 }
 
 impl ClipAutomation {
@@ -270,6 +292,11 @@ impl ClipAutomation {
     }
 
     pub fn sanitized(mut self) -> Self {
+        self.loop_beats = if self.loop_beats.is_finite() {
+            self.loop_beats.clamp(1.0, 256.0)
+        } else {
+            16.0
+        };
         self.lanes.truncate(MAX_AUTOMATION_LANES);
         let mut seen = Vec::with_capacity(self.lanes.len());
         self.lanes.retain(|lane| {
@@ -280,6 +307,7 @@ impl ClipAutomation {
         self.lanes = self
             .lanes
             .drain(..)
+            .filter(|lane| lane.target.is_clip_automatable())
             .map(ClipAutomationLane::sanitized)
             .collect();
         self
@@ -467,6 +495,27 @@ mod tests {
             .push(ClipAutomationLane::new(ControlTarget::Crossfader));
 
         assert_eq!(automation.values_at(0.5).count(), 0);
+    }
+
+    #[test]
+    fn automation_sanitizer_rejects_trigger_and_topology_targets() {
+        let automation = ClipAutomation {
+            lanes: vec![
+                ClipAutomationLane::flat(ControlTarget::DeckRestart(0), 1.0),
+                ClipAutomationLane::flat(
+                    ControlTarget::EffectParameter {
+                        deck: 0,
+                        effect: 0,
+                        parameter: 0,
+                    },
+                    0.5,
+                ),
+            ],
+            ..ClipAutomation::default()
+        }
+        .sanitized();
+        assert_eq!(automation.lanes.len(), 1);
+        assert!(automation.lanes[0].target.is_clip_automatable());
     }
 
     #[test]

@@ -33,6 +33,8 @@ struct PresentGlobals {
     source_rect: [f32; 4],
     masks: [[f32; 4]; 4],
     mapping_enabled: [u32; 4],
+    edge_blend: [f32; 4],
+    color_calibration: [f32; 4],
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -1567,6 +1569,13 @@ impl ProgramPresenter {
                 source_rect: options.projection.source,
                 masks: options.projection.masks,
                 mapping_enabled: [u32::from(options.projection.enabled), 0, 0, 0],
+                edge_blend: options.projection.edge_blend,
+                color_calibration: [
+                    options.projection.gamma,
+                    options.projection.black_level,
+                    0.0,
+                    0.0,
+                ],
             }),
         );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
