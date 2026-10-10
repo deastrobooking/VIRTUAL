@@ -3670,6 +3670,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "env_logger",
+ "libloading",
  "log",
  "objc2-core-graphics",
  "pollster",

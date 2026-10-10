@@ -119,6 +119,11 @@ impl ProgramTarget {
         self.extent
     }
 
+    /// The finished program frame, for readback by network outputs.
+    pub fn texture(&self) -> &wgpu::Texture {
+        &self._texture
+    }
+
     pub fn composition_view(&self) -> &wgpu::TextureView {
         &self.composition_view
     }

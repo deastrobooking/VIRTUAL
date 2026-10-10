@@ -635,6 +635,30 @@ fullscreen state, composition resolution and calibration-overlay state are
 stored in the project. Press `O` for an immediate output-window disable/enable
 action.
 
+### NDI output
+
+Expand **Setup → Network output · NDI** and turn on **Send program over NDI** to
+publish the program frame to NDI receivers on the local network, such as OBS,
+Resolume, TouchDesigner, vMix or NDI Studio Monitor. Receivers list the source
+as `MACHINE (name)`; the default name is **VIRTUAL Program** and changing it
+restarts the sender.
+
+- NDI needs the free NDI runtime, installed with NDI Tools from ndi.video.
+  VIRTUAL does not bundle it. Without it the panel says the runtime was not
+  found and nothing else changes. VIRTUAL also honours `NDI_RUNTIME_DIR_V6`
+  and `NDI_RUNTIME_DIR_V5`.
+- The program frame is read back from the GPU only while at least one
+  receiver is connected, so an idle NDI output costs nothing. The toolbar
+  **NDI** dot is green while a receiver watches and red if NDI failed to start.
+- Frames are sent at the composition resolution, unaffected by projection
+  mapping, from a background thread. A slow network or receiver drops frames
+  (counted in the panel) rather than slowing the show; expect one or two
+  frames of extra latency.
+- The setting and source name are saved with the project, and the toggle can
+  be mapped to a MIDI button.
+
+NDI® is a registered trademark of Vizrt NDI AB.
+
 ### Projection mapping
 
 Expand **Setup → Projection mapping · corner pin, crop & masks** to calibrate

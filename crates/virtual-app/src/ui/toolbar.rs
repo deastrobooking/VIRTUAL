@@ -82,6 +82,14 @@ pub(super) fn draw_toolbar(
         );
         status_dot(ui, &palette, "MIDI", metrics.midi.any_connected(), false);
         status_dot(ui, &palette, "OSC", metrics.osc.connected, false);
+        // Lit while at least one NDI receiver watches; red when it failed.
+        status_dot(
+            ui,
+            &palette,
+            "NDI",
+            metrics.ndi.connections > 0,
+            metrics.ndi.error.is_some(),
+        );
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             // Reverse insertion keeps the visible channel order A–D.
             for deck in DeckId::ALL.into_iter().rev() {

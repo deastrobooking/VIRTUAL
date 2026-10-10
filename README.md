@@ -61,6 +61,9 @@ The current source tree includes:
   second output window, with connected-display selection, output
   enable/fullscreen, 720p/1080p/UHD presets, custom composition sizing, test
   card, identification overlay and live surface-health diagnostics.
+- Projection mapping on the external output (corner pin, source crop, four
+  blackout masks) and NDI® network output of the program frame, read back
+  only while a receiver is connected.
 - Per-deck play/pause, restart, freeze, loop/one-shot, 0.25–4× playback and
   asynchronous generation-safe seeking.
 - Independent A/B bus composites with assignable decks and linear or

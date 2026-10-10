@@ -1032,6 +1032,26 @@ pub struct OutputProject {
     pub composition_extent: [u32; 2],
     #[serde(default)]
     pub projection: virtual_core::ProjectionMapping,
+    #[serde(default)]
+    pub ndi: NdiProject,
+}
+
+/// NDI network output of the program frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NdiProject {
+    pub enabled: bool,
+    /// Source name receivers see, shown as `MACHINE (name)`.
+    pub name: String,
+}
+
+impl Default for NdiProject {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            name: "VIRTUAL Program".to_owned(),
+        }
+    }
 }
 
 impl Default for OutputProject {
@@ -1044,6 +1064,7 @@ impl Default for OutputProject {
             identify: false,
             composition_extent: [1920, 1080],
             projection: Default::default(),
+            ndi: NdiProject::default(),
         }
     }
 }
@@ -2097,6 +2118,10 @@ mod tests {
             identify: true,
             composition_extent: [3840, 2160],
             projection: Default::default(),
+            ndi: NdiProject {
+                enabled: true,
+                name: "Stage left".to_owned(),
+            },
         };
         project.settings.audio_analysis = AudioAnalysisProject {
             gain: 2.5,

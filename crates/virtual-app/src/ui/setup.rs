@@ -135,6 +135,7 @@ pub(super) fn draw_setup(
                 );
             });
             draw_projection_mapping(ui, state);
+            draw_ndi_output(ui, state, &metrics.ndi, palette);
             draw_output_health(ui, state, metrics, palette);
             ui.horizontal(|ui| {
                 ui.label(if metrics.project_dirty {
@@ -555,4 +556,58 @@ fn draw_projection_mapping(ui: &mut egui::Ui, state: &mut UiState) {
                 ui.weak("Calibration is saved in the project. Use Test card while aligning; Lock output protects calibration.");
             });
         });
+}
+
+/// NDI network output of the program frame.
+fn draw_ndi_output(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    status: &crate::ndi::NdiStatus,
+    palette: super::theme::ThemePalette,
+) {
+    egui::CollapsingHeader::new("Network output · NDI").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            buttons::midi_toggle(
+                ui,
+                "setup.ndi.enabled",
+                "Output · NDI",
+                &mut state.ndi_enabled,
+                |ui, value| ui.checkbox(value, "Send program over NDI"),
+            )
+            .on_hover_text(
+                "Publishes the program frame to OBS, Resolume, TouchDesigner, vMix and other \
+                 NDI receivers on the local network. Requires the free NDI runtime (NDI Tools).",
+            );
+            ui.label("Source name");
+            ui.add(
+                egui::TextEdit::singleline(&mut state.ndi_name)
+                    .desired_width(180.0)
+                    .hint_text(crate::ndi::DEFAULT_SOURCE_NAME),
+            )
+            .on_hover_text(
+                "Receivers list this as MACHINE (name). Changing it restarts the sender.",
+            );
+        });
+        if let Some(error) = &status.error {
+            ui.colored_label(palette.danger, error);
+        } else if status.running {
+            ui.label(format!(
+                "Sending “{}” · {} receiver{} · {} sent · {} dropped",
+                status.source_name,
+                status.connections,
+                if status.connections == 1 { "" } else { "s" },
+                status.sent,
+                status.dropped
+            ));
+            if status.connections == 0 {
+                ui.weak("Idle until a receiver connects: no frames are read back until then.");
+            }
+        } else if state.ndi_enabled {
+            ui.weak("Starting NDI…");
+        } else {
+            ui.weak(
+                "Off. Frames are sent at the composition resolution with synthesized timecode.",
+            );
+        }
+    });
 }

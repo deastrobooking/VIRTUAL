@@ -77,6 +77,13 @@ Recovery data goes in `%LOCALAPPDATA%/VIRTUAL`; custom effects go in
 `%APPDATA%/VIRTUAL/effects`. An installer and code signing are separate follow-up
 release steps.
 
+## NDI runtime
+
+NDI output loads the NDI runtime at run time (`libndi.dylib`, `libndi.so.6` or
+`Processing.NDI.Lib.x64.dll`) from `NDI_RUNTIME_DIR_V6`/`V5` or the standard
+install locations. It is not bundled in any archive; operators install NDI
+Tools. NDI® is a registered trademark of Vizrt NDI AB.
+
 ## CI and validation
 
 `.github/workflows/native-builds.yml` builds on Ubuntu 24.04 and Windows Server
