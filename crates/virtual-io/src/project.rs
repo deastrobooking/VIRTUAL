@@ -14,7 +14,7 @@ use virtual_graph::ProjectGraph;
 pub const PROJECT_FORMAT: &str = "virtual-project";
 /// Pre-rename identity. Still read; never written.
 pub const LEGACY_PROJECT_FORMAT: &str = "oneiroi-project";
-pub const PROJECT_VERSION: u32 = 6;
+pub const PROJECT_VERSION: u32 = 7;
 /// Three LFOs, five audio sources, beat, bar, then eight spectrum bands.
 pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
 /// Enabled, rate, depth, phase and offset.
@@ -1107,6 +1107,10 @@ pub struct DeckProject {
     /// Procedural recursive-geometry source on this deck.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generator: Option<GeneratorProject>,
+    /// Multi-source generator stack. `generator` remains for older readers and
+    /// is used as the fallback when loading project versions before 7.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generator_stack: Option<GeneratorStackProject>,
 }
 
 impl Default for DeckProject {
@@ -1129,6 +1133,7 @@ impl Default for DeckProject {
             mod_routes: default_mod_routes(),
             camera: None,
             generator: None,
+            generator_stack: None,
         }
     }
 }
@@ -1554,6 +1559,54 @@ pub struct CameraProject {
     pub fps_denominator: u32,
     #[serde(default = "default_capture_pixel_format")]
     pub pixel_format: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneratorStackProject {
+    pub selected: usize,
+    pub next_id: u32,
+    pub layers: Vec<GeneratorLayerProject>,
+}
+
+impl Default for GeneratorStackProject {
+    fn default() -> Self {
+        Self {
+            selected: 0,
+            next_id: 2,
+            layers: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GeneratorLayerProject {
+    pub id: u32,
+    pub name: String,
+    pub settings: GeneratorProject,
+    pub position: [f32; 2],
+    pub scale: f32,
+    pub rotation: f32,
+    pub opacity: f32,
+    pub blend: String,
+    pub enabled: bool,
+}
+
+impl Default for GeneratorLayerProject {
+    fn default() -> Self {
+        Self {
+            id: 1,
+            name: "Generator 1".into(),
+            settings: GeneratorProject::default(),
+            position: [0.0; 2],
+            scale: 1.0,
+            rotation: 0.0,
+            opacity: 1.0,
+            blend: "over".into(),
+            enabled: true,
+        }
+    }
 }
 
 /// Recursive-geometry generator settings. Every field defaults, so files

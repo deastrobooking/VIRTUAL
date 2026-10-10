@@ -6,16 +6,16 @@ This matrix reflects the current source tree, not the aspirational MVP notes.
 
 | Area | Current implementation |
 |---|---|
-| Decks and clips | Four decks, eight persistent slots per deck and eight scene launches |
+| Decks and clips | Four decks, eight persistent slots per deck and eight scene/row launches across all decks |
 | Import | File/folder drag/drop, bounded recursive scanning, deterministic slot assignment, probing, thumbnails, first-frame launch previews, movie metadata and PNG/JPEG stills |
 | Codecs | Direct HAP family path plus FFmpeg fallback for conventional codecs |
 | Cameras | AVFoundation discovery/manual ID, requested size/FPS and any-deck assignment |
 | Generators | Fourteen recursive 2D/3D line-geometry sources (trees, spirals, mandala, Koch, crystal, web, Sierpinski, dragon, Hilbert, H-tree, Pythagoras, tetrahedron, Menger, geodesic) rendered per deck with live shape, camera, colour, trails and audio controls, a 200k-segment budget, seeded randomness, recording and project persistence — see [generators](GENERATORS.md) |
 | Playback | Play, pause, restart, freeze, seek, loop/one-shot, 0.25–4× speed and per-slot In/Out ranges |
 | Timing | Exact timestamps, bounded keyframe indexes, indexed conventional-codec reopen, bounded schedulers and generation-safe stale-frame rejection |
-| Triggering | Immediate, next-beat and next-bar clip/scene launches, per-slot restart/resume and BPM-relative beat duration |
+| Triggering | Immediate, next-beat and next-bar clip/scene launches, per-slot restart/resume and BPM-relative beat duration; row launch currently addresses the same slot on all four decks |
 | Mixing | Independent A/B composites, 35 blend modes, Solo/Bypass, transforms, crop/source modes, linear/equal-power crossfade, master opacity and blackout |
-| Output | Offscreen preset/custom program target, clean second window, display selection, aspect preservation, enable/fullscreen, calibration overlays and surface-health diagnostics |
+| Output | Offscreen preset/custom program target, clean second window, display selection, aspect preservation, enable/fullscreen, calibration overlays, surface-health diagnostics, persisted single-quad projection warp with source crop and four blackout masks, optional NDI sender |
 | Built-in deck effects | Fused Geometry UV prepass plus Color + Levels and Stylize + Key groups; only Color/Stylize change relative pixel order. Includes grading, mirror, fractal fold (plus spiral, Kali and Koch fold variants), neon, jitter, edges, bit reduction, black light, pixelate, luma key and bloom |
 | Master effects and packages | Two reorderable slots with separable blur, persistent feedback/trails or registry-discovered one/two-pass WGSL packages; grouped controls, one-click looks, stable parameter identity, last-known-good reload and Recursive 2D, Fractal Volume 3D and Hyper Recursion 4D+ packages |
 | Modulation | Three LFOs and eight bipolar routes per deck across 18 continuous effect destinations |
@@ -34,19 +34,29 @@ This matrix reflects the current source tree, not the aspirational MVP notes.
 | Audio analysis | Gain, noise floor, attack/release, normalization, band and transient analysis | Show-device disconnect/soak validation |
 | Effects system | Three persisted built-in deck groups, two persisted package-capable master slots, one stateless package slot per deck, common bypass/dry-wet/reset, stable deck-package modulation/MIDI/OSC identities, visible branch-culling counters, per-deck GPU pass timing, five factory deck presets, bounded ping-pong blur, reset-safe feedback history, named persistence, generation-safe last-known-good hot reload, three master LFOs, eight custom-parameter routes, generated MIDI learn, an atomic one/two-pass master sequence and optional fixed per-slot custom history | Versioned shared WGSL modules, typed N-pass fragment graph, capability-gated HDR intermediates and budgeted compute/state resources |
 | Output routing | Shared operator/output presentation, connected-display selection, persisted descriptor, topology polling and surface recovery diagnostics | Stronger identity across display topology changes and show-machine soak testing |
+| Projection mapping | Persisted corner-pin homography, source crop, and four rectangular masks applied to the external program output | Physical projector calibration rehearsal, draggable mask editing, edge blending, and multiple simultaneous outputs |
+| NDI output | Optional runtime-loaded sender with bounded frame handoff and live status | Receiver/network/platform certification; NDI runtime must be installed separately |
 | Performance | Bounded workers, reusable CPU RGBA frame leases, 29.5 MB maximum first-frame cache, capped keyframe indexes, deterministic decoder faults and accelerated/extended soak coverage | Physical-media and show-machine soak certification |
 | Typed graph runtime | Versioned typed node contracts, six rate domains, validation, explicit feedback rules, deterministic scheduling, immutable plans, resource lifetime reuse and GPU/memory budgets; the 11-node four-deck graph lowers to authoritative fused-composite, master-effect and output stages | Add executors beyond the compatibility graph, complete color/resolution inference and independently execute nodes that cannot be fused |
 | Live transactions | Isolated shadow graphs, all-or-nothing preparation, last-known-good retention and frame/beat/bar/timecode commit scheduling | Graph editor/preview UI, prewarming and live operator commit controls |
 | Performance replay | Serializable show commands, session state, checkpoints, deterministic replay and versioned JSONL journals; operators can start named takes, add labeled timeline markers, scrub full journal history into named branches, safely manage take metadata, export/archive unique bundle copies and edit scoped deterministic seeds | Add marker editing plus portable project/media manifests |
+| Clip automation | Bounded core envelope evaluator with linear, smooth, step and exponential segments; no clip playback integration or editor yet | Attach lanes to video clips, automation-only cells for live/generator decks, 1–64 bar tempo-synced loops, Draw/Select editing, reverse playback and target ownership rules |
+| Generator layers | Up to four algorithmic generator layers per deck, independent source settings and 2D placement/blend, full-stack project save/load, one shared 200k segment cap per deck | Layer-specific MIDI/OSC/automation targets, solo/reorder/duplicate, and GPU compositing to reach 1080p/60 |
+| Low-light crowd FX | Camera/capture-card input, deck edge detection and grading, Thermal Contours, master feedback/repeater, plus Crowd Night Vision's four camera-focused looks | Real-footage tuning and bounded deck-local motion trails |
 
 The current shader/package boundary and the phased per-deck upgrade are detailed
 in [Shader system](SHADER_SYSTEM.md). Stateless algorithmic packages now run on
 either a deck or master through the implemented precomposition seam and
 target-specific `deck-v1` GPU contract.
 
+Proposed Pure Data and TouchDesigner-inspired feature designs are in
+[Feature designs](FEATURE_DESIGNS.md). They cover control patching, automation
+clips, multi-generator deck layers, procedural texture sources and a
+constrained visual render-graph editor.
+
 ## Not implemented
 
 - Recent-project list
-- OSC route expansion/discovery, NDI, Syphon/Spout and projection mapping
+- OSC route expansion/discovery, Syphon/Spout
 - Developer ID signing, notarization and a pre-macOS-26 FFmpeg build (`--portable` bundles Homebrew FFmpeg)
 - Graph editor, Score view, Spatial view and compiled GPU node execution

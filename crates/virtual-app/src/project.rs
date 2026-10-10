@@ -2,18 +2,21 @@ use virtual_core::{
     AudioAnalysisSettings, AudioBinding, AudioMapMode, AudioMapper, ClockSource, ControlTarget,
     MappingMode, MidiBinding, MidiMapper, MidiMessage, MidiMessageKind, Quantization,
 };
-use virtual_generate::{GeneratorSettings, RecursivePattern};
+use virtual_generate::{
+    GeneratorBlendMode, GeneratorLayer, GeneratorSettings, GeneratorStack, RecursivePattern,
+};
 use virtual_io::{
     AudioAnalysisProject, AudioInputProject, AudioMapModeProject, AudioMappingProject,
     BlendModeProject, CameraProject, ClipLaunchModeProject, ClipPlaybackProject,
     ClockSourceProject, ControlTargetProject, CrossfadeBusProject,
     DeckPackageModulationRouteProject, DeckPackageProject, DeckProject, EffectGroupProject,
     EffectParameterValueProject, EffectProject, EffectSlotProject, EffectTargetProject,
-    EndModeProject, GeneratorProject, LfoProject, LfoWaveformProject, MappingModeProject,
-    MasterEffectKindProject, MasterEffectSlotProject, MasterEffectsProject, MasterLfoProject,
-    MasterModulationProject, MasterModulationRouteProject, MidiClockProject, MidiMappingProject,
-    MidiMessageProject, ModRouteProject, OutputProject, ProjectFile, ProjectSettings,
-    QuantizationProject, SourceModeProject, ThemeProject, TransformProject, TransportProject,
+    EndModeProject, GeneratorLayerProject, GeneratorProject, GeneratorStackProject, LfoProject,
+    LfoWaveformProject, MappingModeProject, MasterEffectKindProject, MasterEffectSlotProject,
+    MasterEffectsProject, MasterLfoProject, MasterModulationProject, MasterModulationRouteProject,
+    MidiClockProject, MidiMappingProject, MidiMessageProject, ModRouteProject, OutputProject,
+    ProjectFile, ProjectSettings, QuantizationProject, SourceModeProject, ThemeProject,
+    TransformProject, TransportProject,
 };
 use virtual_media::{
     CLIPS_PER_DECK, CameraConfig, CameraDevice, ClipAddress, ClipBank, ClipLaunchMode,
@@ -157,6 +160,10 @@ pub fn snapshot(
                         }),
                     generator: match &live.state {
                         DeckState::Generator(settings) => Some(generator_to_project(settings)),
+                        _ => None,
+                    },
+                    generator_stack: match &live.state {
+                        DeckState::Generator(stack) => Some(generator_stack_to_project(stack)),
                         _ => None,
                     },
                 }
@@ -313,6 +320,74 @@ pub fn generator_to_project(settings: &GeneratorSettings) -> GeneratorProject {
         trace_speed: settings.trace_speed,
         trace_spread: settings.trace_spread,
     }
+}
+
+pub fn generator_stack_to_project(stack: &GeneratorStack) -> GeneratorStackProject {
+    GeneratorStackProject {
+        selected: stack.selected,
+        next_id: stack.next_id,
+        layers: stack
+            .layers
+            .iter()
+            .map(|layer| GeneratorLayerProject {
+                id: layer.id,
+                name: layer.name.clone(),
+                settings: generator_to_project(&layer.settings),
+                position: layer.position,
+                scale: layer.scale,
+                rotation: layer.rotation,
+                opacity: layer.opacity,
+                blend: match layer.blend {
+                    GeneratorBlendMode::Over => "over",
+                    GeneratorBlendMode::Add => "add",
+                    GeneratorBlendMode::Screen => "screen",
+                }
+                .into(),
+                enabled: layer.enabled,
+            })
+            .collect(),
+    }
+}
+
+pub fn generator_stack_from_project(project: &GeneratorStackProject) -> GeneratorStack {
+    let mut layers: Vec<GeneratorLayer> = project
+        .layers
+        .iter()
+        .take(GeneratorStack::MAX_LAYERS)
+        .map(|layer| GeneratorLayer {
+            id: layer.id,
+            name: layer.name.clone(),
+            settings: generator_from_project(&layer.settings),
+            position: layer.position,
+            scale: layer.scale.max(0.01),
+            rotation: layer.rotation,
+            opacity: layer.opacity.clamp(0.0, 1.0),
+            blend: match layer.blend.as_str() {
+                "add" => GeneratorBlendMode::Add,
+                "screen" => GeneratorBlendMode::Screen,
+                _ => GeneratorBlendMode::Over,
+            },
+            enabled: layer.enabled,
+        })
+        .collect();
+    if layers.is_empty() {
+        layers.push(GeneratorLayer::new(1, GeneratorSettings::default()));
+    }
+    let mut stack = GeneratorStack {
+        selected: project.selected.min(layers.len() - 1),
+        next_id: project.next_id.max(
+            layers
+                .iter()
+                .map(|layer| layer.id)
+                .max()
+                .unwrap_or(0)
+                .wrapping_add(1)
+                .max(1),
+        ),
+        layers,
+    };
+    stack.normalize_output();
+    stack
 }
 
 pub fn apply_midi(project: &ProjectFile) -> MidiMapper {
@@ -1346,6 +1421,35 @@ mod tests {
         assert_eq!(settings.pattern, RecursivePattern::default());
         assert_eq!(settings.spread, 0.2);
         assert_eq!(settings.fps, 60);
+    }
+
+    #[test]
+    fn generator_stack_projects_preserve_layer_controls_and_cap_layers() {
+        let mut stack = GeneratorStack::new(GeneratorSettings::default());
+        stack.add_layer();
+        let layer = stack.selected_layer_mut().unwrap();
+        layer.name = "Orbit echo".into();
+        layer.position = [0.25, -0.4];
+        layer.scale = 1.7;
+        layer.rotation = 0.6;
+        layer.opacity = 0.72;
+        layer.blend = GeneratorBlendMode::Screen;
+        layer.settings.pattern = RecursivePattern::TorusKnot;
+        let project = generator_stack_to_project(&stack);
+        let encoded = serde_json::to_string(&project).unwrap();
+        let decoded: GeneratorStackProject = serde_json::from_str(&encoded).unwrap();
+        let loaded = generator_stack_from_project(&decoded);
+        assert_eq!(loaded.layers.len(), 2);
+        assert_eq!(loaded.selected, 1);
+        assert_eq!(loaded.layers[1].id, stack.layers[1].id);
+        assert_eq!(loaded.layers[1].name, "Orbit echo");
+        assert_eq!(loaded.layers[1].blend, GeneratorBlendMode::Screen);
+        assert_eq!(loaded.layers[1].position, [0.25, -0.4]);
+        assert_eq!(
+            loaded.layers[1].settings.pattern,
+            RecursivePattern::TorusKnot
+        );
+        assert_eq!(loaded.next_id, stack.next_id);
     }
 
     #[test]

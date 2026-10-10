@@ -185,7 +185,7 @@ struct State {
     live_configs: [Option<CameraConfig>; 4],
     /// Last generator settings forwarded to each deck's worker; the deck UI
     /// edits `DeckState::Generator` in place and playback forwards changes.
-    generator_sent: [Option<virtual_generate::GeneratorSettings>; 4],
+    generator_sent: [Option<virtual_generate::GeneratorStack>; 4],
     audio_inputs: Vec<AudioInputDevice>,
     audio_input: Option<AudioInput>,
     /// Whether the operator wants the audio input connected; saved with the

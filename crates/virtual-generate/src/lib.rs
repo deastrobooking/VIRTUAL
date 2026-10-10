@@ -15,9 +15,10 @@ pub use geometry::{
     AudioBands, Geometry, GeometryBuffers, GeometryParams, Palette, Segment, generate,
 };
 pub use math::{Mat3, Rng, Vec3, hsl_to_rgb};
-pub use render::{Generator, GeneratorStats};
+pub use render::{Generator, GeneratorStackRenderer, GeneratorStats};
 pub use settings::{
-    ColorMode, Dimension, FRAME_RATES, GeneratorSettings, RESOLUTIONS, RecursivePattern,
+    ColorMode, Dimension, FRAME_RATES, GeneratorBlendMode, GeneratorLayer, GeneratorSettings,
+    GeneratorStack, RESOLUTIONS, RecursivePattern,
 };
 pub use turtle::{Frame, MAX_SEGMENTS, Turtle};
 

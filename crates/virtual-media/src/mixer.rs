@@ -6,7 +6,7 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, SyncSender, TryRecvError
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use virtual_generate::GeneratorSettings;
+use virtual_generate::GeneratorStack;
 
 use crate::{CameraConfig, MovieMetadata, ProbeError, probe_movie};
 
@@ -75,7 +75,7 @@ pub enum DeckState {
     Live(CameraConfig),
     /// Procedural source. Settings are edited in place by the deck UI and
     /// forwarded to the deck's decoder worker when they change.
-    Generator(GeneratorSettings),
+    Generator(GeneratorStack),
     Error {
         path: PathBuf,
         message: String,
@@ -178,7 +178,7 @@ impl FourDeckMixer {
         deck.generation
     }
 
-    pub fn connect_generator(&mut self, id: DeckId, settings: GeneratorSettings) -> u64 {
+    pub fn connect_generator(&mut self, id: DeckId, settings: GeneratorStack) -> u64 {
         let deck = self.deck_mut(id);
         deck.generation = deck.generation.wrapping_add(1);
         deck.state = DeckState::Generator(settings);

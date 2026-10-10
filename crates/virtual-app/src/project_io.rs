@@ -488,8 +488,18 @@ impl State {
                 self.transports[index].end_mode = virtual_media::EndMode::OneShot;
                 self.decoders[index].connect_camera(config, generation);
             }
-            if let Some(generator) = &deck_project.generator {
-                let settings = project::generator_from_project(generator);
+            if let Some(generator_stack) = &deck_project.generator_stack {
+                let settings = project::generator_stack_from_project(generator_stack);
+                let generation = self.mixer.connect_generator(deck, settings.clone());
+                self.reset_playback(deck, generation);
+                self.transports[index] = transport;
+                self.transports[index].end_mode = virtual_media::EndMode::OneShot;
+                self.generator_sent[index] = Some(settings.clone());
+                self.decoders[index].connect_generator(settings, generation);
+            } else if let Some(generator) = &deck_project.generator {
+                let settings = virtual_generate::GeneratorStack::new(
+                    project::generator_from_project(generator),
+                );
                 let generation = self.mixer.connect_generator(deck, settings.clone());
                 self.reset_playback(deck, generation);
                 self.transports[index] = transport;

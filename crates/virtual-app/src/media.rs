@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use virtual_core::MediaTime;
-use virtual_generate::GeneratorSettings;
+use virtual_generate::{GeneratorSettings, GeneratorStack};
 use virtual_media::{
     CLIPS_PER_DECK, CameraConfig, CameraRecorder, ClipAddress, ClipRestoreRequest, DeckId,
     DeckState, FolderScanRequest, SubmitError, ThumbnailRequest, VideoFramePayload,
@@ -588,11 +588,12 @@ impl State {
         self.clips.deactivate(deck);
         self.live_configs[deck.index()] = None;
         let settings = settings.sanitized();
-        let generation = self.mixer.connect_generator(deck, settings.clone());
+        let stack = GeneratorStack::new(settings);
+        let generation = self.mixer.connect_generator(deck, stack.clone());
         self.reset_playback(deck, generation);
         self.transports[deck.index()].end_mode = virtual_media::EndMode::OneShot;
-        self.generator_sent[deck.index()] = Some(settings.clone());
-        self.decoders[deck.index()].connect_generator(settings, generation);
+        self.generator_sent[deck.index()] = Some(stack.clone());
+        self.decoders[deck.index()].connect_generator(stack, generation);
     }
 
     pub(crate) fn start_camera_recording(&mut self, address: ClipAddress, now: Instant) {

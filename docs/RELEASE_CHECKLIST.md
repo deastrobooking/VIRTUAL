@@ -58,12 +58,30 @@ stuck deck selection or stale frame after seek/source replacement.
 - Disable/re-enable output without stopping media decode.
 - Sleep/wake once and repeat output enable/fullscreen.
 - Exercise a composition-size change and verify feedback/history resets cleanly.
+- Calibrate the external program output with the test card: drag each corner,
+  set source crop and masks, save/reopen the project, and confirm the operator
+  preview stays unmapped. Disable mapping and confirm the normal output returns.
+- Try an invalid/collapsed corner edit and confirm it cannot produce a warped
+  live frame. Repeat calibration on each supported OS and intended projector.
+- If NDI is enabled, connect a real receiver, then rename and disable the sender
+  during active output. Confirm render cadence continues, disconnect/reconnect
+  the receiver, and check the visible sent/drop/error status. Confirm missing
+  NDI runtime is reported clearly.
 
 ## Device and failure rehearsal
 
 - With the actual capture card connected, verify native discovery, a supported
   59.94/29.97 mode, pixel-format selection, signal loss and device reconnect.
   Reload a saved project and confirm the same physical source is selected.
+- With real club footage or a low-light camera, compare Crowd Night Vision's
+  Silhouette Edge, Neon Crowd, Night Vision and High-Contrast Mono looks at
+  low and high camera gain. Include dark clothing, backlight, moving spots and
+  haze; verify outlines follow people instead of sensor noise and that source
+  detail returns on bypass. Map audio reactivity only after the base threshold
+  is stable. Confirm camera-to-clip recordings remain clean source frames.
+- Measure Crowd Night Vision at 1080p60 with four active sources on the target
+  show machine. This is a synthetic development benchmark only; it does not
+  replace capture-card and venue-lighting rehearsal.
 
 - Change parameters while project storage is slow or unavailable. Manual saves
   and autosaves must not stall program output; queue-full and I/O errors must be

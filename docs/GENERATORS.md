@@ -5,6 +5,10 @@ deck draws recursive 2D or 3D line geometry. It goes through the same path as
 a camera, so deck effects, blend modes, transforms, modulation, Freeze and
 **● Record clip** all work on it unchanged.
 
+Each deck can hold up to four generator layers. They combine into one deck
+source, so the normal deck effects, blend mode, transform, modulation, Freeze,
+and recording continue to work on the result.
+
 ## Using it
 
 1. Select a deck. Under the clip grid, **Generator · recursive geometry**
@@ -16,7 +20,10 @@ a camera, so deck effects, blend modes, transforms, modulation, Freeze and
    becomes a deck's source (from the loader or a project load) and closes
    when the deck switches to a clip, camera or Eject. Each generator deck
    has its own window.
-3. The window holds a pattern gallery (2D and 3D tiles) and the Shape,
+3. The window has a layer row with **+ Add layer** and **Remove** controls.
+   Select a layer to edit it independently. Each has position, scale,
+   rotation, opacity, enable, and Over/Add/Screen blend controls, followed by
+   the pattern gallery (2D and 3D tiles) and the Shape,
    Motion & camera, Color & light, Audio and Output sections. Pattern and
    controls can be changed live; rotation, growth and trails carry on
    without a restart.
@@ -26,6 +33,25 @@ a camera, so deck effects, blend modes, transforms, modulation, Freeze and
    is shown in amber, it was lowered to stay inside the segment budget.
 5. Generator settings are saved in the project and restored when it is
    opened.
+
+All layers use the first layer's output resolution and frame rate so the deck
+publishes one consistent frame stream. The 200,000-segment budget is divided
+between enabled layers. Layers without trails share the float accumulation
+buffer; layers with trails keep their own history buffer. Project files save
+the full stack and continue to load older single-generator projects.
+
+A single untransformed, fully opaque layer renders straight into the deck
+frame, so a one-layer deck costs the same as before layers existed. Further
+layers are blended on the CPU with integer math, skipping transparent pixels
+(most of a line drawing), and transformed layers step their inverse transform
+along each row instead of evaluating it per pixel.
+
+Steady-state release timings at 1080p and low geometry depth on an M3 Pro
+(`cargo run --release -p virtual-generate --example stack_bench`): about
+2.1 ms for one layer, 6.1 ms for two, 8.8 ms for three and 12 ms for four, all
+inside the 16.7 ms 60 fps budget. Each deck renders on its own worker thread.
+Re-measure on the show machine, at maximum depth and with opaque
+(non-transparent) layers, which cannot skip pixels.
 
 ## Patterns
 

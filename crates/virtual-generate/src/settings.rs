@@ -317,6 +317,132 @@ pub struct GeneratorSettings {
     pub trace_spread: f32,
 }
 
+/// How a generator layer is combined with the layers below it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum GeneratorBlendMode {
+    #[default]
+    Over,
+    Add,
+    Screen,
+}
+
+/// One independently editable procedural source on a deck.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeneratorLayer {
+    /// Stable within this deck, suitable for persisted control assignments.
+    pub id: u32,
+    pub name: String,
+    pub settings: GeneratorSettings,
+    /// Normalized frame position, where [0, 0] is centered.
+    pub position: [f32; 2],
+    pub scale: f32,
+    pub rotation: f32,
+    pub opacity: f32,
+    pub blend: GeneratorBlendMode,
+    pub enabled: bool,
+}
+
+impl GeneratorLayer {
+    /// Centered at full size with no rotation: pixels map one to one.
+    pub fn is_untransformed(&self) -> bool {
+        self.position == [0.0, 0.0] && self.scale == 1.0 && self.rotation == 0.0
+    }
+
+    pub fn new(id: u32, settings: GeneratorSettings) -> Self {
+        Self {
+            id,
+            name: format!("Generator {id}"),
+            settings,
+            position: [0.0; 2],
+            scale: 1.0,
+            rotation: 0.0,
+            opacity: 1.0,
+            blend: GeneratorBlendMode::Over,
+            enabled: true,
+        }
+    }
+}
+
+/// A bounded collection of independently controlled sources on one deck.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GeneratorStack {
+    pub layers: Vec<GeneratorLayer>,
+    pub selected: usize,
+    pub next_id: u32,
+}
+
+impl GeneratorStack {
+    pub const MAX_LAYERS: usize = 4;
+    pub fn new(settings: GeneratorSettings) -> Self {
+        Self {
+            layers: vec![GeneratorLayer::new(1, settings)],
+            selected: 0,
+            next_id: 2,
+        }
+    }
+    pub fn selected_layer(&self) -> Option<&GeneratorLayer> {
+        self.layers.get(self.selected)
+    }
+    pub fn selected_layer_mut(&mut self) -> Option<&mut GeneratorLayer> {
+        self.layers.get_mut(self.selected)
+    }
+    pub fn add_layer(&mut self) -> bool {
+        if self.layers.len() >= Self::MAX_LAYERS {
+            return false;
+        }
+        let mut settings = self
+            .layers
+            .get(self.selected)
+            .map(|l| l.settings.clone())
+            .unwrap_or_default();
+        settings.seed = settings.seed.wrapping_add(self.next_id);
+        settings.transparent = true;
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1).max(1);
+        self.layers.push(GeneratorLayer::new(id, settings));
+        self.selected = self.layers.len() - 1;
+        true
+    }
+    pub fn remove_selected(&mut self) -> bool {
+        if self.layers.len() <= 1 {
+            return false;
+        }
+        self.layers.remove(self.selected);
+        self.selected = self.selected.min(self.layers.len() - 1);
+        true
+    }
+    /// Deck output has one shared pixel size and frame clock across layers.
+    pub fn normalize_output(&mut self) {
+        if let Some(first) = self.layers.first() {
+            let resolution = first.settings.resolution;
+            let fps = first.settings.fps;
+            for layer in &mut self.layers {
+                layer.settings.resolution = resolution;
+                layer.settings.fps = fps;
+            }
+        }
+    }
+}
+
+impl From<GeneratorSettings> for GeneratorStack {
+    fn from(settings: GeneratorSettings) -> Self {
+        Self::new(settings)
+    }
+}
+
+impl std::ops::Deref for GeneratorStack {
+    type Target = GeneratorSettings;
+    fn deref(&self) -> &Self::Target {
+        &self.layers[self.selected.min(self.layers.len() - 1)].settings
+    }
+}
+impl std::ops::DerefMut for GeneratorStack {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        let i = self.selected.min(self.layers.len() - 1);
+        &mut self.layers[i].settings
+    }
+}
+
 impl Default for GeneratorSettings {
     fn default() -> Self {
         Self {

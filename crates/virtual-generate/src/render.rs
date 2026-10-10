@@ -11,7 +11,7 @@ use std::time::Instant;
 
 use crate::geometry::{AudioBands, Geometry, GeometryParams, Palette, generate};
 use crate::math::{Mat3, Vec3};
-use crate::settings::GeneratorSettings;
+use crate::settings::{GeneratorBlendMode, GeneratorLayer, GeneratorSettings, GeneratorStack};
 
 /// Camera distance in fitted-radius units for the perspective divide.
 const CAMERA_DISTANCE: f32 = 2.6;
@@ -114,17 +114,190 @@ pub struct Generator {
     hue_phase: f32,
     last_time: Option<f64>,
     stats: GeneratorStats,
+    segment_budget: usize,
+}
+
+/// Runtime for a deck's generator stack. Uses one reusable RGBA scratch frame;
+/// each source remains independently animated while output memory stays bounded.
+pub struct GeneratorStackRenderer {
+    generators: Vec<(u32, Generator)>,
+    scratch: Vec<u8>,
+    extent: [u32; 2],
+    accumulation_pool: Vec<[f32; 3]>,
+}
+
+impl GeneratorStackRenderer {
+    pub fn new(stack: &GeneratorStack) -> Self {
+        let extent = stack
+            .layers
+            .first()
+            .map_or([1280, 720], |layer| layer.settings.resolution);
+        Self {
+            generators: stack
+                .layers
+                .iter()
+                .map(|layer| (layer.id, Generator::new(layer.settings.clone())))
+                .collect(),
+            scratch: vec![0; (extent[0] * extent[1] * 4) as usize],
+            extent,
+            accumulation_pool: Vec::new(),
+        }
+    }
+    pub fn set_stack(&mut self, stack: &GeneratorStack) {
+        self.extent = stack
+            .layers
+            .first()
+            .map_or(self.extent, |layer| layer.settings.resolution);
+        self.scratch
+            .resize((self.extent[0] * self.extent[1] * 4) as usize, 0);
+        self.generators
+            .retain(|(id, _)| stack.layers.iter().any(|layer| layer.id == *id));
+        for layer in &stack.layers {
+            if let Some((_, generator)) = self.generators.iter_mut().find(|(id, _)| *id == layer.id)
+            {
+                generator.set_settings(layer.settings.clone());
+            } else {
+                self.generators
+                    .push((layer.id, Generator::new(layer.settings.clone())));
+            }
+        }
+    }
+    pub fn render(
+        &mut self,
+        stack: &GeneratorStack,
+        time: f64,
+        audio: AudioBands,
+        out: &mut [u8],
+    ) -> GeneratorStats {
+        let [w, h] = self.extent;
+        assert_eq!(out.len(), (w * h * 4) as usize, "frame size");
+        let enabled: Vec<&GeneratorLayer> =
+            stack.layers.iter().filter(|layer| layer.enabled).collect();
+        let budget = crate::MAX_SEGMENTS / enabled.len().max(1);
+        // A lone untransformed, opaque layer renders straight into the deck
+        // frame, so a single-generator deck pays nothing for the stack.
+        if let [layer] = enabled[..]
+            && layer.is_untransformed()
+            && layer.opacity >= 1.0
+            && let Some((_, generator)) = self.generators.iter_mut().find(|(id, _)| *id == layer.id)
+        {
+            generator.set_segment_budget(budget);
+            generator.render(time, audio, out);
+            return generator.stats();
+        }
+        out.fill(0);
+        let mut combined = GeneratorStats {
+            planar: true,
+            ..GeneratorStats::default()
+        };
+        for layer in enabled {
+            let Some((_, generator)) = self.generators.iter_mut().find(|(id, _)| *id == layer.id)
+            else {
+                continue;
+            };
+            generator.set_segment_budget(budget);
+            generator.reuse_accumulation(&mut self.accumulation_pool);
+            generator.render(time, audio, &mut self.scratch);
+            let stats = generator.stats();
+            combined.segments = combined.segments.saturating_add(stats.segments);
+            combined.drawn = combined.drawn.saturating_add(stats.drawn);
+            combined.requested_depth = combined.requested_depth.max(stats.requested_depth);
+            combined.depth = combined.depth.max(stats.depth);
+            combined.truncated |= stats.truncated;
+            combined.planar &= stats.planar;
+            combined.generate_micros = combined
+                .generate_micros
+                .saturating_add(stats.generate_micros);
+            combined.render_micros = combined.render_micros.saturating_add(stats.render_micros);
+            composite_layer(out, &self.scratch, [w as usize, h as usize], layer);
+            generator.return_accumulation(&mut self.accumulation_pool);
+        }
+        // Internal composition uses premultiplied color; deck frames use
+        // straight-alpha RGBA just like the individual generator renderer.
+        // Alpha 0 and 255 are already identical in both forms.
+        for pixel in out.chunks_exact_mut(4) {
+            let alpha = pixel[3];
+            if alpha != 0 && alpha != 255 {
+                let inverse = 255.0 / f32::from(alpha);
+                for channel in &mut pixel[..3] {
+                    *channel = (f32::from(*channel) * inverse).round().clamp(0.0, 255.0) as u8;
+                }
+            }
+        }
+        combined
+    }
+}
+
+/// Blends one straight-alpha source pixel into a premultiplied destination.
+/// `opacity` is 0–255. Integer math with rounding division by 255.
+#[inline]
+fn blend_pixel(dst: &mut [u8], src: &[u8], opacity: u32, blend: GeneratorBlendMode) {
+    // A transparent source leaves the destination unchanged in every mode,
+    // and line art is mostly transparent.
+    if src[3] == 0 {
+        return;
+    }
+    let div255 = |value: u32| (value + 127) / 255;
+    let a = div255(u32::from(src[3]) * opacity);
+    let keep = 255 - a;
+    for c in 0..3 {
+        let s = div255(u32::from(src[c]) * a);
+        let d = u32::from(dst[c]);
+        dst[c] = match blend {
+            GeneratorBlendMode::Over => s + div255(d * keep),
+            GeneratorBlendMode::Add => (d + s).min(255),
+            GeneratorBlendMode::Screen => 255 - div255((255 - d) * (255 - s)),
+        } as u8;
+    }
+    dst[3] = (a + div255(u32::from(dst[3]) * keep)) as u8;
+}
+
+/// Composites a rendered layer through its position, scale and rotation.
+fn composite_layer(dst: &mut [u8], src: &[u8], extent: [usize; 2], layer: &GeneratorLayer) {
+    let [width, height] = extent;
+    let opacity = (layer.opacity.clamp(0.0, 1.0) * 255.0).round() as u32;
+    if opacity == 0 {
+        return;
+    }
+    if layer.is_untransformed() {
+        for (d, s) in dst.chunks_exact_mut(4).zip(src.chunks_exact(4)) {
+            blend_pixel(d, s, opacity, layer.blend);
+        }
+        return;
+    }
+    // Inverse affine map from output to layer pixels. It is linear in x, so
+    // each row starts from its left edge and steps by a constant.
+    let (sin, cos) = layer.rotation.sin_cos();
+    let inverse_scale = 1.0 / layer.scale.max(0.01);
+    let (cx, cy) = (width as f32 * 0.5, height as f32 * 0.5);
+    let origin_x = cx + layer.position[0] * width as f32;
+    let origin_y = cy + layer.position[1] * height as f32;
+    let step = [cos * inverse_scale, -sin * inverse_scale];
+    let dx = -origin_x * inverse_scale;
+    for (y, row) in dst.chunks_exact_mut(width * 4).take(height).enumerate() {
+        let dy = (y as f32 - origin_y) * inverse_scale;
+        let mut sx = cos * dx + sin * dy + cx;
+        let mut sy = -sin * dx + cos * dy + cy;
+        for d in row.chunks_exact_mut(4) {
+            let (ix, iy) = (sx.round(), sy.round());
+            if ix >= 0.0 && iy >= 0.0 && ix < width as f32 && iy < height as f32 {
+                let si = (iy as usize * width + ix as usize) * 4;
+                blend_pixel(d, &src[si..si + 4], opacity, layer.blend);
+            }
+            sx += step[0];
+            sy += step[1];
+        }
+    }
 }
 
 impl Generator {
     pub fn new(settings: GeneratorSettings) -> Self {
         let settings = settings.sanitized();
-        let [width, height] = settings.resolution;
         Self {
             settings,
             geometry: Geometry::default(),
             key: None,
-            accumulation: vec![[0.0; 3]; (width * height) as usize],
+            accumulation: Vec::new(),
             fit_center: Vec3::ZERO,
             fit_radius: 0.0,
             yaw: 0.0,
@@ -134,6 +307,31 @@ impl Generator {
             hue_phase: 0.0,
             last_time: None,
             stats: GeneratorStats::default(),
+            segment_budget: crate::MAX_SEGMENTS,
+        }
+    }
+
+    pub fn set_segment_budget(&mut self, budget: usize) {
+        let budget = budget.clamp(1, crate::MAX_SEGMENTS);
+        if self.segment_budget != budget {
+            self.segment_budget = budget;
+            self.key = None;
+        }
+    }
+
+    fn reuse_accumulation(&mut self, pool: &mut Vec<[f32; 3]>) {
+        let count = (self.settings.resolution[0] * self.settings.resolution[1]) as usize;
+        if !pool.is_empty() && pool.len() != count {
+            pool.clear();
+        }
+        if self.settings.trails <= 0.0 && self.accumulation.is_empty() && !pool.is_empty() {
+            std::mem::swap(&mut self.accumulation, pool);
+        }
+    }
+
+    fn return_accumulation(&mut self, pool: &mut Vec<[f32; 3]>) {
+        if self.settings.trails <= 0.0 && pool.is_empty() {
+            std::mem::swap(&mut self.accumulation, pool);
         }
     }
 
@@ -147,8 +345,7 @@ impl Generator {
     pub fn set_settings(&mut self, settings: GeneratorSettings) {
         let settings = settings.sanitized();
         if settings.resolution != self.settings.resolution {
-            let [width, height] = settings.resolution;
-            self.accumulation = vec![[0.0; 3]; (width * height) as usize];
+            self.accumulation.clear();
         }
         if settings.pattern != self.settings.pattern {
             self.fit_radius = 0.0;
@@ -178,6 +375,8 @@ impl Generator {
     pub fn render(&mut self, time: f64, audio: AudioBands, out: &mut [u8]) {
         let [width, height] = self.settings.resolution;
         assert_eq!(out.len(), (width * height * 4) as usize, "frame size");
+        self.accumulation
+            .resize((width * height) as usize, [0.0; 3]);
         let started = Instant::now();
         let dt = self
             .last_time
@@ -188,7 +387,8 @@ impl Generator {
 
         let key = GeometryKey::new(&settings, audio, seconds);
         if self.key != Some(key) {
-            let params = GeometryParams::from_settings(&settings, audio, seconds);
+            let mut params = GeometryParams::from_settings(&settings, audio, seconds);
+            params.budget = self.segment_budget;
             self.geometry = generate(&params);
             self.key = Some(key);
             self.stats.generate_micros = started.elapsed().as_micros().min(u32::MAX as u128) as u32;
@@ -278,7 +478,7 @@ impl Generator {
             let index = (segment.t.clamp(0.0, 1.0) * (PALETTE_ENTRIES - 1) as f32) as usize;
             let intensity = settings.echo_fade.powi(segment.echo as i32);
             trace_intervals(segment.trace, self.trace_phase, &settings, |a, b| {
-                if traced >= crate::MAX_SEGMENTS as u32 {
+                if traced >= self.segment_budget as u32 {
                     trace_truncated = true;
                     return;
                 }
@@ -541,6 +741,102 @@ mod tests {
             resolution: [160, 90],
             ..GeneratorSettings::default()
         }
+    }
+
+    #[test]
+    fn stack_limits_layers_and_composites_enabled_sources() {
+        let settings = GeneratorSettings {
+            resolution: [96, 64],
+            depth: 0.2,
+            ..GeneratorSettings::default()
+        };
+        let mut stack = GeneratorStack::new(settings);
+        assert!(stack.add_layer());
+        assert!(stack.add_layer());
+        assert!(stack.add_layer());
+        assert!(!stack.add_layer());
+        stack.normalize_output();
+        let mut renderer = GeneratorStackRenderer::new(&stack);
+        let mut out = vec![0; 96 * 64 * 4];
+        let stats = renderer.render(&stack, 0.0, AudioBands::default(), &mut out);
+        assert!(out.chunks_exact(4).any(|pixel| pixel[3] > 0));
+        assert!(stats.drawn <= crate::MAX_SEGMENTS as u32);
+        assert!(stack.remove_selected());
+        assert!(stack.remove_selected());
+        assert!(stack.remove_selected());
+        assert!(!stack.remove_selected());
+    }
+
+    #[test]
+    fn a_single_untransformed_layer_matches_the_plain_generator_exactly() {
+        let settings = GeneratorSettings {
+            resolution: [96, 64],
+            depth: 0.3,
+            ..GeneratorSettings::default()
+        };
+        let stack = GeneratorStack::new(settings.clone());
+        let mut renderer = GeneratorStackRenderer::new(&stack);
+        let mut plain = Generator::new(settings);
+        let (mut layered, mut direct) = (vec![0; 96 * 64 * 4], vec![0; 96 * 64 * 4]);
+        for frame in 0..3 {
+            let time = f64::from(frame) / 60.0;
+            renderer.render(&stack, time, AudioBands::default(), &mut layered);
+            plain.render(time, AudioBands::default(), &mut direct);
+            assert_eq!(layered, direct, "frame {frame}");
+        }
+    }
+
+    #[test]
+    fn blend_modes_follow_premultiplied_compositing() {
+        let mut dst = [100, 50, 0, 255];
+        blend_pixel(&mut dst, &[255, 255, 255, 0], 255, GeneratorBlendMode::Over);
+        assert_eq!(dst, [100, 50, 0, 255], "transparent source is a no-op");
+        blend_pixel(&mut dst, &[10, 20, 30, 255], 255, GeneratorBlendMode::Over);
+        assert_eq!(dst, [10, 20, 30, 255], "opaque Over replaces");
+        let mut dst = [0, 0, 0, 0];
+        blend_pixel(&mut dst, &[200, 100, 0, 255], 128, GeneratorBlendMode::Over);
+        assert_eq!(dst, [100, 50, 0, 128], "opacity premultiplies");
+        let mut dst = [200, 10, 0, 255];
+        blend_pixel(&mut dst, &[100, 10, 0, 255], 255, GeneratorBlendMode::Add);
+        assert_eq!(dst, [255, 20, 0, 255], "Add saturates");
+        let mut dst = [128, 0, 255, 255];
+        blend_pixel(
+            &mut dst,
+            &[128, 255, 0, 255],
+            255,
+            GeneratorBlendMode::Screen,
+        );
+        assert_eq!(dst, [192, 255, 255, 255], "Screen lightens");
+    }
+
+    #[test]
+    fn layer_transforms_move_rotate_and_scale_pixels() {
+        let (w, h) = (8, 8);
+        let mut src = vec![0; w * h * 4];
+        // One opaque white pixel just right of centre.
+        let at = |x: usize, y: usize| (y * w + x) * 4;
+        src[at(5, 4)..at(5, 4) + 4].copy_from_slice(&[255, 255, 255, 255]);
+        let lit = |layer: &GeneratorLayer| {
+            let mut dst = vec![0; w * h * 4];
+            composite_layer(&mut dst, &src, [w, h], layer);
+            (0..w * h)
+                .filter(|&i| dst[i * 4 + 3] > 0)
+                .map(|i| (i % w, i / w))
+                .collect::<Vec<_>>()
+        };
+        let mut layer = GeneratorLayer::new(1, GeneratorSettings::default());
+        assert_eq!(lit(&layer), [(5, 4)]);
+        layer.position = [0.25, 0.0];
+        assert_eq!(lit(&layer), [(7, 4)], "moved a quarter frame right");
+        layer.position = [0.0, 0.0];
+        layer.rotation = std::f32::consts::FRAC_PI_2;
+        assert_eq!(lit(&layer), [(4, 5)], "rotated a quarter turn clockwise");
+        layer.rotation = 0.0;
+        layer.scale = 2.0;
+        assert!(lit(&layer).contains(&(6, 4)), "scaled away from the centre");
+        layer.scale = 1.0;
+        layer.opacity = 0.0;
+        assert!(lit(&layer).is_empty(), "zero opacity draws nothing");
     }
 
     fn frame(generator: &mut Generator, time: f64) -> Vec<u8> {

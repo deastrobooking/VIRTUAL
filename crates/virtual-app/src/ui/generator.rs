@@ -7,7 +7,8 @@
 //! with a button to reopen it.
 
 use virtual_generate::{
-    Dimension, FRAME_RATES, GeneratorSettings, GeneratorStats, RESOLUTIONS, RecursivePattern,
+    Dimension, FRAME_RATES, GeneratorSettings, GeneratorStack, GeneratorStats, RESOLUTIONS,
+    RecursivePattern,
 };
 use virtual_media::{DeckId, DeckState, FourDeckMixer};
 
@@ -112,7 +113,7 @@ fn stats_line(
 pub(super) fn draw_generator_summary(
     ui: &mut egui::Ui,
     deck: DeckId,
-    settings: &GeneratorSettings,
+    settings: &GeneratorStack,
     stats: GeneratorStats,
     palette: ThemePalette,
     window_open: &mut bool,
@@ -120,6 +121,7 @@ pub(super) fn draw_generator_summary(
     ui.horizontal_wrapped(|ui| {
         ui.colored_label(palette.success, "◆ GENERATOR");
         ui.strong(settings.pattern.label());
+        ui.weak(format!("{} layers", settings.layers.len()));
         if buttons::midi_nav_button(
             ui,
             &format!("generator.{}.window", deck.index()),
@@ -181,6 +183,79 @@ pub(super) fn draw_generator_windows(
         .resizable(true)
         .vscroll(true)
         .show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Layers");
+                for (layer_index, layer) in settings.layers.iter().enumerate() {
+                    if ui
+                        .selectable_label(settings.selected == layer_index, &layer.name)
+                        .clicked()
+                    {
+                        settings.selected = layer_index;
+                    }
+                }
+                if ui
+                    .add_enabled(
+                        settings.layers.len() < GeneratorStack::MAX_LAYERS,
+                        egui::Button::new("+ Add layer"),
+                    )
+                    .clicked()
+                {
+                    settings.add_layer();
+                }
+                if ui
+                    .add_enabled(settings.layers.len() > 1, egui::Button::new("Remove"))
+                    .clicked()
+                {
+                    settings.remove_selected();
+                }
+            });
+            if let Some(layer) = settings.selected_layer_mut() {
+                ui.horizontal(|ui| {
+                    ui.label("Placement");
+                    ui.add(egui::Slider::new(&mut layer.position[0], -1.0..=1.0).text("X"));
+                    ui.add(egui::Slider::new(&mut layer.position[1], -1.0..=1.0).text("Y"));
+                    ui.add(egui::Slider::new(&mut layer.scale, 0.1..=3.0).text("Scale"));
+                    ui.add(
+                        egui::Slider::new(
+                            &mut layer.rotation,
+                            -std::f32::consts::PI..=std::f32::consts::PI,
+                        )
+                        .text("Rotation"),
+                    );
+                    ui.add(egui::Slider::new(&mut layer.opacity, 0.0..=1.0).text("Opacity"));
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut layer.enabled, "Enabled");
+                    egui::ComboBox::from_id_salt(("generator-layer-blend", deck.index(), layer.id))
+                        .selected_text(match layer.blend {
+                            virtual_generate::GeneratorBlendMode::Over => "Over",
+                            virtual_generate::GeneratorBlendMode::Add => "Add",
+                            virtual_generate::GeneratorBlendMode::Screen => "Screen",
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                &mut layer.blend,
+                                virtual_generate::GeneratorBlendMode::Over,
+                                "Over",
+                            );
+                            ui.selectable_value(
+                                &mut layer.blend,
+                                virtual_generate::GeneratorBlendMode::Add,
+                                "Add",
+                            );
+                            ui.selectable_value(
+                                &mut layer.blend,
+                                virtual_generate::GeneratorBlendMode::Screen,
+                                "Screen",
+                            );
+                        });
+                });
+            }
+            ui.separator();
+            if settings.selected != 0 {
+                ui.weak("Output resolution and frame rate are shared with Layer 1.");
+            }
+            let controls_output = settings.selected == 0;
             draw_window_body(
                 ui,
                 deck,
@@ -188,10 +263,12 @@ pub(super) fn draw_generator_windows(
                 stats[index],
                 palette,
                 state.show_mode,
+                controls_output,
                 midi_map,
                 actions,
             );
         });
+        settings.normalize_output();
         state.generator_windows[index] = open;
     }
 }
@@ -331,6 +408,7 @@ fn draw_window_body(
     stats: GeneratorStats,
     palette: ThemePalette,
     show_mode: bool,
+    controls_output: bool,
     midi_map: &super::MidiMapUi,
     actions: &mut Vec<UiAction>,
 ) {
@@ -515,6 +593,10 @@ fn draw_window_body(
             });
         });
         section(&mut columns[1], "OUTPUT", palette, |ui| {
+            if !controls_output {
+                ui.weak("Output resolution and frame rate are shared with Layer 1.");
+                return;
+            }
             if show_mode {
                 ui.weak("Resolution, frame rate and reset are locked in Show Mode.");
                 return;

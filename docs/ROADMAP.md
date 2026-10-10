@@ -14,8 +14,11 @@ Next: certify these changes with the physical failure matrix, produce the
 self-contained macOS bundle, and add frame-time/decode/upload diagnostics.
 Camera recording still uses uncompressed RGBA; compressed recording and disk
 capacity feedback remain open. Clip automation has a tested core evaluator but
-still needs application wiring, persistence and an editor. Program-output
-recording is separate from the implemented camera-to-clip recorder.
+still needs application wiring, persistence and an editor. The existing scene
+controls already launch a slot across all four decks; the next clip work is to
+add automation-only cells for live/generator decks, tempo-locked 1–64 bar loops,
+Draw/Select editing and reverse playback. Program-output recording is separate
+from the implemented camera-to-clip recorder. See [feature designs](FEATURE_DESIGNS.md).
 
 ## Current execution sequence
 
@@ -422,9 +425,11 @@ Acceptance criteria:
 
 ## Deferred beyond the focused release
 
-Projection warping, multiple simultaneous program outputs, edge blending, ISF
-import, NDI, Syphon/Spout, DMX, Art-Net, the visual score, spatial engine and
-redundant render cluster remain beyond the current graph-foundation slice.
+Single-quad projection warping and optional NDI sending are implemented.
+Physical projector and network-receiver certification remain open. Multiple
+simultaneous program outputs, edge blending, ISF import, Syphon/Spout, DMX,
+Art-Net, the visual score, spatial engine and redundant render cluster remain
+beyond the current graph-foundation slice.
 Ableton Link, MIDI clock and recursive-geometry generator sources are
 implemented. OSC transport is implemented; effect/modulation route expansion
 and discovery remain in Phase 8.
@@ -439,11 +444,11 @@ Start only after the Phase 7 release gate is repeatable.
 2. MIDI clock in and out with Song Position Pointer is implemented; see
    [MIDI sync](MIDI_SYNC.md).
 3. Expand OSC effect/modulation routes and publish route discovery metadata.
-4. Prototype NDI output in an optional crate after accepting the NDI SDK and
-   redistribution terms; preserve a default build without the SDK.
+4. Certify the optional NDI sender with real receivers, network interruption,
+   runtime discovery and supported platform builds; the runtime is not bundled.
 5. Prototype native Syphon/Spout texture sharing separately per platform.
-6. Add a final bounded projection-warp pass before pursuing multi-output edge
-   blending.
+6. Rehearse persisted corner-pin mapping, source crop and masks on physical
+   projectors before pursuing edge blending or multiple program outputs.
 
 Also not yet implemented:
 

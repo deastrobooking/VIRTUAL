@@ -8,7 +8,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use virtual_core::MediaTime;
-use virtual_generate::{AudioBands, Generator, GeneratorSettings, GeneratorStats};
+use virtual_generate::{AudioBands, GeneratorStack, GeneratorStackRenderer, GeneratorStats};
 use virtual_hap::Decoder as HapDecoder;
 
 use crate::capture_interrupt::CaptureCancellation;
@@ -33,11 +33,11 @@ enum DecoderCommand {
         generation: u64,
     },
     Generator {
-        settings: GeneratorSettings,
+        settings: GeneratorStack,
         generation: u64,
         link: Arc<GeneratorLink>,
     },
-    GeneratorSettings(GeneratorSettings),
+    GeneratorSettings(GeneratorStack),
     Stop,
     Shutdown,
 }
@@ -267,7 +267,8 @@ impl DeckDecoder {
     /// Starts a procedural source. Frames are rendered on this deck's worker
     /// at the settings' frame rate and dropped, like camera frames, when the
     /// render loop falls behind.
-    pub fn connect_generator(&self, settings: GeneratorSettings, generation: u64) {
+    pub fn connect_generator(&self, settings: impl Into<GeneratorStack>, generation: u64) {
+        let settings = settings.into();
         let _ = self.capture_cancellation.next();
         self.generator_link.publish(GeneratorStats::default());
         let _ = self.commands.send(DecoderCommand::Generator {
@@ -279,7 +280,8 @@ impl DeckDecoder {
 
     /// Applies live setting changes without restarting the generator, so
     /// rotation, growth and trails continue smoothly.
-    pub fn update_generator(&self, settings: GeneratorSettings) {
+    pub fn update_generator(&self, settings: impl Into<GeneratorStack>) {
+        let settings = settings.into();
         let _ = self
             .commands
             .send(DecoderCommand::GeneratorSettings(settings));
@@ -343,7 +345,8 @@ enum Session {
         skip_before: Option<MediaTime>,
     },
     Generator {
-        generator: Box<Generator>,
+        generator: Box<GeneratorStackRenderer>,
+        settings: GeneratorStack,
         generation: u64,
         sequence: u64,
         /// Seconds of generated time; also the frame PTS.
@@ -412,6 +415,7 @@ impl Session {
             },
             Self::Generator {
                 generator,
+                settings,
                 generation,
                 sequence,
                 clock,
@@ -424,11 +428,11 @@ impl Session {
                     // Resynchronise after a stall instead of bursting frames.
                     *next_due = now;
                 }
-                let interval = 1.0 / f64::from(generator.settings().fps.max(1));
-                let [width, height] = generator.extent();
+                let interval = 1.0 / f64::from(settings.fps.max(1));
+                let [width, height] = settings.resolution;
                 let mut data = pool.acquire(width as usize * height as usize * 4);
-                generator.render(*clock, link.audio(), &mut data);
-                link.publish(generator.stats());
+                let stats = generator.render(settings, *clock, link.audio(), &mut data);
+                link.publish(stats);
                 let micros = |seconds: f64| (seconds * 1_000_000.0).round() as i64;
                 let pts = MediaTime::new(micros(*clock), 1_000_000).map_err(|e| e.to_string())?;
                 let frame = ScheduledFrame {
@@ -709,7 +713,8 @@ fn handle_command(
                 failure.arm(generation);
             }
             *session = Some(Session::Generator {
-                generator: Box::new(Generator::new(settings)),
+                generator: Box::new(GeneratorStackRenderer::new(&settings)),
+                settings,
                 generation,
                 sequence: 0,
                 clock: 0.0,
@@ -721,8 +726,14 @@ fn handle_command(
             false
         }
         DecoderCommand::GeneratorSettings(settings) => {
-            if let Some(Session::Generator { generator, .. }) = session.as_mut() {
-                generator.set_settings(settings);
+            if let Some(Session::Generator {
+                generator,
+                settings: current,
+                ..
+            }) = session.as_mut()
+            {
+                generator.set_stack(&settings);
+                *current = settings;
             }
             false
         }
@@ -738,6 +749,7 @@ fn handle_command(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use virtual_generate::GeneratorSettings;
 
     fn small_generator() -> GeneratorSettings {
         GeneratorSettings {
