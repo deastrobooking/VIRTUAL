@@ -108,7 +108,6 @@ type SendInstance = *mut c_void;
 /// Entry points resolved from the NDI runtime library.
 struct NdiRuntime {
     // Declared before `_library` so the pointers never outlive it.
-    destroy: unsafe extern "C" fn(),
     send_create: unsafe extern "C" fn(*const SendCreate) -> SendInstance,
     send_destroy: unsafe extern "C" fn(SendInstance),
     send_video_v2: unsafe extern "C" fn(SendInstance, *const VideoFrameV2),
@@ -148,7 +147,6 @@ impl NdiRuntime {
         unsafe {
             let initialize: unsafe extern "C" fn() -> bool = entry(&library, "NDIlib_initialize")?;
             let runtime = Self {
-                destroy: entry(&library, "NDIlib_destroy")?,
                 send_create: entry(&library, "NDIlib_send_create")?,
                 send_destroy: entry(&library, "NDIlib_send_destroy")?,
                 send_video_v2: entry(&library, "NDIlib_send_send_video_v2")?,
@@ -163,16 +161,34 @@ impl NdiRuntime {
     }
 }
 
+/// The process-wide NDI runtime, initialized on first use and never torn
+/// down. Stopping a sender detaches its worker, which may still be inside a
+/// send, so the runtime must outlive every worker; `NDIlib_destroy` is
+/// optional per the SDK. Load failures are not cached, so installing NDI
+/// Tools while VIRTUAL runs takes effect on the next enable.
+fn shared_runtime() -> Result<Arc<NdiRuntime>, String> {
+    static RUNTIME: Mutex<Option<Arc<NdiRuntime>>> = Mutex::new(None);
+    let mut slot = RUNTIME
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(runtime) = slot.as_ref() {
+        return Ok(Arc::clone(runtime));
+    }
+    let runtime = Arc::new(NdiRuntime::load()?);
+    *slot = Some(Arc::clone(&runtime));
+    Ok(runtime)
+}
+
 /// A live NDI sender. Created and used only on the worker thread.
 struct NdiSink {
-    runtime: NdiRuntime,
+    runtime: Arc<NdiRuntime>,
     instance: SendInstance,
     _name: CString,
 }
 
 impl NdiSink {
     fn new(name: &str) -> Result<Self, String> {
-        let runtime = NdiRuntime::load()?;
+        let runtime = shared_runtime()?;
         let name = CString::new(name).map_err(|_| "NDI source name contains NUL".to_owned())?;
         let settings = SendCreate {
             p_ndi_name: name.as_ptr(),
@@ -184,8 +200,6 @@ impl NdiSink {
         // SAFETY: settings and name are live for the call; NDI copies them.
         let instance = unsafe { (runtime.send_create)(&settings) };
         if instance.is_null() {
-            // SAFETY: balances the successful NDIlib_initialize.
-            unsafe { (runtime.destroy)() };
             return Err("NDI could not create the sender".to_owned());
         }
         Ok(Self {
@@ -227,12 +241,9 @@ impl VideoSink for NdiSink {
 
 impl Drop for NdiSink {
     fn drop(&mut self) {
-        // SAFETY: the instance came from send_create and is destroyed once,
-        // before the runtime is torn down.
-        unsafe {
-            (self.runtime.send_destroy)(self.instance);
-            (self.runtime.destroy)();
-        }
+        // SAFETY: the instance came from send_create and is destroyed once;
+        // the shared runtime stays initialized for other senders.
+        unsafe { (self.runtime.send_destroy)(self.instance) };
     }
 }
 
@@ -324,11 +335,11 @@ impl Worker {
 
 impl Drop for Worker {
     fn drop(&mut self) {
-        // Closing the channel ends the loop within one idle poll.
+        // Closing the channel asks the worker to stop. Detach instead of
+        // joining here: configure() runs on the render thread, and an SDK send
+        // can take longer than an idle poll (or block on a network peer).
         self.frames = None;
-        if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
-        }
+        drop(self.thread.take());
     }
 }
 
@@ -551,7 +562,7 @@ mod tests {
 
     #[test]
     fn enabling_without_a_runtime_reports_it_and_never_sends() {
-        if NdiRuntime::load().is_ok() {
+        if shared_runtime().is_ok() {
             eprintln!("NDI runtime installed; skipping the missing-runtime path");
             return;
         }
@@ -571,15 +582,21 @@ mod tests {
     }
 
     #[test]
-    fn dropping_the_worker_stops_the_thread_promptly() {
-        let probe = Probe::default();
+    fn dropping_the_worker_does_not_wait_for_a_send_to_finish() {
+        let probe = Probe {
+            delay: Duration::from_millis(200),
+            ..Probe::default()
+        };
         let opened = probe.clone();
         let worker = Worker::spawn("Stop".to_owned(), move |_| Ok(opened));
         wait_for(|| worker.shared.running.load(Ordering::Acquire));
+        worker.submit(frame(&worker));
+        wait_for(|| probe.busy.load(Ordering::Acquire));
         let shared = Arc::clone(&worker.shared);
         let started = Instant::now();
         drop(worker);
-        assert!(started.elapsed() < Duration::from_secs(2));
+        assert!(started.elapsed() < Duration::from_millis(50));
+        wait_for(|| !shared.running.load(Ordering::Acquire));
         assert!(!shared.running.load(Ordering::Acquire));
     }
 }
