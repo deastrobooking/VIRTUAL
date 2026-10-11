@@ -292,11 +292,11 @@ without changing its parameter knobs. Geometry remains the bounded UV prepass;
 Color and Stylize follow their relative displayed order. **Load preset** offers
 Neutral, Neon night, Blacklight, Glitch and Halation. **Reset chain** or
 **Reset effects** restores neutral parameters, full wet, no bypass and the
-legacy-compatible Geometry → Color → Stylize order.
+default Geometry → Color → Stylize order.
 
 Effects run on each source before deck composition. Slot order, bypass and wet
 mix are saved in the project. Existing projects that predate effect slots open
-with the legacy-compatible default order.
+with the default order.
 
 ### Master effects and blur
 

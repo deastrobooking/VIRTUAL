@@ -101,7 +101,7 @@ The current source tree includes:
   fold variants), scanline jitter, find-edges,
   bit reduction, black-light inversion, pixelate and luma-key effects.
 - Three built-in deck-effect groups with independent bypass and dry/wet,
-  legacy-compatible project defaults and Neutral, Neon Night, Blacklight,
+  default chain order and Neutral, Neon Night, Blacklight,
   Glitch and Halation presets. Geometry remains the UV prepass; Color and
   Stylize follow their relative displayed order.
 - A scrollable, stage-oriented operator UI with live program/audio/MIDI/OSC

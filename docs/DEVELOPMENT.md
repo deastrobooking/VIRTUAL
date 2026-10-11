@@ -136,43 +136,33 @@ expected changes to `build-macos.sh`:
 Keep the ad-hoc path for local builds, so contributors without a certificate
 can still package.
 
-## On-disk formats and compatibility
+## On-disk formats
 
 Every persisted format carries a `format` name and an integer `version`.
-Readers accept the current name and the pre-rename `oneiroi-*` name; writers
-only emit the current name.
+Readers accept only the current name and version: there are no migrations,
+and files from other versions are rejected with an "unsupported version"
+error rather than upgraded.
 
-| File | Current `format` | Legacy name, still read | Version | Defined in |
-|---|---|---|---|---|
-| Project (`.virtual`) | `virtual-project` | `oneiroi-project` | 6 (reads 1–6) | `virtual-io/src/project.rs` |
-| Effect package (`effect.json`) | `virtual-effect` | `oneiroi-effect` | see `EFFECT_MANIFEST_VERSION` | `virtual-render/src/effect_manifest.rs` |
-| Session journal (`.jsonl`) | `virtual-session-journal` | `oneiroi-session-journal` | `JOURNAL_VERSION` | `virtual-session/src/journal.rs` |
+| File | `format` | Version | Defined in |
+|---|---|---|---|
+| Project (`.virtual`) | `virtual-project` | `PROJECT_VERSION` | `virtual-io/src/project.rs` |
+| Effect package (`effect.json`) | `virtual-effect` | `EFFECT_MANIFEST_VERSION` range | `virtual-render/src/effect_manifest.rs` |
+| Session journal (`.jsonl`) | `virtual-session-journal` | `JOURNAL_VERSION` | `virtual-session/src/journal.rs` |
 
-Builds made before the rename reject files saved under the new names. They
-can't open a project once it has been re-saved by a current build.
-
-Other names from before the rename to VIRTUAL are also still accepted. Only
-the current names are ever written or sent:
-
-| What | Current | Also accepted |
-|---|---|---|
-| Graph node kinds in projects | `virtual.*` | `oneiroi.*`, upgraded on load (`ProjectGraph::upgrade_legacy_kinds`) |
-| OSC address prefix | `/virtual` | `/vjx` on input; feedback uses `/virtual` |
-| Project file extension | `.virtual` | `.oneiroi` |
-| Session journals and untitled autosave | `.virtual/session`, `.virtual-untitled.autosave` | `.oneiroi/session`, `.oneiroi-untitled.autosave`, read in place |
-| Effect search path variable | `VIRTUAL_EFFECT_PATH` | `ONEIROI_EFFECT_PATH` |
-| Per-user effects folder | `~/Library/Application Support/VIRTUAL/effects` | `…/Oneiroi/effects` |
+Other names: graph node kinds are `virtual.*`, OSC routes sit under
+`/virtual`, project files use `.virtual`, session journals and the untitled
+autosave live in `.virtual/session` and `.virtual-untitled.autosave`, the
+effect search path variable is `VIRTUAL_EFFECT_PATH`, and per-user effects go
+in `~/Library/Application Support/VIRTUAL/effects` (macOS),
+`%APPDATA%/VIRTUAL/effects` (Windows) or `$XDG_DATA_HOME/virtual/effects`.
 
 Rules for changing a format:
 
-- **Add, don't change.** A new field gets an explicit `#[serde(default)]` or
-  `#[serde(default = "…")]` so older files still load.
-- **Bump the version** when a migration is needed, raise the constant, and
-  migrate in `load_project` (see the v<5 graph backfill). Keep
-  `MINIMUM_PROJECT_VERSION` at 1 unless support is deliberately dropped.
-- **Add a golden fixture** under `virtual-io/tests/fixtures/` for each new
-  version, plus a migration test in `tests/project_fixtures.rs`. Leave the old
-  fixtures alone: they're the legacy-format coverage.
+- **New fields get `#[serde(default)]`** (or `default = "…"`), so a project
+  saved a moment before the field existed still opens during development.
+  This is not a compatibility promise; there are no migrations.
+- **Bump `PROJECT_VERSION`** only when an existing field changes meaning or
+  shape. Older files are then rejected; do not write migration code.
 - **Keep `ProjectFile::validate` in step with the UI.** Every save and autosave
   validates, so a control that can reach a value outside the validated range
   makes the show unsaveable. Validation failures name the field (for example

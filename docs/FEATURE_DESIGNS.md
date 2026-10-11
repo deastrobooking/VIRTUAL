@@ -256,8 +256,7 @@ layer's stable ID and parameter.
 - Internal blend order, enable, solo, duplicate and reorder behave predictably;
   the final stack still responds to the deck's existing transform, effects and
   A/B bus assignment.
-- A saved legacy single-generator deck migrates to one stack layer; a new
-  multi-layer stack saves, reloads and reproduces its settings and seeds.
+- A multi-layer stack saves, reloads and reproduces its settings and seeds.
 - MIDI/OSC and clip automation address an individual layer without changing
   mappings or automation for another layer.
 - The aggregate segment and scratch-memory caps are enforced. Four-layer

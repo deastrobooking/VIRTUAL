@@ -283,7 +283,7 @@ pub(super) fn draw_setup(
                             if entry.project_linked {
                                 " · project linked"
                             } else {
-                                " · legacy/unlinked"
+                                " · unlinked"
                             }
                         ));
                         let maximum = entry.latest_time.monotonic_ns as f64 / 1_000_000_000.0;
@@ -393,7 +393,7 @@ pub(super) fn draw_setup(
                         metrics.osc.output_stats.dropped,
                         metrics.osc.output_stats.errors
                     ));
-                    ui.weak("Routes use /virtual (the older /vjx prefix is still accepted); deck and clip numbers are 1-based.");
+                    ui.weak("Routes use /virtual; deck and clip numbers are 1-based.");
                 });
             ui.separator();
 

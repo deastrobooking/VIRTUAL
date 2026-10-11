@@ -196,7 +196,7 @@ source bundle.
 
 Project schema v5 assigns a stable 128-bit identity and stores bounded take
 metadata. New journal headers carry the project and take identities. Recovery
-shows matching and legacy/unlinked journals, while linked journals belonging
+shows matching and unlinked journals, while linked journals belonging
 to other projects are hidden.
 
 Journal command/checkpoint counts, queue overruns and the last worker error are

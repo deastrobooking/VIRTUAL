@@ -150,41 +150,26 @@ pub(crate) fn effect_resource_roots(workspace: &Path) -> Vec<PathBuf> {
     if workspace_root.is_dir() {
         roots.push(workspace_root);
     }
-    for name in [EFFECT_PATH_ENV, "ONEIROI_EFFECT_PATH"] {
-        if let Some(paths) = std::env::var_os(name) {
-            roots.extend(std::env::split_paths(&paths).filter(|path| !path.as_os_str().is_empty()));
-        }
+    if let Some(paths) = std::env::var_os(EFFECT_PATH_ENV) {
+        roots.extend(std::env::split_paths(&paths).filter(|path| !path.as_os_str().is_empty()));
     }
-    for legacy in [false, true] {
-        if let Some(user_root) = user_effect_root(legacy)
-            && user_root.is_dir()
-        {
-            roots.push(user_root);
-        }
+    if let Some(user_root) = user_effect_root()
+        && user_root.is_dir()
+    {
+        roots.push(user_root);
     }
     deduplicate_paths(roots)
 }
 
-fn user_effect_root(legacy: bool) -> Option<PathBuf> {
+fn user_effect_root() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        std::env::var_os("HOME").map(|home| {
-            PathBuf::from(home).join(if legacy {
-                "Library/Application Support/Oneiroi/effects"
-            } else {
-                "Library/Application Support/VIRTUAL/effects"
-            })
-        })
+        std::env::var_os("HOME")
+            .map(|home| PathBuf::from(home).join("Library/Application Support/VIRTUAL/effects"))
     }
     #[cfg(target_os = "windows")]
     {
-        std::env::var_os("APPDATA").map(|root| {
-            PathBuf::from(root).join(if legacy {
-                "Oneiroi/effects"
-            } else {
-                "VIRTUAL/effects"
-            })
-        })
+        std::env::var_os("APPDATA").map(|root| PathBuf::from(root).join("VIRTUAL/effects"))
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -193,13 +178,7 @@ fn user_effect_root(legacy: bool) -> Option<PathBuf> {
             .or_else(|| {
                 std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share"))
             })
-            .map(|root| {
-                root.join(if legacy {
-                    "oneiroi/effects"
-                } else {
-                    "virtual/effects"
-                })
-            })
+            .map(|root| root.join("virtual/effects"))
     }
 }
 

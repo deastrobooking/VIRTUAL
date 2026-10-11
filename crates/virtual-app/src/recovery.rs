@@ -54,10 +54,10 @@ impl State {
                     .session_recovery_selected
                     .min(count.saturating_sub(1));
                 self.session_recovery_status = if rejected == 0 && foreign == 0 {
-                    format!("Found {count} project/legacy session(s)")
+                    format!("Found {count} project/unlinked session(s)")
                 } else {
                     format!(
-                        "Found {count} project/legacy session(s) · {foreign} other project · {rejected} invalid"
+                        "Found {count} project/unlinked session(s) · {foreign} other project · {rejected} invalid"
                     )
                 };
             }

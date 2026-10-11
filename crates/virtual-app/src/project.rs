@@ -168,10 +168,6 @@ pub fn snapshot(
                             fps_denominator: config.fps_denominator,
                             pixel_format: config.pixel_format.id().to_owned(),
                         }),
-                    generator: match &live.state {
-                        DeckState::Generator(settings) => Some(generator_to_project(settings)),
-                        _ => None,
-                    },
                     generator_stack: match &live.state {
                         DeckState::Generator(stack) => Some(generator_stack_to_project(stack)),
                         _ => None,
@@ -1504,15 +1500,6 @@ mod tests {
         calc.items[0].source = "y = x^3".into();
         current.decks[0].calculator = calc.to_project();
         assert!(is_dirty(&current, Some(&saved)), "editing an object is");
-
-        // Files from before the calculator was saved load without one.
-        let mut value = serde_json::to_value(&current).unwrap();
-        value["decks"][0]
-            .as_object_mut()
-            .unwrap()
-            .remove("calculator");
-        let legacy: ProjectFile = serde_json::from_value(value).unwrap();
-        assert_eq!(legacy.decks[0].calculator, None);
     }
 
     #[test]

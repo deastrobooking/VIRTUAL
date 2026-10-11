@@ -1,4 +1,4 @@
-//! Bounded OSC 1.0 UDP input and VJX route mapping.
+//! Bounded OSC 1.0 UDP input and VIRTUAL route mapping.
 
 use std::io;
 use std::net::UdpSocket;
@@ -417,17 +417,11 @@ pub(crate) enum OscAction {
 
 /// OSC address namespace. Feedback is always sent under it.
 pub(crate) const OSC_ROOT: &str = "/virtual";
-/// Pre-rename namespace, still accepted on input so existing controller
-/// layouts keep working.
-const LEGACY_OSC_ROOT: &str = "/vjx";
-
-/// Strips either namespace, leaving the route (`/deck/1/level`).
+/// Strips the namespace, leaving the route (`/deck/1/level`).
 fn route(address: &str) -> Option<&str> {
-    [OSC_ROOT, LEGACY_OSC_ROOT].into_iter().find_map(|root| {
-        address
-            .strip_prefix(root)
-            .filter(|route| route.starts_with('/'))
-    })
+    address
+        .strip_prefix(OSC_ROOT)
+        .filter(|route| route.starts_with('/'))
 }
 
 pub(crate) fn osc_address(route: &str) -> String {
@@ -799,7 +793,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_vjx_namespace_is_accepted_and_feedback_uses_virtual() {
+    fn only_the_virtual_namespace_is_accepted_and_used_for_feedback() {
         let message = |address: &str| OscMessage {
             address: address.to_owned(),
             arguments: vec![OscArgument::Float(0.5)],
@@ -810,7 +804,7 @@ mod tests {
             value: 0.5,
         }));
         assert_eq!(map_message(&message("/virtual/deck/2/level")), expected);
-        assert_eq!(map_message(&message("/vjx/deck/2/level")), expected);
+        assert_eq!(map_message(&message("/vjx/deck/2/level")), None);
         assert_eq!(map_message(&message("/virtualx/deck/2/level")), None);
         assert_eq!(map_message(&message("/deck/2/level")), None);
         assert_eq!(

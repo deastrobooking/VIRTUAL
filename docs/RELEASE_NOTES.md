@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### VIRTUAL naming only (2026-10-10)
+
+- Pre-rename `oneiroi` names are no longer accepted: the `oneiroi-project`,
+  `oneiroi-effect` and `oneiroi-session-journal` formats, `.oneiroi` files,
+  `.oneiroi/session` journals and autosaves, `oneiroi.*` graph nodes,
+  `ONEIROI_EFFECT_PATH`, the Oneiroi per-user effects folders and the `/vjx`
+  OSC prefix.
+- Projects load only at the current schema version; there are no migrations.
+  Decks save their generator as the layer stack only.
+
 ### Direct mixer distortion faders (2026-10-07)
 
 - Six native deck-effect faders: Wave distortion, Vortex distortion, Block

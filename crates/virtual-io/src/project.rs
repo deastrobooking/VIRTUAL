@@ -14,8 +14,6 @@ use virtual_generate::GeometryGraph;
 use virtual_graph::ProjectGraph;
 
 pub const PROJECT_FORMAT: &str = "virtual-project";
-/// Pre-rename identity. Still read; never written.
-pub const LEGACY_PROJECT_FORMAT: &str = "oneiroi-project";
 pub const PROJECT_VERSION: u32 = 10;
 /// Three LFOs, five audio sources, beat, bar, then eight spectrum bands.
 pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
@@ -23,7 +21,6 @@ pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
 pub const LFO_CONTROL_PARAMETERS: u8 = 5;
 /// Length of `virtual_generate::GENERATOR_PARAMETERS`; ids are append-only.
 pub const GENERATOR_PARAMETER_COUNT: u8 = 46;
-const MINIMUM_PROJECT_VERSION: u32 = 1;
 pub const DECK_COUNT: usize = 4;
 pub const CLIPS_PER_DECK: usize = 8;
 pub const SCENE_COUNT: usize = 32;
@@ -80,13 +77,14 @@ impl Default for ProjectFile {
 
 impl ProjectFile {
     pub fn validate(&self) -> Result<(), ProjectError> {
-        if self.format != PROJECT_FORMAT && self.format != LEGACY_PROJECT_FORMAT {
+        if self.format != PROJECT_FORMAT {
             return Err(ProjectError::WrongFormat(self.format.clone()));
         }
-        if !(MINIMUM_PROJECT_VERSION..=PROJECT_VERSION).contains(&self.version) {
+        // Only the current schema is supported; there are no migrations.
+        if self.version != PROJECT_VERSION {
             return Err(ProjectError::UnsupportedVersion(self.version));
         }
-        if (self.version >= 4 && !valid_identity(&self.project_id))
+        if !valid_identity(&self.project_id)
             || self.takes.len() > 256
             || self.random_seeds.len() > 256
             || self.geometry_library.len() > 128
@@ -355,17 +353,9 @@ impl ProjectFile {
                     (deck.camera.is_some() && deck.active_slot.is_some()),
                 ),
                 (
-                    "generator (cannot coexist with an active clip or camera)",
-                    deck.generator.is_some()
+                    "generator_stack (cannot coexist with an active clip or camera)",
+                    deck.generator_stack.is_some()
                         && (deck.active_slot.is_some() || deck.camera.is_some()),
-                ),
-                (
-                    "generator",
-                    deck.generator.as_ref().is_some_and(|generator| {
-                        generator.resolution.contains(&0)
-                            || generator.fps == 0
-                            || !valid_custom_geometry(generator.geometry_graph.as_ref())
-                    }),
                 ),
                 (
                     "generator_stack",
@@ -687,7 +677,7 @@ pub struct ProjectSettings {
     pub pinned_deck: Option<u8>,
     /// Thirty-two independent scene rows. `None` leaves that deck unchanged;
     /// `stop_decks` explicitly stops and clears it.
-    #[serde(default = "legacy_scenes")]
+    #[serde(default = "default_scenes")]
     pub scenes: [SceneProject; SCENE_COUNT],
 }
 
@@ -710,16 +700,6 @@ pub fn default_scenes() -> [SceneProject; SCENE_COUNT] {
         } else {
             SceneProject::default()
         }
-    })
-}
-
-/// Preserve the old numbered launcher behavior when loading projects without
-/// scene data: each row launches the same numbered slot across all decks,
-/// wrapping every eight scenes.
-fn legacy_scenes() -> [SceneProject; SCENE_COUNT] {
-    std::array::from_fn(|scene| SceneProject {
-        clip_slots: [Some((scene % CLIPS_PER_DECK) as u8); DECK_COUNT],
-        stop_decks: [false; DECK_COUNT],
     })
 }
 
@@ -1207,11 +1187,7 @@ pub struct DeckProject {
     pub mod_routes: Vec<ModRouteProject>,
     #[serde(default)]
     pub camera: Option<CameraProject>,
-    /// Procedural recursive-geometry source on this deck.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub generator: Option<GeneratorProject>,
-    /// Multi-source generator stack. `generator` remains for older readers and
-    /// is used as the fallback when loading project versions before 7.
+    /// Procedural generator layers on this deck.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generator_stack: Option<GeneratorStackProject>,
     /// Graphing-calculator objects and view; absent while untouched.
@@ -1308,7 +1284,6 @@ impl Default for DeckProject {
             lfos: default_lfos(),
             mod_routes: default_mod_routes(),
             camera: None,
-            generator: None,
             generator_stack: None,
             calculator: None,
         }
@@ -2054,20 +2029,8 @@ pub fn load_project(path: impl AsRef<Path>) -> Result<ProjectFile, ProjectError>
         path: path.to_path_buf(),
         source,
     })?;
-    let mut project: ProjectFile = serde_json::from_reader(BufReader::new(file))?;
+    let project: ProjectFile = serde_json::from_reader(BufReader::new(file))?;
     project.validate()?;
-    project.format = PROJECT_FORMAT.to_owned();
-    let source_version = project.version;
-    if project.project_id.is_empty() {
-        project.project_id = new_project_id();
-    }
-    if source_version < 5 && project.graph.is_none() {
-        project.graph = Some(virtual_graph::four_deck_performance_graph());
-    }
-    if let Some(graph) = project.graph.as_mut() {
-        graph.upgrade_legacy_kinds();
-    }
-    project.version = PROJECT_VERSION;
     Ok(project)
 }
 
@@ -2246,22 +2209,6 @@ mod tests {
             Some(PathBuf::from("/elsewhere/loop.mov"))
         );
         fs::remove_dir_all(show).unwrap();
-    }
-
-    #[test]
-    fn legacy_format_loads_and_resaves_under_the_virtual_name() {
-        let path = test_path("legacy.virtual");
-        let legacy = ProjectFile {
-            format: LEGACY_PROJECT_FORMAT.to_owned(),
-            ..ProjectFile::default()
-        };
-        save_project_atomic(&path, &legacy).unwrap();
-        let loaded = load_project(&path).unwrap();
-        assert_eq!(loaded.format, PROJECT_FORMAT);
-        save_project_atomic(&path, &loaded).unwrap();
-        let written = fs::read_to_string(&path).unwrap();
-        assert!(written.contains("\"virtual-project\""));
-        fs::remove_file(path).unwrap();
     }
 
     #[test]
@@ -2527,24 +2474,9 @@ mod tests {
     }
 
     #[test]
-    fn old_projects_receive_legacy_scene_rows_and_high_scene_midi_is_valid() {
+    fn default_scene_rows_and_high_scene_midi_are_valid() {
         assert_eq!(default_scenes()[7].clip_slots, [Some(7); DECK_COUNT]);
         assert_eq!(default_scenes()[8], SceneProject::default());
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        value["version"] = serde_json::json!(9);
-        value["settings"].as_object_mut().unwrap().remove("scenes");
-        let path = test_path("migrate-v9-scenes.virtual");
-        fs::write(&path, serde_json::to_vec_pretty(&value).unwrap()).unwrap();
-        let project = load_project(&path).unwrap();
-        fs::remove_file(path).unwrap();
-        assert_eq!(project.version, PROJECT_VERSION);
-        assert_eq!(project.settings.scenes.len(), SCENE_COUNT);
-        assert_eq!(project.settings.scenes[0].clip_slots, [Some(0); DECK_COUNT]);
-        assert_eq!(
-            project.settings.scenes[31].clip_slots,
-            [Some(7); DECK_COUNT]
-        );
-
         let mut project = ProjectFile::default();
         project.midi_mappings.push(MidiMappingProject {
             device: "controller".to_owned(),
@@ -2714,256 +2646,7 @@ mod tests {
     }
 
     #[test]
-    fn early_version_one_projects_remain_compatible() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        value["version"] = serde_json::json!(1);
-        value["settings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("output")
-            .unwrap();
-        value["settings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("audio_analysis")
-            .unwrap();
-        value["settings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("master_effects")
-            .unwrap();
-        for field in ["layer_order", "pinned_deck"] {
-            value["settings"]
-                .as_object_mut()
-                .unwrap()
-                .remove(field)
-                .unwrap();
-        }
-        value
-            .as_object_mut()
-            .unwrap()
-            .remove("midi_mappings")
-            .unwrap();
-        for deck in value["decks"].as_array_mut().unwrap() {
-            let deck = deck.as_object_mut().unwrap();
-            deck.remove("transform").unwrap();
-            deck.remove("blend_mode").unwrap();
-            deck.remove("solo").unwrap();
-            deck.remove("bypassed").unwrap();
-            deck.remove("lfos").unwrap();
-            deck.remove("mod_routes").unwrap();
-            deck.remove("clip_playback").unwrap();
-            deck.remove("clip_automation").unwrap();
-            let effects = deck["effects"].as_object_mut().unwrap();
-            effects.remove("slots").unwrap();
-            for field in [
-                "hue",
-                "black_level",
-                "white_level",
-                "gamma",
-                "neon",
-                "fractal",
-                "jitter",
-                "find_edges",
-                "bit_reduction",
-                "blacklight",
-            ] {
-                effects.remove(field).unwrap();
-            }
-        }
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(project.midi_mappings.is_empty());
-        assert_eq!(project.settings.layer_order, [0, 1, 2, 3]);
-        assert_eq!(project.settings.pinned_deck, None);
-        assert!(project.decks.iter().all(|deck| {
-            deck.clip_automation
-                .iter()
-                .all(|clip| clip.loop_beats == 16.0 && clip.lanes.is_empty())
-        }));
-        assert!(
-            project
-                .decks
-                .iter()
-                .all(|deck| deck.clip_playback == default_clip_playback())
-        );
-        assert!(project.decks.iter().all(|deck| deck.lfos == default_lfos()));
-        assert!(
-            project
-                .decks
-                .iter()
-                .all(|deck| deck.mod_routes == default_mod_routes())
-        );
-        assert!(
-            project
-                .decks
-                .iter()
-                .all(|deck| deck.effects == EffectProject::default())
-        );
-        project.validate().unwrap();
-    }
-
-    #[test]
-    fn early_version_two_output_settings_receive_safe_defaults() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        let output = value["settings"]["output"].as_object_mut().unwrap();
-        output.remove("display_id").unwrap();
-        output.remove("test_card").unwrap();
-        output.remove("identify").unwrap();
-        let projection = output["projection"].as_object_mut().unwrap();
-        projection.remove("edge_blend").unwrap();
-        projection.remove("gamma").unwrap();
-        projection.remove("black_level").unwrap();
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(project.settings.output.display_id.is_empty());
-        assert!(!project.settings.output.test_card);
-        assert!(!project.settings.output.identify);
-        assert_eq!(project.settings.output.projection.edge_blend, [0.0; 4]);
-        assert_eq!(project.settings.output.projection.gamma, 1.0);
-        assert_eq!(project.settings.output.projection.black_level, 0.0);
-        project.validate().unwrap();
-    }
-
-    #[test]
-    fn projects_saved_before_layer_transforms_receive_neutral_geometry() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        for deck in value["decks"].as_array_mut().unwrap() {
-            deck.as_object_mut().unwrap().remove("transform").unwrap();
-        }
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(
-            project
-                .decks
-                .iter()
-                .all(|deck| deck.transform == TransformProject::default())
-        );
-        project.validate().unwrap();
-    }
-
-    #[test]
-    fn early_transform_projects_default_to_uncropped_stretch() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        for deck in value["decks"].as_array_mut().unwrap() {
-            let transform = deck["transform"].as_object_mut().unwrap();
-            transform.remove("crop").unwrap();
-            transform.remove("source_mode").unwrap();
-        }
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(project.decks.iter().all(|deck| {
-            deck.transform.crop == [0.0; 4]
-                && deck.transform.source_mode == SourceModeProject::Stretch
-        }));
-        project.validate().unwrap();
-    }
-
-    #[test]
-    fn projects_saved_before_blend_modes_default_to_normal() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        for deck in value["decks"].as_array_mut().unwrap() {
-            deck.as_object_mut().unwrap().remove("blend_mode").unwrap();
-        }
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(
-            project
-                .decks
-                .iter()
-                .all(|deck| deck.blend_mode == BlendModeProject::Normal)
-        );
-        project.validate().unwrap();
-    }
-
-    #[test]
-    fn projects_saved_before_solo_and_bypass_default_to_active() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        for deck in value["decks"].as_array_mut().unwrap() {
-            let deck = deck.as_object_mut().unwrap();
-            deck.remove("solo").unwrap();
-            deck.remove("bypassed").unwrap();
-        }
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(
-            project
-                .decks
-                .iter()
-                .all(|deck| !deck.solo && !deck.bypassed)
-        );
-        project.validate().unwrap();
-    }
-
-    #[test]
-    fn projects_saved_before_audio_analysis_receive_safe_defaults() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        value["settings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("audio_analysis")
-            .unwrap();
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert_eq!(
-            project.settings.audio_analysis,
-            AudioAnalysisProject::default()
-        );
-        project.validate().unwrap();
-    }
-
-    #[test]
-    fn early_audio_settings_default_to_manual_gain() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        let audio = value["settings"]["audio_analysis"].as_object_mut().unwrap();
-        audio.remove("normalization").unwrap();
-        audio.remove("normalization_target").unwrap();
-        audio.remove("normalization_speed_ms").unwrap();
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(!project.settings.audio_analysis.normalization);
-        assert_eq!(project.settings.audio_analysis.normalization_target, 0.5);
-        assert_eq!(
-            project.settings.audio_analysis.normalization_speed_ms,
-            1_000.0
-        );
-        project.validate().unwrap();
-    }
-
-    #[test]
-    fn lfos_saved_before_direct_toggle_keep_their_direct_route() {
-        let mut value = serde_json::to_value(ProjectFile::default()).unwrap();
-        for deck in value["decks"].as_array_mut().unwrap() {
-            for lfo in deck["lfos"].as_array_mut().unwrap() {
-                lfo.as_object_mut()
-                    .unwrap()
-                    .remove("direct_enabled")
-                    .unwrap();
-            }
-        }
-        let project: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(
-            project
-                .decks
-                .iter()
-                .flat_map(|deck| &deck.lfos)
-                .all(|lfo| lfo.direct_enabled)
-        );
-    }
-
-    #[test]
-    fn loading_version_one_upgrades_it_to_the_current_schema() {
-        let path = test_path("migrate-v1.virtual");
-        let mut project = ProjectFile {
-            version: 1,
-            ..ProjectFile::default()
-        };
-        project.project_id.clear();
-        project.takes.clear();
-        project.settings.output = OutputProject::default();
-        save_project_atomic(&path, &project).unwrap();
-        let loaded = load_project(&path).unwrap();
-        assert_eq!(loaded.version, PROJECT_VERSION);
-        assert!(valid_identity(&loaded.project_id));
-        assert!(loaded.graph.is_some());
-        assert_eq!(loaded.settings.output, OutputProject::default());
-        fs::remove_file(path).unwrap();
-    }
-
-    #[test]
-    fn midi_device_list_round_trips_and_defaults_empty() {
+    fn midi_device_list_round_trips() {
         let mut project = ProjectFile::default();
         project.settings.midi_devices = vec!["apc-40".to_owned(), "launch-control".to_owned()];
         let json = serde_json::to_string(&project).unwrap();
@@ -2972,19 +2655,10 @@ mod tests {
             loaded.settings.midi_devices,
             vec!["apc-40".to_owned(), "launch-control".to_owned()]
         );
-
-        // A settings object written before the field existed still loads.
-        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        value["settings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("midi_devices");
-        let legacy: ProjectFile = serde_json::from_value(value).unwrap();
-        assert!(legacy.settings.midi_devices.is_empty());
     }
 
     #[test]
-    fn midi_clock_rig_round_trips_and_defaults_to_internal() {
+    fn midi_clock_rig_round_trips() {
         let mut project = ProjectFile::default();
         project.settings.midi_clock = MidiClockProject {
             source: ClockSourceProject::MidiInput,
@@ -2996,21 +2670,6 @@ mod tests {
         let json = serde_json::to_string(&project).unwrap();
         let loaded: ProjectFile = serde_json::from_str(&json).unwrap();
         assert_eq!(loaded.settings.midi_clock, project.settings.midi_clock);
-
-        // A settings object written before clock sync existed still loads,
-        // with the show back on its internal tempo.
-        let mut value: serde_json::Value = serde_json::from_str(&json).unwrap();
-        value["settings"]
-            .as_object_mut()
-            .unwrap()
-            .remove("midi_clock");
-        let legacy: ProjectFile = serde_json::from_value(value).unwrap();
-        assert_eq!(
-            legacy.settings.midi_clock.source,
-            ClockSourceProject::Internal
-        );
-        assert!(!legacy.settings.midi_clock.send);
-        assert!(legacy.settings.midi_clock.output_device.is_empty());
     }
 
     #[test]
@@ -3029,11 +2688,16 @@ mod tests {
     }
 
     #[test]
-    fn capture_card_settings_round_trip_and_old_camera_settings_keep_defaults() {
-        let old = serde_json::json!({ "backend": "avfoundation", "device_id": "0", "label": "Legacy", "requested_extent": [1280,720], "requested_fps": 30 });
-        let mut camera: CameraProject = serde_json::from_value(old).unwrap();
-        assert_eq!(camera.fps_denominator, 1);
-        assert_eq!(camera.pixel_format, "auto");
+    fn capture_card_settings_round_trip() {
+        let mut camera = CameraProject {
+            backend: "avfoundation".to_owned(),
+            device_id: String::new(),
+            label: "Capture card".to_owned(),
+            requested_extent: Some([1280, 720]),
+            requested_fps: None,
+            fps_denominator: 1,
+            pixel_format: "auto".to_owned(),
+        };
         camera.device_id = "avf-id/usb-card".to_owned();
         camera.requested_fps = Some(60000);
         camera.fps_denominator = 1001;
@@ -3051,29 +2715,33 @@ mod tests {
     #[test]
     fn generator_decks_round_trip_and_reject_conflicting_sources() {
         let mut project = ProjectFile::default();
-        project.decks[1].generator = Some(GeneratorProject {
-            pattern: "dragon_curve".to_owned(),
-            trails: 0.6,
-            ..GeneratorProject::default()
+        project.decks[1].generator_stack = Some(GeneratorStackProject {
+            selected: 0,
+            next_id: 2,
+            layers: vec![GeneratorLayerProject {
+                id: 1,
+                settings: GeneratorProject {
+                    pattern: "dragon_curve".to_owned(),
+                    trails: 0.6,
+                    ..GeneratorProject::default()
+                },
+                ..GeneratorLayerProject::default()
+            }],
         });
         let path = test_path("generator.virtual");
         save_project_atomic(&path, &project).unwrap();
         assert_eq!(
-            load_project(&path).unwrap().decks[1].generator,
-            project.decks[1].generator
+            load_project(&path).unwrap().decks[1].generator_stack,
+            project.decks[1].generator_stack
         );
         std::fs::remove_file(path).unwrap();
-
-        // Files written before generators existed load without one.
-        let mut legacy = serde_json::to_value(DeckProject::default()).unwrap();
-        legacy.as_object_mut().unwrap().remove("generator");
-        let deck: DeckProject = serde_json::from_value(legacy).unwrap();
-        assert_eq!(deck.generator, None);
 
         project.decks[1].active_slot = Some(0);
         assert!(project.validate().is_err());
         project.decks[1].active_slot = None;
-        project.decks[1].generator.as_mut().unwrap().fps = 0;
+        project.decks[1].generator_stack.as_mut().unwrap().layers[0]
+            .settings
+            .fps = 0;
         assert!(project.validate().is_err());
     }
 }

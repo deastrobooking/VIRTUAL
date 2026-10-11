@@ -22,8 +22,7 @@ origin, so recovery and timeline replay remain deterministic.
 ## Routes
 
 Every route sits under `/virtual`. Deck, clip and scene numbers in OSC
-addresses are one-based. Layouts built for the earlier `/vjx` prefix still
-work on input; feedback is sent under `/virtual` only.
+addresses are one-based. Feedback is sent under `/virtual` too.
 
 | Address | Argument | Result |
 |---|---:|---|

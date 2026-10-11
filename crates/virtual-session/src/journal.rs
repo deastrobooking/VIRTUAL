@@ -12,8 +12,6 @@ use thiserror::Error;
 use crate::{SessionError, SessionState, ShowCommand, ShowTime, StateCheckpoint};
 
 pub const JOURNAL_FORMAT: &str = "virtual-session-journal";
-/// Pre-rename identity. Journals from earlier takes still recover.
-pub const LEGACY_JOURNAL_FORMAT: &str = "oneiroi-session-journal";
 pub const JOURNAL_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -525,7 +523,7 @@ pub fn recover_journal(
 }
 
 fn validate_identity(format: &str, version: u32) -> Result<(), JournalError> {
-    if format != JOURNAL_FORMAT && format != LEGACY_JOURNAL_FORMAT {
+    if format != JOURNAL_FORMAT {
         return Err(JournalError::WrongFormat(format.to_owned()));
     }
     if version != JOURNAL_VERSION {
@@ -680,26 +678,6 @@ mod tests {
         let recovered = recover_journal(&journal, &checkpoint).unwrap();
         assert!(recovered.ignored_partial_tail);
         assert!(recovered.commands.is_empty());
-    }
-
-    #[test]
-    fn legacy_header_without_project_identity_remains_readable() {
-        let record: JournalRecord = serde_json::from_str(
-            r#"{"record":"header","format":"oneiroi-session-journal","version":1,"take_name":"Legacy"}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            record,
-            JournalRecord::Header {
-                format: LEGACY_JOURNAL_FORMAT.to_owned(),
-                version: JOURNAL_VERSION,
-                take_name: "Legacy".to_owned(),
-                project_id: None,
-                take_id: None,
-            }
-        );
-        assert!(validate_identity(LEGACY_JOURNAL_FORMAT, JOURNAL_VERSION).is_ok());
-        assert!(validate_identity(JOURNAL_FORMAT, JOURNAL_VERSION).is_ok());
     }
 
     #[test]
