@@ -7,9 +7,9 @@
 //! with a button to reopen it.
 
 use virtual_generate::{
-    CalculatorExpression, CalculatorValue, Dimension, FRAME_RATES, GeneratorSettings,
-    GeneratorStack, GeneratorStats, GeometryGraph, GeometryNode, GeometryNodeKind,
-    GeometryParameter, GraphAxis, GraphNodeId, RESOLUTIONS, RecursivePattern,
+    Dimension, FRAME_RATES, GeneratorSettings, GeneratorStack, GeneratorStats, GeometryGraph,
+    GeometryNode, GeometryNodeKind, GeometryParameter, GraphAxis, GraphNodeId, RESOLUTIONS,
+    RecursivePattern,
 };
 use virtual_media::{DeckId, DeckState, FourDeckMixer};
 
@@ -261,7 +261,6 @@ pub(super) fn draw_generator_windows(
             }
             let controls_output = settings.selected == 0;
             let calculator = &mut state.geometry_calculator[index];
-            let plot_bounds = &mut state.geometry_plot_bounds[index];
             let selected_node = &mut state.geometry_selected_node[index];
             let geometry_library = &mut state.geometry_library;
             draw_window_body(
@@ -273,13 +272,42 @@ pub(super) fn draw_generator_windows(
                 state.show_mode,
                 controls_output,
                 calculator,
-                plot_bounds,
                 selected_node,
                 geometry_library,
                 midi_map,
                 actions,
             );
         });
+        let calculator = &mut state.geometry_calculator[index];
+        if calculator.window_open {
+            let mut calculator_open = true;
+            let selected_node = state.geometry_selected_node[index];
+            let graph = settings
+                .selected_layer_mut()
+                .and_then(|layer| layer.settings.geometry_graph.as_mut());
+            egui::Window::new(
+                egui::RichText::new(format!("∑ GRAPHING CALCULATOR · DECK {}", deck.label()))
+                    .strong()
+                    .color(accent),
+            )
+            .id(egui::Id::new(("calculator-window", index)))
+            .open(&mut calculator_open)
+            .default_size([1180.0, 780.0])
+            .min_width(560.0)
+            .resizable(true)
+            .vscroll(true)
+            .show(ctx, |ui| {
+                super::calculator::draw(
+                    ui,
+                    calculator,
+                    graph,
+                    selected_node,
+                    palette,
+                    egui::Id::new(("graphing-calculator", index)),
+                );
+            });
+            calculator.window_open = calculator_open;
+        }
         settings.normalize_output();
         state.generator_windows[index] = open;
     }
@@ -421,8 +449,7 @@ fn draw_window_body(
     palette: ThemePalette,
     show_mode: bool,
     controls_output: bool,
-    calculator: &mut String,
-    plot_bounds: &mut [f32; 4],
+    calculator: &mut super::calculator::GraphingCalculator,
     selected_node: &mut u64,
     geometry_library: &mut Vec<GeometryGraph>,
     midi_map: &super::MidiMapUi,
@@ -439,14 +466,37 @@ fn draw_window_body(
         }
     });
     stats_line(ui, settings, stats, palette);
-    draw_geometry_lab(
-        ui,
-        settings,
-        calculator,
-        plot_bounds,
-        selected_node,
-        geometry_library,
-    );
+    draw_geometry_lab(ui, settings, selected_node, geometry_library, palette);
+    egui::CollapsingHeader::new(
+        "GRAPHING CALCULATOR · 2D & 3D functions, curves, fields, surfaces",
+    )
+    .id_salt(("graphing-calculator", deck.index()))
+    .show(ui, |ui| {
+        if calculator.window_open {
+            ui.horizontal(|ui| {
+                ui.weak("The calculator is open in its own window.");
+                if ui.button("Bring it back here").clicked() {
+                    calculator.window_open = false;
+                }
+            });
+        } else {
+            if ui
+                .button("Open in its own window")
+                .on_hover_text("A larger, resizable calculator window for this deck")
+                .clicked()
+            {
+                calculator.window_open = true;
+            }
+            super::calculator::draw(
+                ui,
+                calculator,
+                settings.geometry_graph.as_mut(),
+                *selected_node,
+                palette,
+                egui::Id::new(("graphing-calculator", deck.index())),
+            );
+        }
+    });
     ui.separator();
 
     ui.weak("Use MIDI Map in the main window, then click a parameter to learn; right-click clears its mapping.");
@@ -681,13 +731,12 @@ fn draw_window_body(
 fn draw_geometry_lab(
     ui: &mut egui::Ui,
     settings: &mut GeneratorSettings,
-    calculator: &mut String,
-    plot_bounds: &mut [f32; 4],
     selected_node: &mut u64,
     library: &mut Vec<GeometryGraph>,
+    palette: ThemePalette,
 ) {
     let mut clear_graph = false;
-    ui.collapsing("GEOMETRY LAB · node graph & calculator", |ui| {
+    ui.collapsing("GEOMETRY LAB · node graph", |ui| {
         if settings.geometry_graph.is_none() {
             if ui.button("Create a custom geometry graph").clicked() {
                 settings.geometry_graph = Some(GeometryGraph::default());
@@ -829,7 +878,7 @@ fn draw_geometry_lab(
         ui.separator();
         ui.strong("NODE WORKSPACE");
         ui.weak("Drag to arrange · click a node to focus it · wire inputs in the inspector.");
-        changed |= draw_graph_canvas(ui, graph, selected_node);
+        changed |= draw_graph_canvas(ui, graph, selected_node, palette);
         let ids: Vec<_> = graph.nodes.iter().map(|n| n.id).collect();
         if !graph.nodes.iter().any(|node| node.id.0 == *selected_node) {
             *selected_node = graph.output.0;
@@ -897,7 +946,7 @@ fn draw_geometry_lab(
                     node.inputs.push(candidate);
                     changed = true;
                 }
-                changed |= draw_node_controls(ui, node);
+                changed |= draw_node_controls(ui, node, palette);
             });
             if duplicate_requested {
                 let duplicate = graph.nodes[node_index].clone();
@@ -952,16 +1001,15 @@ fn draw_geometry_lab(
             changed = true;
         }
         ui.separator();
-        changed |= draw_graphing_calculator(ui, graph, calculator, plot_bounds, *selected_node);
         match virtual_generate::validate_geometry_graph(graph) {
             Ok(()) => {
                 ui.colored_label(
-                    egui::Color32::LIGHT_GREEN,
+                    palette.success,
                     format!("Valid graph · {} nodes", graph.nodes.len()),
                 );
             }
             Err(error) => {
-                ui.colored_label(egui::Color32::LIGHT_RED, error.to_string());
+                ui.colored_label(palette.danger, error.to_string());
             }
         }
         if changed {
@@ -1025,6 +1073,7 @@ fn draw_graph_canvas(
     ui: &mut egui::Ui,
     graph: &mut GeometryGraph,
     selected_node: &mut u64,
+    palette: ThemePalette,
 ) -> bool {
     let content_width = ui.available_width().max(760.0);
     let content_height = graph
@@ -1090,7 +1139,7 @@ fn draw_graph_canvas(
                 changed = true;
             }
             let color = if graph.output == node.id {
-                egui::Color32::from_rgb(40, 100, 75)
+                palette.control_tint(palette.success, 0.35)
             } else {
                 ui.visuals().window_fill
             };
@@ -1112,16 +1161,8 @@ fn draw_graph_canvas(
                 ),
                 egui::StrokeKind::Inside,
             );
-            painter.circle_filled(
-                node_rect.left_center(),
-                4.0,
-                egui::Color32::from_rgb(103, 187, 220),
-            );
-            painter.circle_filled(
-                node_rect.right_center(),
-                4.0,
-                egui::Color32::from_rgb(232, 177, 95),
-            );
+            painter.circle_filled(node_rect.left_center(), 4.0, palette.secondary);
+            painter.circle_filled(node_rect.right_center(), 4.0, palette.warning);
             painter.text(
                 node_rect.center(),
                 egui::Align2::CENTER_CENTER,
@@ -1142,283 +1183,6 @@ fn draw_graph_canvas(
     changed
 }
 
-fn draw_graphing_calculator(
-    ui: &mut egui::Ui,
-    graph: &mut GeometryGraph,
-    expression: &mut String,
-    bounds: &mut [f32; 4],
-    selected_node: u64,
-) -> bool {
-    let mut changed = false;
-    ui.group(|ui| {
-        ui.horizontal(|ui| {
-            ui.strong("GRAPHING CALCULATOR");
-            ui.weak("y = f(x) · safe math expressions");
-        });
-        ui.horizontal_wrapped(|ui| {
-            ui.weak("Build:");
-            for (label, token) in [
-                ("x", "x"),
-                ("+", "+"),
-                ("−", "-"),
-                ("×", "*"),
-                ("÷", "/"),
-                ("^", "^"),
-                ("(", "("),
-                (")", ")"),
-                ("π", "pi"),
-                ("τ", "tau"),
-                ("sin", "sin("),
-                ("cos", "cos("),
-                ("tan", "tan("),
-                ("sqrt", "sqrt("),
-                ("abs", "abs("),
-                ("log", "log("),
-            ] {
-                if ui.small_button(label).clicked() {
-                    expression.push_str(token);
-                    changed = true;
-                }
-            }
-            for digit in ["7", "8", "9", "4", "5", "6", "1", "2", "3", "0", "."] {
-                if ui.small_button(digit).clicked() {
-                    expression.push_str(digit);
-                    changed = true;
-                }
-            }
-            if ui.small_button("⌫").clicked() {
-                expression.pop();
-                changed = true;
-            }
-            if ui.small_button("Clear").clicked() {
-                expression.clear();
-                changed = true;
-            }
-        });
-        ui.horizontal(|ui| {
-            ui.label("y =");
-            changed |= ui
-                .add(
-                    egui::TextEdit::singleline(expression)
-                        .desired_width(340.0)
-                        .font(egui::TextStyle::Monospace)
-                        .hint_text("e.g. sin(x) · x^2 · abs(x)"),
-                )
-                .changed();
-            if ui
-                .button("Apply to curve node")
-                .on_hover_text(
-                    "Maps the current x-axis range across curve parameter t from 0 to 1.",
-                )
-                .clicked()
-            {
-                let x_mapping = format!("({:.6}+({:.6})*t)", bounds[0], bounds[1] - bounds[0]);
-                let target = graph
-                    .nodes
-                    .iter()
-                    .position(|node| {
-                        node.id.0 == selected_node
-                            && matches!(node.kind, GeometryNodeKind::Curve { .. })
-                    })
-                    .or_else(|| {
-                        graph
-                            .nodes
-                            .iter()
-                            .position(|node| matches!(node.kind, GeometryNodeKind::Curve { .. }))
-                    });
-                if let Some(node) = target.and_then(|index| graph.nodes.get_mut(index))
-                    && let GeometryNodeKind::Curve { x, y, .. } = &mut node.kind
-                {
-                    *x = x_mapping.clone();
-                    *y = replace_calculator_variable(expression, "x", &format!("({x_mapping})"));
-                    changed = true;
-                }
-            }
-            if ui.button("Reset view").clicked() {
-                *bounds = [-10.0, 10.0, -5.0, 5.0];
-            }
-        });
-        ui.horizontal(|ui| {
-            for (label, index) in [("x min", 0), ("x max", 1), ("y min", 2), ("y max", 3)] {
-                ui.label(label);
-                changed |= ui
-                    .add(
-                        egui::DragValue::new(&mut bounds[index])
-                            .speed(0.1)
-                            .range(-1000.0..=1000.0),
-                    )
-                    .changed();
-            }
-        });
-        let plot_size = egui::vec2(ui.available_width().max(400.0), 240.0);
-        let (rect, response) = ui.allocate_exact_size(plot_size, egui::Sense::drag());
-        let painter = ui.painter_at(rect);
-        painter.rect_filled(rect, 4.0, egui::Color32::from_rgb(13, 18, 25));
-        if bounds[0] >= bounds[1] {
-            bounds[1] = bounds[0] + 1.0;
-        }
-        if bounds[2] >= bounds[3] {
-            bounds[3] = bounds[2] + 1.0;
-        }
-        let to_screen = |x: f32, y: f32| -> egui::Pos2 {
-            egui::pos2(
-                rect.left() + (x - bounds[0]) / (bounds[1] - bounds[0]) * rect.width(),
-                rect.bottom() - (y - bounds[2]) / (bounds[3] - bounds[2]) * rect.height(),
-            )
-        };
-        let tick_step = |span: f32| {
-            let raw = span / 10.0;
-            let magnitude = 10.0_f32.powf(raw.abs().max(1.0e-6).log10().floor());
-            [1.0, 2.0, 5.0, 10.0]
-                .into_iter()
-                .map(|m| m * magnitude)
-                .find(|step| raw <= *step)
-                .unwrap_or(10.0 * magnitude)
-        };
-        let x_step = tick_step(bounds[1] - bounds[0]);
-        let y_step = tick_step(bounds[3] - bounds[2]);
-        let grid = egui::Color32::from_rgb(40, 50, 62);
-        let axis = egui::Color32::from_rgb(110, 126, 144);
-        let mut x = (bounds[0] / x_step).ceil() * x_step;
-        while x <= bounds[1] {
-            let px = to_screen(x, 0.0).x;
-            painter.line_segment(
-                [egui::pos2(px, rect.top()), egui::pos2(px, rect.bottom())],
-                egui::Stroke::new(
-                    if x.abs() < x_step * 0.001 { 1.2 } else { 0.6 },
-                    if x.abs() < x_step * 0.001 { axis } else { grid },
-                ),
-            );
-            painter.text(
-                egui::pos2(px + 3.0, rect.bottom() - 15.0),
-                egui::Align2::LEFT_BOTTOM,
-                format!("{x:.3}"),
-                egui::FontId::proportional(10.0),
-                axis,
-            );
-            x += x_step;
-        }
-        let mut y = (bounds[2] / y_step).ceil() * y_step;
-        while y <= bounds[3] {
-            let py = to_screen(0.0, y).y;
-            painter.line_segment(
-                [egui::pos2(rect.left(), py), egui::pos2(rect.right(), py)],
-                egui::Stroke::new(
-                    if y.abs() < y_step * 0.001 { 1.2 } else { 0.6 },
-                    if y.abs() < y_step * 0.001 { axis } else { grid },
-                ),
-            );
-            painter.text(
-                egui::pos2(rect.left() + 4.0, py - 3.0),
-                egui::Align2::LEFT_BOTTOM,
-                format!("{y:.3}"),
-                egui::FontId::proportional(10.0),
-                axis,
-            );
-            y += y_step;
-        }
-        let compiled = CalculatorExpression::compile(expression);
-        let mut segments = Vec::new();
-        let mut last_point = None;
-        if let Ok(compiled) = &compiled {
-            for i in 0..=512 {
-                let x = bounds[0] + (bounds[1] - bounds[0]) * (i as f32 / 512.0);
-                let context = CalculatorValue {
-                    values: std::collections::HashMap::from([
-                        ("x".into(), x),
-                        ("t".into(), x),
-                        ("u".into(), x),
-                        ("v".into(), x),
-                        ("y".into(), 0.0),
-                        ("z".into(), 0.0),
-                        ("time".into(), 0.0),
-                        ("bass".into(), 0.0),
-                        ("mid".into(), 0.0),
-                        ("high".into(), 0.0),
-                        ("seed".into(), 0.0),
-                        ("pi".into(), std::f32::consts::PI),
-                        ("tau".into(), std::f32::consts::TAU),
-                        ("e".into(), std::f32::consts::E),
-                    ]),
-                };
-                if let Ok(y) = compiled.evaluate(&context) {
-                    let point = to_screen(x, y);
-                    if let Some(previous) = last_point {
-                        segments.push([previous, point]);
-                    }
-                    last_point = Some(point);
-                } else {
-                    last_point = None;
-                }
-            }
-        }
-        for segment in segments {
-            painter.line_segment(
-                segment,
-                egui::Stroke::new(2.0, egui::Color32::from_rgb(65, 210, 180)),
-            );
-        }
-        if response.dragged() {
-            let delta = response.drag_motion();
-            let dx = delta.x / rect.width() * (bounds[1] - bounds[0]);
-            let dy = delta.y / rect.height() * (bounds[3] - bounds[2]);
-            bounds[0] -= dx;
-            bounds[1] -= dx;
-            bounds[2] += dy;
-            bounds[3] += dy;
-        }
-        if response.hovered() {
-            let zoom = ui.input(|input| input.smooth_scroll_delta.y);
-            if zoom != 0.0 {
-                let factor = if zoom > 0.0 { 0.9 } else { 1.1 };
-                let center_x = (bounds[0] + bounds[1]) * 0.5;
-                let center_y = (bounds[2] + bounds[3]) * 0.5;
-                let half_x = (bounds[1] - bounds[0]) * 0.5 * factor;
-                let half_y = (bounds[3] - bounds[2]) * 0.5 * factor;
-                *bounds = [
-                    center_x - half_x,
-                    center_x + half_x,
-                    center_y - half_y,
-                    center_y + half_y,
-                ];
-            }
-        }
-        match compiled {
-            Ok(_) => {
-                ui.label("Drag to pan · scroll to zoom · set precise bounds above.");
-            }
-            Err(error) => {
-                ui.colored_label(egui::Color32::LIGHT_RED, format!("Expression: {error}"));
-            }
-        }
-    });
-    changed
-}
-
-fn replace_calculator_variable(expression: &str, variable: &str, replacement: &str) -> String {
-    let bytes = expression.as_bytes();
-    let mut result = String::with_capacity(expression.len());
-    let mut start = 0;
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == variable.as_bytes()[0]
-            && (index == 0
-                || !(bytes[index - 1].is_ascii_alphanumeric() || bytes[index - 1] == b'_'))
-            && (index + 1 == bytes.len()
-                || !(bytes[index + 1].is_ascii_alphanumeric() || bytes[index + 1] == b'_'))
-        {
-            result.push_str(&expression[start..index]);
-            result.push_str(replacement);
-            index += variable.len();
-            start = index;
-        } else {
-            index += 1;
-        }
-    }
-    result.push_str(&expression[start..]);
-    result
-}
-
 fn graph_node_label(kind: &GeometryNodeKind) -> &'static str {
     match kind {
         GeometryNodeKind::Curve { .. } => "Curve",
@@ -1432,7 +1196,18 @@ fn graph_node_label(kind: &GeometryNodeKind) -> &'static str {
     }
 }
 
-fn draw_node_controls(ui: &mut egui::Ui, node: &mut GeometryNode) -> bool {
+fn draw_node_controls(ui: &mut egui::Ui, node: &mut GeometryNode, palette: ThemePalette) -> bool {
+    // Expression fields use the theme's text and field colours, monospace.
+    let expression = |ui: &mut egui::Ui, text: &mut String, width: f32| {
+        ui.add(
+            egui::TextEdit::singleline(text)
+                .font(egui::TextStyle::Monospace)
+                .text_color(palette.text)
+                .background_color(palette.extreme)
+                .desired_width(width),
+        )
+        .changed()
+    };
     let mut changed = false;
     match &mut node.kind {
         GeometryNodeKind::Curve {
@@ -1444,11 +1219,11 @@ fn draw_node_controls(ui: &mut egui::Ui, node: &mut GeometryNode) -> bool {
         } => {
             ui.horizontal(|ui| {
                 ui.label("x(t)");
-                changed |= ui.text_edit_singleline(x).changed();
+                changed |= expression(ui, x, 160.0);
                 ui.label("y(t)");
-                changed |= ui.text_edit_singleline(y).changed();
+                changed |= expression(ui, y, 160.0);
                 ui.label("z(t)");
-                changed |= ui.text_edit_singleline(z).changed();
+                changed |= expression(ui, z, 160.0);
             });
             changed |= ui
                 .add(egui::Slider::new(steps, 2..=2048).text("Samples"))
@@ -1464,11 +1239,11 @@ fn draw_node_controls(ui: &mut egui::Ui, node: &mut GeometryNode) -> bool {
         } => {
             ui.horizontal(|ui| {
                 ui.label("x(u,v)");
-                changed |= ui.text_edit_singleline(x).changed();
+                changed |= expression(ui, x, 160.0);
                 ui.label("y(u,v)");
-                changed |= ui.text_edit_singleline(y).changed();
+                changed |= expression(ui, y, 160.0);
                 ui.label("z(u,v)");
-                changed |= ui.text_edit_singleline(z).changed();
+                changed |= expression(ui, z, 160.0);
             });
             changed |= ui
                 .add(egui::Slider::new(u_steps, 2..=256).text("U grid"))
@@ -1490,9 +1265,7 @@ fn draw_node_controls(ui: &mut egui::Ui, node: &mut GeometryNode) -> bool {
                 ui.horizontal(|ui| {
                     ui.label(label);
                     for expr in values {
-                        changed |= ui
-                            .add(egui::TextEdit::singleline(expr).desired_width(75.0))
-                            .changed();
+                        changed |= expression(ui, expr, 75.0);
                     }
                 });
             }
@@ -1500,7 +1273,7 @@ fn draw_node_controls(ui: &mut egui::Ui, node: &mut GeometryNode) -> bool {
         GeometryNodeKind::Twist { amount } => {
             ui.horizontal(|ui| {
                 ui.label("Twist amount(x,y,z,t,time)");
-                changed |= ui.text_edit_singleline(amount).changed();
+                changed |= expression(ui, amount, 160.0);
             });
         }
         GeometryNodeKind::RadialRepeat { copies, axis } => {
@@ -1524,9 +1297,9 @@ fn draw_node_controls(ui: &mut egui::Ui, node: &mut GeometryNode) -> bool {
         } => {
             ui.horizontal(|ui| {
                 ui.label("Amount");
-                changed |= ui.text_edit_singleline(amount).changed();
+                changed |= expression(ui, amount, 160.0);
                 ui.label("Frequency");
-                changed |= ui.text_edit_singleline(frequency).changed();
+                changed |= expression(ui, frequency, 160.0);
                 changed |= ui.add(egui::DragValue::new(seed).prefix("Seed ")).changed();
             });
         }

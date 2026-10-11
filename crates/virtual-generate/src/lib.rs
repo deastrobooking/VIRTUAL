@@ -6,6 +6,7 @@
 
 mod geometry;
 mod geometry_graph;
+pub mod graphing;
 mod math;
 mod patterns;
 mod render;
@@ -16,9 +17,9 @@ pub use geometry::{
     AudioBands, Geometry, GeometryBuffers, GeometryParams, Palette, Segment, generate,
 };
 pub use geometry_graph::{
-    CalculatorError, CalculatorExpression, CalculatorValue, GeometryGraph, GeometryGraphError,
-    GeometryNode, GeometryNodeKind, GeometryParameter, GraphAxis, GraphNodeId, MAX_GEOMETRY_NODES,
-    evaluate_geometry_graph, validate_geometry_graph,
+    BoundExpression, CalculatorError, CalculatorExpression, CalculatorValue, GeometryGraph,
+    GeometryGraphError, GeometryNode, GeometryNodeKind, GeometryParameter, GraphAxis, GraphNodeId,
+    MAX_GEOMETRY_NODES, evaluate_geometry_graph, validate_geometry_graph,
 };
 pub use math::{Mat3, Rng, Vec3, hsl_to_rgb};
 pub use render::{Generator, GeneratorStackRenderer, GeneratorStats};

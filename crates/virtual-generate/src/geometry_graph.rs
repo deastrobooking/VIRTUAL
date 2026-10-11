@@ -779,6 +779,92 @@ impl CalculatorExpression {
     }
 }
 
+/// An expression with its variables resolved to slot indices, for fast
+/// repeated evaluation such as plotting. Real-valued maths: out-of-domain
+/// inputs and division by zero produce NaN or infinity, which plotters treat
+/// as undefined instead of failing the whole expression.
+#[derive(Clone, Debug)]
+pub struct BoundExpression {
+    root: Bound,
+}
+
+#[derive(Clone, Debug)]
+enum Bound {
+    Number(f32),
+    Slot(usize),
+    Negate(Box<Bound>),
+    Binary(char, Box<Bound>, Box<Bound>),
+    One(fn(f32) -> f32, Box<Bound>),
+    Two(fn(f32, f32) -> f32, Box<Bound>, Box<Bound>),
+    Three(fn(f32, f32, f32) -> f32, Box<Bound>, Box<Bound>, Box<Bound>),
+}
+
+impl CalculatorExpression {
+    /// Resolves variables to positions in `slots`. Unknown variables fail.
+    pub fn bind(&self, slots: &[&str]) -> Result<BoundExpression, CalculatorError> {
+        fn bind(expr: &Expr, slots: &[&str]) -> Result<Bound, CalculatorError> {
+            Ok(match expr {
+                Expr::Number(value) => Bound::Number(*value),
+                Expr::Variable(name) => Bound::Slot(
+                    slots
+                        .iter()
+                        .position(|slot| slot == name)
+                        .ok_or_else(|| CalculatorError::Variable(name.clone()))?,
+                ),
+                Expr::Unary('-', value) => Bound::Negate(Box::new(bind(value, slots)?)),
+                Expr::Unary(_, value) => bind(value, slots)?,
+                Expr::Binary(op, left, right) => Bound::Binary(
+                    *op,
+                    Box::new(bind(left, slots)?),
+                    Box::new(bind(right, slots)?),
+                ),
+                Expr::Call(name, args) => {
+                    let mut args = args.iter().map(|arg| bind(arg, slots).map(Box::new));
+                    let mut next = || {
+                        args.next()
+                            .ok_or_else(|| CalculatorError::Arity(name.clone()))?
+                    };
+                    match function(name).ok_or_else(|| CalculatorError::Function(name.clone()))? {
+                        Function::One(f) => Bound::One(f, next()?),
+                        Function::Two(f) => Bound::Two(f, next()?, next()?),
+                        Function::Three(f) => Bound::Three(f, next()?, next()?, next()?),
+                    }
+                }
+            })
+        }
+        Ok(BoundExpression {
+            root: bind(&self.root, slots)?,
+        })
+    }
+}
+
+impl BoundExpression {
+    /// Evaluates with `values[i]` for slot `i`. May return NaN or infinity.
+    pub fn eval(&self, values: &[f32]) -> f32 {
+        fn eval(node: &Bound, values: &[f32]) -> f32 {
+            match node {
+                Bound::Number(value) => *value,
+                Bound::Slot(index) => values[*index],
+                Bound::Negate(value) => -eval(value, values),
+                Bound::Binary(op, left, right) => {
+                    let (a, b) = (eval(left, values), eval(right, values));
+                    match op {
+                        '+' => a + b,
+                        '-' => a - b,
+                        '*' => a * b,
+                        '/' => a / b,
+                        _ => a.powf(b),
+                    }
+                }
+                Bound::One(f, a) => f(eval(a, values)),
+                Bound::Two(f, a, b) => f(eval(a, values), eval(b, values)),
+                Bound::Three(f, a, b, c) => f(eval(a, values), eval(b, values), eval(c, values)),
+            }
+        }
+        eval(&self.root, values)
+    }
+}
+
 impl GeometryGraph {
     pub fn uses_variable(&self, variable: &str) -> bool {
         self.nodes
@@ -788,6 +874,74 @@ impl GeometryGraph {
                 CalculatorExpression::compile(source).is_ok_and(|expr| expr.uses_variable(variable))
             })
     }
+}
+
+/// A built-in function, with real-valued semantics: inputs outside a
+/// function's domain produce NaN, which callers treat as undefined.
+#[derive(Clone, Copy)]
+enum Function {
+    One(fn(f32) -> f32),
+    Two(fn(f32, f32) -> f32),
+    Three(fn(f32, f32, f32) -> f32),
+}
+
+impl Function {
+    fn arity(self) -> usize {
+        match self {
+            Self::One(_) => 1,
+            Self::Two(_) => 2,
+            Self::Three(_) => 3,
+        }
+    }
+}
+
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0).abs().max(f32::EPSILON)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Every function an expression may call.
+fn function(name: &str) -> Option<Function> {
+    use Function::{One, Three, Two};
+    Some(match name {
+        "sin" => One(f32::sin),
+        "cos" => One(f32::cos),
+        "tan" => One(f32::tan),
+        "asin" => One(f32::asin),
+        "acos" => One(f32::acos),
+        "atan" => One(f32::atan),
+        "sec" => One(|x| 1.0 / x.cos()),
+        "csc" => One(|x| 1.0 / x.sin()),
+        "cot" => One(|x| 1.0 / x.tan()),
+        "sinh" => One(f32::sinh),
+        "cosh" => One(f32::cosh),
+        "tanh" => One(f32::tanh),
+        "asinh" => One(f32::asinh),
+        "acosh" => One(f32::acosh),
+        "atanh" => One(f32::atanh),
+        "abs" => One(f32::abs),
+        "sqrt" => One(f32::sqrt),
+        "cbrt" => One(f32::cbrt),
+        "exp" => One(f32::exp),
+        "log" | "ln" => One(f32::ln),
+        "log10" => One(f32::log10),
+        "log2" => One(f32::log2),
+        "floor" => One(f32::floor),
+        "ceil" => One(f32::ceil),
+        "fract" => One(f32::fract),
+        "round" => One(f32::round),
+        "sign" | "sgn" => One(f32::signum),
+        "min" => Two(f32::min),
+        "max" => Two(f32::max),
+        "pow" => Two(f32::powf),
+        "atan2" => Two(f32::atan2),
+        "mod" => Two(|a, b| a.rem_euclid(b.abs())),
+        "hypot" => Two(f32::hypot),
+        "clamp" => Three(|x, a, b| x.clamp(a.min(b), a.max(b))),
+        "lerp" => Three(|a, b, t| a + (b - a) * t),
+        "smoothstep" => Three(smoothstep),
+        _ => return None,
+    })
 }
 
 fn validate_expr(expr: &Expr) -> Result<(), CalculatorError> {
@@ -801,13 +955,9 @@ fn validate_expr(expr: &Expr) -> Result<(), CalculatorError> {
             for arg in args {
                 validate_expr(arg)?;
             }
-            let arity = match name.as_str() {
-                "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "abs" | "sqrt" | "exp"
-                | "log" | "floor" | "ceil" | "fract" | "round" | "sign" => 1,
-                "min" | "max" | "pow" | "atan2" | "mod" | "hypot" => 2,
-                "clamp" | "lerp" | "smoothstep" => 3,
-                _ => return Err(CalculatorError::Function(name.clone())),
-            };
+            let arity = function(name)
+                .ok_or_else(|| CalculatorError::Function(name.clone()))?
+                .arity();
             if args.len() != arity {
                 return Err(CalculatorError::Arity(name.clone()));
             }
@@ -876,11 +1026,13 @@ fn eval(expr: &Expr, c: &CalculatorValue) -> Result<f32, CalculatorError> {
                 "hypot" if a.len() == 2 => a[0].hypot(a[1]),
                 "clamp" if a.len() == 3 => a[0].clamp(a[1].min(a[2]), a[1].max(a[2])),
                 "lerp" if a.len() == 3 => a[0] + (a[1] - a[0]) * a[2],
-                "smoothstep" if a.len() == 3 => {
-                    let t = ((a[2] - a[0]) / (a[1] - a[0]).abs().max(f32::EPSILON)).clamp(0.0, 1.0);
-                    t * t * (3.0 - 2.0 * t)
-                }
-                _ => return Err(CalculatorError::Function(name.clone())),
+                "smoothstep" if a.len() == 3 => smoothstep(a[0], a[1], a[2]),
+                _ => match (function(name), a.as_slice()) {
+                    (Some(Function::One(f)), [x]) => f(*x),
+                    (Some(Function::Two(f)), [x, y]) => f(*x, *y),
+                    (Some(Function::Three(f)), [x, y, z]) => f(*x, *y, *z),
+                    _ => return Err(CalculatorError::Function(name.clone())),
+                },
             }
         }
     };
@@ -919,7 +1071,9 @@ impl Parser<'_> {
         } else {
             let name = self.identifier()?;
             self.space();
-            if self.take(b'(') {
+            // `name(` is a call only for a built-in function; otherwise it is
+            // a variable times a parenthesised factor, e.g. `x(1+x)`.
+            if function(&name).is_some() && self.take(b'(') {
                 let mut args = Vec::new();
                 self.space();
                 if !self.take(b')') {
@@ -950,6 +1104,16 @@ impl Parser<'_> {
             let Some(op) = self.peek().map(char::from) else {
                 break;
             };
+            // A factor directly after another (`2x`, `3sin(x)`, `(a)(b)`)
+            // multiplies, at the precedence of `*`.
+            if op.is_ascii_alphanumeric() || op == '.' || op == '(' || op == '_' {
+                if 2 < min {
+                    break;
+                }
+                let rhs = self.expression(3)?;
+                lhs = Expr::Binary('*', Box::new(lhs), Box::new(rhs));
+                continue;
+            }
             let prec = match op {
                 '+' | '-' => 1,
                 '*' | '/' => 2,
@@ -979,15 +1143,22 @@ impl Parser<'_> {
     }
     fn number(&mut self) -> Result<f32, CalculatorError> {
         let start = self.at;
-        while self.peek().is_some_and(|c| {
-            c.is_ascii_digit()
-                || c == b'.'
-                || c == b'e'
-                || c == b'E'
-                || c == b'+' && matches!(self.src.get(self.at.wrapping_sub(1)), Some(b'e' | b'E'))
-                || c == b'-' && matches!(self.src.get(self.at.wrapping_sub(1)), Some(b'e' | b'E'))
-        }) {
+        while self.peek().is_some_and(|c| c.is_ascii_digit() || c == b'.') {
             self.at += 1;
+        }
+        // Scientific notation only when digits follow: `2e3`, `1e-4`. A bare
+        // `e` after a number is the constant, as in `2e`.
+        if matches!(self.peek(), Some(b'e' | b'E')) {
+            let mut end = self.at + 1;
+            if matches!(self.src.get(end), Some(b'+' | b'-')) {
+                end += 1;
+            }
+            if self.src.get(end).is_some_and(u8::is_ascii_digit) {
+                self.at = end;
+                while self.peek().is_some_and(|c| c.is_ascii_digit()) {
+                    self.at += 1;
+                }
+            }
         }
         let s = std::str::from_utf8(&self.src[start..self.at])
             .map_err(|_| CalculatorError::Token(start))?;
@@ -1032,6 +1203,50 @@ mod tests {
         );
         assert!(CalculatorExpression::compile("std::process::exit(0)").is_err());
     }
+    #[test]
+    fn implicit_multiplication_constants_and_scientific_notation() {
+        let value = |source: &str, x: f32| {
+            CalculatorExpression::compile(source)
+                .unwrap_or_else(|error| panic!("{source}: {error}"))
+                .evaluate(&CalculatorValue {
+                    values: HashMap::from([("x".into(), x)]),
+                })
+                .unwrap()
+        };
+        assert_eq!(value("2x", 3.0), 6.0);
+        assert_eq!(value("3sin(0)+2x^2", 2.0), 8.0);
+        assert_eq!(value("x(1+x)", 2.0), 6.0);
+        assert_eq!(value("(x+1)(x-1)", 3.0), 8.0);
+        assert!((value("2pi", 0.0) - std::f32::consts::TAU).abs() < 1e-6);
+        assert!((value("2e", 0.0) - 2.0 * std::f32::consts::E).abs() < 1e-6);
+        assert_eq!(value("2e3", 0.0), 2000.0);
+        assert_eq!(value("1e-2", 0.0), 0.01);
+        assert_eq!(value("-2x", 3.0), -6.0);
+        assert!((value("ln(e^2)+log10(100)", 0.0) - 4.0).abs() < 1e-5);
+        assert!((value("cosh(0)+tanh(0)", 0.0) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn bound_expressions_match_the_interpreter_and_flag_undefined_points() {
+        let source = "sin(x)*y + clamp(x, 0, 1)^2 - hypot(x, y)/3";
+        let compiled = CalculatorExpression::compile(source).unwrap();
+        let bound = compiled.bind(&["x", "y"]).unwrap();
+        for (x, y) in [(0.3, 1.2), (-2.0, 0.5), (4.0, -3.0)] {
+            let expected = compiled
+                .evaluate(&CalculatorValue {
+                    values: HashMap::from([("x".into(), x), ("y".into(), y)]),
+                })
+                .unwrap();
+            assert!((bound.eval(&[x, y]) - expected).abs() < 1e-5);
+        }
+        let sqrt = CalculatorExpression::compile("sqrt(x)").unwrap();
+        assert!(sqrt.bind(&["x"]).unwrap().eval(&[-1.0]).is_nan());
+        assert!(matches!(
+            sqrt.bind(&["y"]),
+            Err(CalculatorError::Variable(name)) if name == "x"
+        ));
+    }
+
     #[test]
     fn graph_validates_cycles_and_evaluates_a_surface() {
         let mut graph = GeometryGraph::default();

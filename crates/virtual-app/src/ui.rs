@@ -6,6 +6,7 @@
 
 mod audio;
 pub(crate) mod buttons;
+pub(crate) mod calculator;
 mod clips;
 mod deck;
 mod diagnostics;
@@ -141,10 +142,8 @@ pub struct UiState {
     pub generator_seen: [bool; 4],
     /// Reusable geometry graphs persisted with the show project.
     pub geometry_library: Vec<virtual_generate::GeometryGraph>,
-    /// Calculator scratch expressions, one per generator deck.
-    pub geometry_calculator: [String; 4],
-    /// Graphing-calculator view bounds per generator deck: xmin, xmax, ymin, ymax.
-    pub geometry_plot_bounds: [[f32; 4]; 4],
+    /// Graphing calculator, one per generator deck (session only).
+    pub geometry_calculator: [calculator::GraphingCalculator; 4],
     /// Focused geometry node per generator deck.
     pub geometry_selected_node: [u64; 4],
     pub audio_device_id: String,
@@ -260,8 +259,7 @@ impl Default for UiState {
             generator_windows: [false; 4],
             generator_seen: [false; 4],
             geometry_library: Vec::new(),
-            geometry_calculator: std::array::from_fn(|_| "sin(tau*t)".to_owned()),
-            geometry_plot_bounds: [[-10.0, 10.0, -5.0, 5.0]; 4],
+            geometry_calculator: Default::default(),
             geometry_selected_node: [0; 4],
             audio_device_id: String::new(),
             audio_analysis: AudioAnalysisSettings::default(),
