@@ -93,8 +93,14 @@ polar and 3D curves map their t or θ range; surfaces map the visible x and y
 ranges onto u and v. Save a graph to the project's Geometry library to reuse it
 from another layer.
 
-Calculator objects are kept for the session; they are not yet saved in the
-project.
+Each deck's calculator is saved in the project: every object with its colour,
+visibility, f′/roots/area options and parameter and slider ranges, plus the
+2D/3D mode, view, 3D camera and table settings. Editing objects marks the
+project as modified; panning, zooming and orbiting are saved without doing so.
+An untouched calculator writes nothing, older projects open with the default
+calculator, and damaged or hand-edited values are repaired when loading
+instead of rejecting the project. Animation time and the open/closed state of
+the calculator window are not saved.
 
 Graphs in that library and graphs assigned to generator layers are stored in
 the project file.

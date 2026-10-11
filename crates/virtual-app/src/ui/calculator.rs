@@ -12,6 +12,12 @@ use virtual_generate::graphing::{
 use virtual_generate::{GeometryGraph, GeometryNodeKind};
 
 use super::theme::ThemePalette;
+use virtual_io::{CalculatorItemProject, CalculatorProject};
+
+/// Limits applied when loading: objects per calculator and bytes per
+/// expression (the evaluator rejects longer expressions anyway).
+const MAX_SAVED_ITEMS: usize = 128;
+const MAX_SAVED_SOURCE: usize = 1024;
 
 const DEFAULT_VIEW: View = View {
     x: [-10.0, 10.0],
@@ -106,6 +112,125 @@ impl Default for GraphingCalculator {
 }
 
 impl GraphingCalculator {
+    /// The saved form, or `None` when nothing differs from a new calculator
+    /// (so an untouched calculator does not make a project look edited).
+    pub fn to_project(&self) -> Option<CalculatorProject> {
+        let project = self.project();
+        (project != Self::default().project()).then_some(project)
+    }
+
+    fn project(&self) -> CalculatorProject {
+        CalculatorProject {
+            items: self
+                .items
+                .iter()
+                .map(|item| CalculatorItemProject {
+                    source: item.source.clone(),
+                    color: item.color as u32,
+                    visible: item.visible,
+                    derivative: item.derivative,
+                    points: item.points,
+                    area: item.area,
+                    parameter: item.parameter,
+                    range: item.range,
+                })
+                .collect(),
+            view_3d: self.mode == ViewMode::Graph3d,
+            view: [
+                self.view.x[0],
+                self.view.x[1],
+                self.view.y[0],
+                self.view.y[1],
+            ],
+            camera: [self.yaw, self.pitch, self.zoom_3d],
+            show_table: self.show_table,
+            table_step: self.table_step,
+        }
+    }
+
+    /// The default calculator's saved form with navigation reset, for
+    /// deciding whether a saved calculator is an edit.
+    pub fn untouched_project() -> CalculatorProject {
+        Self::default().project().without_navigation()
+    }
+
+    /// Rebuilds a calculator from a saved one, repairing values a damaged
+    /// or hand-edited file could contain instead of rejecting the project.
+    pub fn from_project(project: &CalculatorProject) -> Self {
+        let finite_pair = |pair: [f32; 2], fallback: [f32; 2]| {
+            if pair.iter().all(|value| value.is_finite()) && pair[0] != pair[1] {
+                pair
+            } else {
+                fallback
+            }
+        };
+        let defaults = Self::default();
+        let items: Vec<GraphItem> = project
+            .items
+            .iter()
+            .take(MAX_SAVED_ITEMS)
+            .map(|saved| {
+                let mut source = saved.source.clone();
+                if source.len() > MAX_SAVED_SOURCE {
+                    let mut end = MAX_SAVED_SOURCE;
+                    while !source.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    source.truncate(end);
+                }
+                let mut item = GraphItem::new(source, saved.color as usize % 64);
+                item.visible = saved.visible;
+                item.derivative = saved.derivative;
+                item.points = saved.points;
+                item.area = saved
+                    .area
+                    .filter(|area| area.iter().all(|value| value.is_finite()));
+                item.parameter = finite_pair(saved.parameter, [0.0, std::f32::consts::TAU]);
+                item.range = finite_pair(saved.range, [-5.0, 5.0]);
+                item
+            })
+            .collect();
+        let [x0, x1, y0, y1] = project.view;
+        let view = if [x0, x1, y0, y1].iter().all(|v| v.is_finite()) && x0 < x1 && y0 < y1 {
+            View {
+                x: [x0, x1],
+                y: [y0, y1],
+            }
+        } else {
+            DEFAULT_VIEW
+        };
+        let [yaw, pitch, zoom] = project.camera;
+        let next_color = items.iter().map(|item| item.color + 1).max().unwrap_or(0);
+        Self {
+            items,
+            mode: if project.view_3d {
+                ViewMode::Graph3d
+            } else {
+                ViewMode::Graph2d
+            },
+            view,
+            yaw: if yaw.is_finite() { yaw } else { defaults.yaw },
+            pitch: if pitch.is_finite() {
+                pitch.clamp(-1.5, 1.5)
+            } else {
+                defaults.pitch
+            },
+            zoom_3d: if zoom.is_finite() {
+                zoom.clamp(0.2, 8.0)
+            } else {
+                defaults.zoom_3d
+            },
+            show_table: project.show_table,
+            table_step: if project.table_step.is_finite() && project.table_step > 0.0 {
+                project.table_step.clamp(0.001, 1000.0)
+            } else {
+                defaults.table_step
+            },
+            next_color,
+            ..defaults
+        }
+    }
+
     fn add(&mut self, source: String) {
         self.items.push(GraphItem::new(source, self.next_color));
         self.next_color += 1;
@@ -1535,6 +1660,70 @@ mod tests {
         let scope = calc.scope();
         assert_eq!(scope.names, ["a"]);
         assert_eq!(scope.values, [2.0]);
+    }
+
+    #[test]
+    fn calculators_round_trip_through_the_project_file() {
+        assert_eq!(
+            GraphingCalculator::default().to_project(),
+            None,
+            "untouched writes nothing"
+        );
+        let mut calc = GraphingCalculator::default();
+        calc.add("a = 3".into());
+        calc.add("z = sin(x) cos(y)".into());
+        calc.items[0].derivative = true;
+        calc.items[0].points = true;
+        calc.items[0].area = Some([-1.0, 2.5]);
+        calc.items[1].range = [0.0, 10.0];
+        calc.items[2].visible = false;
+        calc.items[2].color = 7;
+        calc.mode = ViewMode::Graph3d;
+        calc.view = View {
+            x: [-3.0, 4.0],
+            y: [-2.0, 2.0],
+        };
+        (calc.yaw, calc.pitch, calc.zoom_3d) = (1.2, -0.3, 2.0);
+        calc.show_table = true;
+        calc.table_step = 0.25;
+        let saved = calc.to_project().unwrap();
+        let json = serde_json::to_string(&saved).unwrap();
+        let loaded = GraphingCalculator::from_project(&serde_json::from_str(&json).unwrap());
+        assert_eq!(loaded.to_project(), Some(saved));
+        assert_eq!(loaded.items.len(), 3);
+        assert!(
+            loaded.next_color > 7,
+            "new objects do not reuse a saved colour"
+        );
+    }
+
+    #[test]
+    fn loading_repairs_damaged_values_instead_of_failing() {
+        let damaged = CalculatorProject {
+            items: (0..200)
+                .map(|_| CalculatorItemProject {
+                    source: "x".repeat(5000),
+                    area: Some([f32::NAN, 1.0]),
+                    parameter: [f32::INFINITY, 1.0],
+                    range: [2.0, 2.0],
+                    ..CalculatorItemProject::default()
+                })
+                .collect(),
+            view: [5.0, -5.0, f32::NAN, 1.0],
+            camera: [f32::NAN, 9.0, -1.0],
+            table_step: -3.0,
+            ..CalculatorProject::default()
+        };
+        let calc = GraphingCalculator::from_project(&damaged);
+        assert_eq!(calc.items.len(), MAX_SAVED_ITEMS);
+        let item = &calc.items[0];
+        assert_eq!(item.source.len(), MAX_SAVED_SOURCE);
+        assert_eq!(item.area, None);
+        assert_eq!(item.parameter, [0.0, std::f32::consts::TAU]);
+        assert_eq!(item.range, [-5.0, 5.0]);
+        assert_eq!(calc.view, DEFAULT_VIEW);
+        assert_eq!((calc.yaw, calc.pitch, calc.zoom_3d), (0.7, 1.5, 0.2));
+        assert_eq!(calc.table_step, 1.0);
     }
 
     #[test]

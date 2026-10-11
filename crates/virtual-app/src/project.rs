@@ -176,6 +176,7 @@ pub fn snapshot(
                         DeckState::Generator(stack) => Some(generator_stack_to_project(stack)),
                         _ => None,
                     },
+                    calculator: ui.geometry_calculator[deck.index()].to_project(),
                 }
             })
             .collect(),
@@ -435,6 +436,14 @@ fn semantic(mut project: ProjectFile) -> ProjectFile {
     for deck in &mut project.decks {
         // The moving playhead is recovery state, not an edit.
         deck.transport.position = 0.0;
+        // Panning, zooming and orbiting the calculator are saved but are not
+        // edits; a calculator with nothing else changed counts as absent.
+        let untouched = crate::ui::calculator::GraphingCalculator::untouched_project();
+        deck.calculator = deck
+            .calculator
+            .take()
+            .map(|calculator| calculator.without_navigation())
+            .filter(|calculator| *calculator != untouched);
     }
     project
 }
@@ -657,6 +666,11 @@ pub fn apply_deck(
         *destination = route_from_project(source);
     }
     ui.lfos[deck.index()] = lfos;
+    ui.geometry_calculator[deck.index()] = project
+        .calculator
+        .as_ref()
+        .map(crate::ui::calculator::GraphingCalculator::from_project)
+        .unwrap_or_default();
     DeckTransport {
         playing: project.transport.playing,
         frozen: project.transport.frozen,
@@ -1473,6 +1487,32 @@ mod tests {
             RecursivePattern::TorusKnot
         );
         assert_eq!(loaded.next_id, stack.next_id);
+    }
+
+    #[test]
+    fn calculator_navigation_is_saved_but_only_object_edits_are_dirty() {
+        use crate::ui::calculator::GraphingCalculator;
+        let saved = ProjectFile::default();
+        let mut current = saved.clone();
+        let mut calc = GraphingCalculator::default();
+        calc.view.x = [-2.0, 2.0];
+        calc.yaw = 2.0;
+        current.decks[0].calculator = calc.to_project();
+        assert!(current.decks[0].calculator.is_some(), "navigation is saved");
+        assert!(!is_dirty(&current, Some(&saved)), "panning is not an edit");
+        assert!(!is_dirty(&current, None), "nor for a new project");
+        calc.items[0].source = "y = x^3".into();
+        current.decks[0].calculator = calc.to_project();
+        assert!(is_dirty(&current, Some(&saved)), "editing an object is");
+
+        // Files from before the calculator was saved load without one.
+        let mut value = serde_json::to_value(&current).unwrap();
+        value["decks"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("calculator");
+        let legacy: ProjectFile = serde_json::from_value(value).unwrap();
+        assert_eq!(legacy.decks[0].calculator, None);
     }
 
     #[test]

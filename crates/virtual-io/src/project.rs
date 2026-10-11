@@ -1214,6 +1214,78 @@ pub struct DeckProject {
     /// is used as the fallback when loading project versions before 7.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generator_stack: Option<GeneratorStackProject>,
+    /// Graphing-calculator objects and view; absent while untouched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calculator: Option<CalculatorProject>,
+}
+
+/// A deck's graphing calculator. Values are sanitized when loaded.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CalculatorProject {
+    pub items: Vec<CalculatorItemProject>,
+    pub view_3d: bool,
+    /// 2D view: x min, x max, y min, y max.
+    pub view: [f32; 4],
+    /// 3D camera: yaw, pitch, zoom.
+    pub camera: [f32; 3],
+    pub show_table: bool,
+    pub table_step: f32,
+}
+
+impl Default for CalculatorProject {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            view_3d: false,
+            view: [-10.0, 10.0, -6.0, 6.0],
+            camera: [0.7, 0.45, 1.0],
+            show_table: false,
+            table_step: 1.0,
+        }
+    }
+}
+
+impl CalculatorProject {
+    /// The same calculator with navigation reset: panning, zooming and
+    /// orbiting are saved but are not edits.
+    pub fn without_navigation(&self) -> Self {
+        let defaults = Self::default();
+        Self {
+            view: defaults.view,
+            camera: defaults.camera,
+            ..self.clone()
+        }
+    }
+}
+
+/// One algebra-list object.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CalculatorItemProject {
+    pub source: String,
+    pub color: u32,
+    pub visible: bool,
+    pub derivative: bool,
+    pub points: bool,
+    pub area: Option<[f32; 2]>,
+    pub parameter: [f32; 2],
+    pub range: [f32; 2],
+}
+
+impl Default for CalculatorItemProject {
+    fn default() -> Self {
+        Self {
+            source: String::new(),
+            color: 0,
+            visible: true,
+            derivative: false,
+            points: false,
+            area: None,
+            parameter: [0.0, std::f32::consts::TAU],
+            range: [-5.0, 5.0],
+        }
+    }
 }
 
 impl Default for DeckProject {
@@ -1238,6 +1310,7 @@ impl Default for DeckProject {
             camera: None,
             generator: None,
             generator_stack: None,
+            calculator: None,
         }
     }
 }
