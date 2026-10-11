@@ -219,6 +219,38 @@ During stable-resolution playback, `alloc` should flatten while `reuse`
 continues increasing. Growth after a resolution switch is expected; continuous
 growth at a fixed resolution should be treated as a soak-test failure.
 
+## Clip automation
+
+Each clip can carry up to eight automation lanes. A lane draws one parameter
+(master opacity, crossfader, deck level or speed, generator parameters, video
+FX, deck or master package parameters) against a loop measured in beats, so it
+stays locked to the tempo and repeats every loop. Open a clip's editor and use
+**Automation** to set the loop length, add lanes, draw or click keyframes,
+choose each segment's curve (Linear, Smooth, Step, Exponential) and fill a lane
+with tempo-grid steps. Each lane's checkbox turns that lane on or off and is
+saved with the clip.
+
+**AUTOMATION ON / OFF** (in the automation editor and on the *Selected · Deck*
+row under the clip grid) is the deck's master switch:
+
+- **Off:** no clip automation runs on that deck. Every parameter stays where
+  you put it. The switch is saved with the project.
+- **On:** lanes run again, in the musical position they would have reached.
+
+You can also grab a single parameter while automation keeps running
+everything else: move it with the mouse, a MIDI control, OSC or the keyboard and
+that parameter switches to manual. Its lane shows **✋ manual** with a
+**Resume** button, and **↺ Resume N manual** hands back every grabbed
+parameter at once. Turning automation on, or launching a different clip's
+automation, also re-arms everything. Audio-band mappings never grab a
+parameter; only people do.
+
+The switch is a MIDI and OSC target (`Deck A · Clip automation on/off`,
+`/virtual/deck/{1-4}/automation`), learns as a toggle on a pad, and sends
+feedback. **Resume N manual** can be mapped like any other button. While
+automation drives a parameter, OSC feedback follows it, throttled to about
+30 updates per second.
+
 ## Decoder failure rehearsal and soak
 
 The normal workspace tests include an injected mid-stream decoder failure,

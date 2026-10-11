@@ -113,6 +113,9 @@ pub enum ControlTarget {
     },
     /// Removes the deck from the program mix without changing its level.
     DeckMute(u8),
+    /// Clip automation master switch for the deck: off leaves every
+    /// parameter under manual control; on resumes and re-arms all lanes.
+    DeckAutomation(u8),
     /// Draws the deck over the crossfaded mix; releasing unpins it.
     DeckPin(u8),
     /// Triggers that reorder the bottom-to-top layer stack.
@@ -156,6 +159,7 @@ impl ControlTarget {
             | Self::ClipLaunch { .. }
             | Self::SceneLaunch(_)
             | Self::DeckMute(_)
+            | Self::DeckAutomation(_)
             | Self::DeckPin(_)
             | Self::DeckLayerTop(_)
             | Self::DeckLayerUp(_)
@@ -363,6 +367,7 @@ fn note_mode_for(target: ControlTarget) -> MappingMode {
         ControlTarget::MasterBlackout
         | ControlTarget::MasterFreeze
         | ControlTarget::DeckMute(_)
+        | ControlTarget::DeckAutomation(_)
         | ControlTarget::DeckPin(_)
         | ControlTarget::DeckPlay(_)
         | ControlTarget::DeckFreeze(_)

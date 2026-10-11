@@ -483,6 +483,7 @@ pub(super) fn draw_clip_grid(
             deck.label(),
             address.slot + 1
         ));
+        automation_switch(ui, state, deck);
         let delete = buttons::midi_button(
             ui,
             "clips.delete_selected",
@@ -911,6 +912,7 @@ fn draw_automation_editor(
     targets.retain(|(_, target)| target.is_clip_automatable());
 
     let mut automation = clips.automation(address).cloned().unwrap_or_default();
+    ui.horizontal(|ui| automation_switch(ui, state, address.deck));
     ui.horizontal(|ui| {
         ui.label("Loop");
         ui.add(
@@ -1057,7 +1059,20 @@ fn draw_automation_editor(
         let mut remove_lane = false;
         ui.horizontal(|ui| {
             let lane = &mut automation.lanes[lane_index];
-            ui.checkbox(&mut lane.enabled, "");
+            ui.checkbox(&mut lane.enabled, "")
+                .on_hover_text("Lane on/off, saved with the clip");
+            let overrides = &mut state.automation_overrides[address.deck.index()];
+            if let Some(held) = overrides.iter().position(|target| *target == lane.target) {
+                ui.colored_label(state.theme.palette().warning, "✋ manual")
+                    .on_hover_text("You moved this parameter, so the lane is paused");
+                if ui
+                    .small_button("Resume")
+                    .on_hover_text("Hand this parameter back to its lane")
+                    .clicked()
+                {
+                    overrides.remove(held);
+                }
+            }
             let lane_label = targets
                 .iter()
                 .find(|(_, target)| *target == lane.target)
@@ -1443,6 +1458,57 @@ fn effect_parameter_short_name(effect: u8) -> &'static str {
     .get(effect as usize)
     .copied()
     .unwrap_or("Video FX")
+}
+
+/// Clip automation master switch for `deck`, plus a control that hands
+/// parameters the performer grabbed back to their lanes.
+fn automation_switch(ui: &mut egui::Ui, state: &mut UiState, deck: DeckId) {
+    let index = deck.index();
+    let palette = state.theme.palette();
+    let on = state.automation_enabled[index];
+    let clicked = buttons::mapped_target(ui, ControlTarget::DeckAutomation(index as u8), |ui| {
+        ui.add(
+            egui::Button::new(
+                egui::RichText::new(if on {
+                    "● AUTOMATION ON"
+                } else {
+                    "○ AUTOMATION OFF"
+                })
+                .strong(),
+            )
+            .selected(on)
+            .fill(if on {
+                palette.control_tint(palette.success, 0.35)
+            } else {
+                palette.control
+            }),
+        )
+        .on_hover_text(
+            "Clip automation for this deck. Off: every parameter is yours to tweak. \
+             On: lanes run again, including parameters you grabbed. Moving a \
+             parameter while automation runs takes over just that one.",
+        )
+    })
+    .clicked();
+    if clicked {
+        state.automation_enabled[index] = !on;
+    }
+    let held = state.automation_overrides[index].len();
+    if on
+        && held > 0
+        && buttons::midi_button(
+            ui,
+            &format!("deck.{index}.automation.resume"),
+            &format!("Deck {} · Resume grabbed automation", deck.label()),
+            |ui| {
+                ui.button(format!("↺ Resume {held} manual"))
+                    .on_hover_text("Hand the parameters you moved back to their automation lanes")
+            },
+        )
+        .clicked()
+    {
+        state.automation_overrides[index].clear();
+    }
 }
 
 #[cfg(test)]

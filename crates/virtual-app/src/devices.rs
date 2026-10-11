@@ -630,7 +630,7 @@ impl State {
         }
     }
 
-    fn publish_osc_control(&self, update: ControlUpdate) {
+    pub(crate) fn publish_osc_control(&self, update: ControlUpdate) {
         if let Some((address, value)) = crate::osc::feedback_for_control(update) {
             self.publish_osc_value(&address, value);
         }
@@ -687,6 +687,9 @@ impl State {
         let Some(operation) = command_for_control(update) else {
             return;
         };
+        // A person moving a parameter that clip automation drives takes it
+        // over. Audio mappings, replay and score playback do not.
+        let human = is_human(&origin);
         // Pinning is one-hot: journal the implicit unpin of the previous deck
         // so recovery, which replays each target's last value, ends correct.
         if let ControlTarget::DeckPin(deck) = update.target
@@ -705,6 +708,9 @@ impl State {
         }
         self.record_show_operation(origin, now, operation);
         self.apply_control_update_unrecorded(update, now);
+        if human {
+            self.take_over_from_automation(update.target);
+        }
         let feedback_value = match update.target {
             ControlTarget::DeckRestart(_)
             | ControlTarget::ClipLaunch { .. }
@@ -715,6 +721,27 @@ impl State {
             target: update.target,
             value: feedback_value,
         });
+    }
+
+    /// Stops running clip automation from writing `target` on every deck
+    /// whose active automation drives it, until the lane is resumed.
+    pub(crate) fn take_over_from_automation(&mut self, target: ControlTarget) {
+        if !target.is_clip_automatable() {
+            return;
+        }
+        for deck in DeckId::ALL {
+            let index = deck.index();
+            let automation = self
+                .clips
+                .active_automation(deck)
+                .and_then(|(slot, _)| self.clips.automation(ClipAddress { deck, slot }));
+            latch_takeover(
+                self.ui.automation_enabled[index],
+                &mut self.ui.automation_overrides[index],
+                automation,
+                target,
+            );
+        }
     }
 
     pub(crate) fn apply_control_update_unrecorded(&mut self, update: ControlUpdate, now: Instant) {
@@ -757,6 +784,16 @@ impl State {
             ControlTarget::DeckMute(deck) => {
                 if let Some(deck) = deck_id(deck) {
                     self.ui.bypassed[deck.index()] = update.value >= 0.5;
+                }
+            }
+            ControlTarget::DeckAutomation(deck) => {
+                if let Some(deck) = deck_id(deck) {
+                    let on = update.value >= 0.5;
+                    self.ui.automation_enabled[deck.index()] = on;
+                    if on {
+                        // Switching on hands every parameter back to its lane.
+                        self.ui.automation_overrides[deck.index()].clear();
+                    }
                 }
             }
             ControlTarget::DeckPin(deck) => {
@@ -942,6 +979,42 @@ impl State {
     }
 }
 
+/// Whether a command came from a person rather than automation, audio
+/// mapping, a score or replay.
+fn is_human(origin: &CommandOrigin) -> bool {
+    matches!(
+        origin,
+        CommandOrigin::Operator
+            | CommandOrigin::Keyboard
+            | CommandOrigin::Midi(_)
+            | CommandOrigin::Osc(_)
+            | CommandOrigin::Remote(_)
+    )
+}
+
+/// Records `target` as taken over when running automation drives it.
+/// Returns true when it was newly latched.
+fn latch_takeover(
+    automation_enabled: bool,
+    overrides: &mut Vec<ControlTarget>,
+    automation: Option<&virtual_core::ClipAutomation>,
+    target: ControlTarget,
+) -> bool {
+    let driven = automation_enabled
+        && target.is_clip_automatable()
+        && !overrides.contains(&target)
+        && automation.is_some_and(|automation| {
+            automation
+                .lanes
+                .iter()
+                .any(|lane| lane.is_active() && lane.target == target)
+        });
+    if driven {
+        overrides.push(target);
+    }
+    driven
+}
+
 fn command_for_control(update: ControlUpdate) -> Option<CommandOperation> {
     if update.value < 0.5
         && matches!(
@@ -1065,6 +1138,58 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn people_take_over_automated_parameters_but_machines_do_not() {
+        use virtual_core::{ClipAutomation, ClipAutomationLane};
+        assert!(is_human(&CommandOrigin::Operator));
+        assert!(is_human(&CommandOrigin::Midi("pads".into())));
+        assert!(is_human(&CommandOrigin::Osc("tablet".into())));
+        assert!(!is_human(&CommandOrigin::Automation("audio".into())));
+        assert!(!is_human(&CommandOrigin::Replay));
+        assert!(!is_human(&CommandOrigin::Score));
+
+        let level = ControlTarget::DeckLevel(0);
+        let speed = ControlTarget::DeckSpeed(0);
+        let mut automation = ClipAutomation::default();
+        automation.lanes.push(ClipAutomationLane::flat(level, 0.5));
+        let mut muted_lane = ClipAutomationLane::flat(speed, 1.0);
+        muted_lane.enabled = false;
+        automation.lanes.push(muted_lane);
+
+        let mut overrides = Vec::new();
+        assert!(latch_takeover(
+            true,
+            &mut overrides,
+            Some(&automation),
+            level
+        ));
+        assert!(
+            !latch_takeover(true, &mut overrides, Some(&automation), level),
+            "latched once"
+        );
+        assert_eq!(overrides, [level]);
+        assert!(
+            !latch_takeover(true, &mut overrides, Some(&automation), speed),
+            "lane is off"
+        );
+        assert!(!latch_takeover(
+            true,
+            &mut overrides,
+            Some(&automation),
+            ControlTarget::DeckMute(0)
+        ));
+        let mut overrides = Vec::new();
+        assert!(
+            !latch_takeover(false, &mut overrides, Some(&automation), level),
+            "automation off"
+        );
+        assert!(
+            !latch_takeover(true, &mut overrides, None, level),
+            "nothing running"
+        );
+        assert!(overrides.is_empty());
     }
 
     #[test]

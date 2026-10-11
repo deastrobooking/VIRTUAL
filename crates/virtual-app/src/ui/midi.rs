@@ -415,6 +415,7 @@ pub(super) fn midi_targets() -> Vec<ControlTarget> {
             ControlTarget::DeckSelect(deck),
             ControlTarget::DeckRestart(deck),
             ControlTarget::DeckMute(deck),
+            ControlTarget::DeckAutomation(deck),
             ControlTarget::DeckPin(deck),
             ControlTarget::DeckLayerTop(deck),
             ControlTarget::DeckLayerUp(deck),
@@ -473,6 +474,9 @@ pub(super) fn midi_target_label(target: ControlTarget) -> String {
         ControlTarget::DeckSelect(deck) => format!("Deck {} · Select", deck_label(deck)),
         ControlTarget::DeckRestart(deck) => format!("Deck {} · Restart", deck_label(deck)),
         ControlTarget::DeckMute(deck) => format!("Deck {} · Mute", deck_label(deck)),
+        ControlTarget::DeckAutomation(deck) => {
+            format!("Deck {} · Clip automation on/off", deck_label(deck))
+        }
         ControlTarget::DeckPin(deck) => format!("Deck {} · Pin over mix", deck_label(deck)),
         ControlTarget::DeckLayerTop(deck) => {
             format!("Deck {} · Layer to top", deck_label(deck))

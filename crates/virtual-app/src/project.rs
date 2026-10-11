@@ -172,6 +172,7 @@ pub fn snapshot(
                         DeckState::Generator(stack) => Some(generator_stack_to_project(stack)),
                         _ => None,
                     },
+                    automation_enabled: ui.automation_enabled[deck.index()],
                     calculator: ui.geometry_calculator[deck.index()].to_project(),
                 }
             })
@@ -662,6 +663,8 @@ pub fn apply_deck(
         *destination = route_from_project(source);
     }
     ui.lfos[deck.index()] = lfos;
+    ui.automation_enabled[deck.index()] = project.automation_enabled;
+    ui.automation_overrides[deck.index()].clear();
     ui.geometry_calculator[deck.index()] = project
         .calculator
         .as_ref()
@@ -1224,6 +1227,7 @@ fn target_to_project(target: ControlTarget) -> ControlTargetProject {
         ControlTarget::DeckSelect(deck) => ControlTargetProject::DeckSelect { deck },
         ControlTarget::DeckRestart(deck) => ControlTargetProject::DeckRestart { deck },
         ControlTarget::DeckMute(deck) => ControlTargetProject::DeckMute { deck },
+        ControlTarget::DeckAutomation(deck) => ControlTargetProject::DeckAutomation { deck },
         ControlTarget::DeckPin(deck) => ControlTargetProject::DeckPin { deck },
         ControlTarget::DeckLayerTop(deck) => ControlTargetProject::DeckLayerTop { deck },
         ControlTarget::DeckLayerUp(deck) => ControlTargetProject::DeckLayerUp { deck },
@@ -1293,6 +1297,7 @@ fn target_from_project(target: ControlTargetProject) -> ControlTarget {
         ControlTargetProject::DeckSelect { deck } => ControlTarget::DeckSelect(deck),
         ControlTargetProject::DeckRestart { deck } => ControlTarget::DeckRestart(deck),
         ControlTargetProject::DeckMute { deck } => ControlTarget::DeckMute(deck),
+        ControlTargetProject::DeckAutomation { deck } => ControlTarget::DeckAutomation(deck),
         ControlTargetProject::DeckPin { deck } => ControlTarget::DeckPin(deck),
         ControlTargetProject::DeckLayerTop { deck } => ControlTarget::DeckLayerTop(deck),
         ControlTargetProject::DeckLayerUp { deck } => ControlTarget::DeckLayerUp(deck),
@@ -1559,6 +1564,7 @@ mod tests {
     fn mute_and_layer_mappings_round_trip() {
         for target in [
             ControlTarget::DeckMute(0),
+            ControlTarget::DeckAutomation(2),
             ControlTarget::DeckPin(1),
             ControlTarget::DeckLayerTop(2),
             ControlTarget::DeckLayerUp(3),

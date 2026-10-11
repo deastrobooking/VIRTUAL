@@ -608,6 +608,7 @@ fn valid_control_target(target: ControlTargetProject) -> bool {
         | ControlTargetProject::DeckSelect { deck }
         | ControlTargetProject::DeckRestart { deck }
         | ControlTargetProject::DeckMute { deck }
+        | ControlTargetProject::DeckAutomation { deck }
         | ControlTargetProject::DeckPin { deck }
         | ControlTargetProject::DeckLayerTop { deck }
         | ControlTargetProject::DeckLayerUp { deck }
@@ -1190,6 +1191,9 @@ pub struct DeckProject {
     /// Procedural generator layers on this deck.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generator_stack: Option<GeneratorStackProject>,
+    /// Clip automation master switch; off leaves parameters manual.
+    #[serde(default = "yes")]
+    pub automation_enabled: bool,
     /// Graphing-calculator objects and view; absent while untouched.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calculator: Option<CalculatorProject>,
@@ -1285,6 +1289,7 @@ impl Default for DeckProject {
             mod_routes: default_mod_routes(),
             camera: None,
             generator_stack: None,
+            automation_enabled: true,
             calculator: None,
         }
     }
@@ -1946,6 +1951,7 @@ pub enum ControlTargetProject {
     DeckEffectParameter { deck: u8, parameter_key: u64 },
     MasterEffectParameter { slot: u8, parameter_key: u64 },
     DeckMute { deck: u8 },
+    DeckAutomation { deck: u8 },
     DeckPin { deck: u8 },
     DeckLayerTop { deck: u8 },
     DeckLayerUp { deck: u8 },

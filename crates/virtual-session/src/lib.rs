@@ -490,6 +490,7 @@ pub fn control_parameter_path(target: ControlTarget) -> String {
         ControlTarget::DeckSpeed(deck) => format!("deck.{deck}.speed"),
         ControlTarget::DeckSelect(deck) => format!("deck.{deck}.select"),
         ControlTarget::DeckMute(deck) => format!("deck.{deck}.mute"),
+        ControlTarget::DeckAutomation(deck) => format!("deck.{deck}.automation"),
         ControlTarget::DeckPin(deck) => format!("deck.{deck}.layer.pin"),
         ControlTarget::DeckLayerTop(deck) => format!("deck.{deck}.layer.top"),
         ControlTarget::DeckLayerUp(deck) => format!("deck.{deck}.layer.up"),

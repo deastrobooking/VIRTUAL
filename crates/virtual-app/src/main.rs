@@ -186,6 +186,11 @@ struct State {
     /// Last generator settings forwarded to each deck's worker; the deck UI
     /// edits `DeckState::Generator` in place and playback forwards changes.
     generator_sent: [Option<virtual_generate::GeneratorStack>; 4],
+    /// Clip automation each deck ran last frame (slot, start beat); a change
+    /// re-arms lanes the performer had taken over.
+    automation_seen: [Option<(usize, f64)>; 4],
+    /// Last automation value sent as controller feedback, per parameter.
+    automation_feedback: HashMap<ControlTarget, (f32, Instant)>,
     audio_inputs: Vec<AudioInputDevice>,
     audio_input: Option<AudioInput>,
     /// Whether the operator wants the audio input connected; saved with the
@@ -764,6 +769,8 @@ impl State {
             camera_status,
             live_configs: std::array::from_fn(|_| None),
             generator_sent: std::array::from_fn(|_| None),
+            automation_seen: [None; 4],
+            automation_feedback: HashMap::new(),
             audio_inputs,
             audio_input: None,
             audio_wanted: false,
@@ -1316,6 +1323,9 @@ fn current_control_value(
         ControlTarget::DeckMute(deck) => deck_id(deck)
             .map(|deck| f32::from(ui.bypassed[deck.index()]))
             .unwrap_or_default(),
+        ControlTarget::DeckAutomation(deck) => deck_id(deck)
+            .map(|deck| f32::from(ui.automation_enabled[deck.index()]))
+            .unwrap_or_default(),
         ControlTarget::DeckPin(deck) => {
             f32::from(deck_id(deck).is_some_and(|deck| ui.pinned_deck == Some(deck)))
         }
@@ -1407,6 +1417,7 @@ fn performance_control_snapshot(
             ControlTarget::DeckSpeed(deck),
             ControlTarget::DeckSelect(deck),
             ControlTarget::DeckMute(deck),
+            ControlTarget::DeckAutomation(deck),
             ControlTarget::DeckPin(deck),
         ]);
         if deck_id(deck).is_some_and(|id| {
@@ -1571,7 +1582,8 @@ mod output_health_tests {
 
         let snapshot = performance_control_snapshot(&ui, &mixer, &transports);
 
-        assert_eq!(snapshot.len(), 264);
+        assert_eq!(snapshot.len(), 268);
+        assert!(snapshot.contains_key(&ControlTarget::DeckAutomation(3)));
         for effect in 21..=26 {
             let mut effects = DeckEffects::default();
             set_effect_parameter(&mut effects, effect, 0.625);

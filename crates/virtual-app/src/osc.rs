@@ -475,6 +475,7 @@ pub(crate) fn feedback_for_control(update: ControlUpdate) -> Option<(String, f32
         ControlTarget::DeckSelect(deck) => format!("{OSC_ROOT}/deck/{}/select", deck + 1),
         ControlTarget::DeckRestart(deck) => format!("{OSC_ROOT}/deck/{}/restart", deck + 1),
         ControlTarget::DeckMute(deck) => format!("{OSC_ROOT}/deck/{}/mute", deck + 1),
+        ControlTarget::DeckAutomation(deck) => format!("{OSC_ROOT}/deck/{}/automation", deck + 1),
         ControlTarget::DeckPin(deck) => format!("{OSC_ROOT}/deck/{}/layer/pin", deck + 1),
         ControlTarget::DeckLayerTop(deck) => format!("{OSC_ROOT}/deck/{}/layer/top", deck + 1),
         ControlTarget::DeckLayerUp(deck) => format!("{OSC_ROOT}/deck/{}/layer/up", deck + 1),
@@ -534,6 +535,7 @@ fn map_indexed_route(route: &str, value: Option<&OscArgument>) -> Option<OscActi
         ["select"] => trigger(ControlTarget::DeckSelect(deck), value),
         ["restart"] => trigger(ControlTarget::DeckRestart(deck), value),
         ["mute"] => continuous(ControlTarget::DeckMute(deck), value),
+        ["automation"] => continuous(ControlTarget::DeckAutomation(deck), value),
         ["layer", "pin"] => continuous(ControlTarget::DeckPin(deck), value),
         ["layer", "top"] => trigger(ControlTarget::DeckLayerTop(deck), value),
         ["layer", "up"] => trigger(ControlTarget::DeckLayerUp(deck), value),
@@ -713,6 +715,10 @@ mod tests {
         };
         for (address, target) in [
             ("/virtual/deck/1/mute", ControlTarget::DeckMute(0)),
+            (
+                "/virtual/deck/2/automation",
+                ControlTarget::DeckAutomation(1),
+            ),
             ("/virtual/deck/2/layer/pin", ControlTarget::DeckPin(1)),
             ("/virtual/deck/3/layer/top", ControlTarget::DeckLayerTop(2)),
             ("/virtual/deck/4/layer/up", ControlTarget::DeckLayerUp(3)),

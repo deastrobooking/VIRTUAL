@@ -92,6 +92,22 @@ pub(super) fn current_map() -> Option<MidiMapUi> {
     FRAME.with(|frame| frame.borrow().map.clone())
 }
 
+/// [`mappable`] for a typed control target where no action list is threaded
+/// through: learn and clear requests join this frame's button actions.
+pub(super) fn mapped_target(
+    ui: &mut egui::Ui,
+    target: ControlTarget,
+    add: impl FnOnce(&mut egui::Ui) -> egui::Response,
+) -> egui::Response {
+    let Some(map) = current_map() else {
+        return add(ui);
+    };
+    let mut actions = Vec::new();
+    let response = mappable(ui, &map, target, &mut actions, add);
+    FRAME.with(|frame| frame.borrow_mut().actions.append(&mut actions));
+    response
+}
+
 /// Consumes a mapped press for an action whose button lives in a closed menu
 /// or popup. Call it every frame the menu could be opened, after drawing any
 /// open-menu item with the same key, so the press fires exactly once.

@@ -67,6 +67,7 @@ impl AudioMapMode {
             ControlTarget::MasterBlackout
             | ControlTarget::MasterFreeze
             | ControlTarget::DeckMute(_)
+            | ControlTarget::DeckAutomation(_)
             | ControlTarget::DeckPin(_)
             | ControlTarget::DeckPlay(_)
             | ControlTarget::DeckFreeze(_)

@@ -193,11 +193,18 @@ impl State {
         let beat = self.tempo.beat_at(elapsed);
         let mut updates = Vec::new();
         for deck in DeckId::ALL {
-            let transport = self.transports[deck.index()];
-            if !transport.playing || transport.frozen {
+            let index = deck.index();
+            // Launching or switching clip automation re-arms every lane.
+            let active = self.clips.active_automation(deck);
+            if active != self.automation_seen[index] {
+                self.automation_seen[index] = active;
+                self.ui.automation_overrides[index].clear();
+            }
+            let transport = self.transports[index];
+            if !transport.playing || transport.frozen || !self.ui.automation_enabled[index] {
                 continue;
             }
-            let Some((slot, start_beat)) = self.clips.active_automation(deck) else {
+            let Some((slot, start_beat)) = active else {
                 continue;
             };
             let address = ClipAddress { deck, slot };
@@ -210,13 +217,22 @@ impl State {
             let phase = ((beat - start_beat).rem_euclid(automation.loop_beats)
                 / automation.loop_beats)
                 .clamp(0.0, 1.0);
-            updates.extend(automation.values_at(phase));
+            updates.extend(automation_updates(
+                automation,
+                phase,
+                &self.ui.automation_overrides[index],
+            ));
         }
         for (target, value) in updates {
-            self.apply_control_update_unrecorded(
-                virtual_core::ControlUpdate { target, value },
-                now,
-            );
+            let update = virtual_core::ControlUpdate { target, value };
+            self.apply_control_update_unrecorded(update, now);
+            // Controller feedback follows automation, throttled so a running
+            // lane cannot flood the network.
+            let last = self.automation_feedback.get(&target).copied();
+            if feedback_due(last, value, now) {
+                self.automation_feedback.insert(target, (value, now));
+                self.publish_osc_control(update);
+            }
         }
     }
 
@@ -260,5 +276,70 @@ impl State {
             transport.position = in_point;
             self.seek_deck(deck);
         }
+    }
+}
+
+/// Values the active lanes write this frame, minus parameters the performer
+/// has taken over.
+fn automation_updates<'a>(
+    automation: &'a virtual_core::ClipAutomation,
+    phase: f64,
+    overrides: &'a [virtual_core::ControlTarget],
+) -> impl Iterator<Item = (virtual_core::ControlTarget, f32)> + 'a {
+    automation
+        .values_at(phase)
+        .filter(move |(target, _)| !overrides.contains(target))
+}
+
+/// At most about 30 feedback messages per second per parameter, and only
+/// when the value moved.
+fn feedback_due(last: Option<(f32, Instant)>, value: f32, now: Instant) -> bool {
+    last.is_none_or(|(previous, at)| {
+        (value - previous).abs() > 1e-4
+            && now.saturating_duration_since(at) >= std::time::Duration::from_millis(33)
+    })
+}
+
+#[cfg(test)]
+mod automation_tests {
+    use super::*;
+    use virtual_core::{ClipAutomation, ClipAutomationLane, ControlTarget};
+
+    #[test]
+    fn taken_over_parameters_are_left_alone() {
+        let mut automation = ClipAutomation::default();
+        automation
+            .lanes
+            .push(ClipAutomationLane::flat(ControlTarget::DeckLevel(1), 0.25));
+        automation
+            .lanes
+            .push(ClipAutomationLane::flat(ControlTarget::MasterOpacity, 0.75));
+        let all: Vec<_> = automation_updates(&automation, 0.5, &[]).collect();
+        assert_eq!(all.len(), 2);
+        let held = [ControlTarget::DeckLevel(1)];
+        let rest: Vec<_> = automation_updates(&automation, 0.5, &held).collect();
+        assert_eq!(rest, [(ControlTarget::MasterOpacity, 0.75)]);
+    }
+
+    #[test]
+    fn feedback_is_throttled_and_skips_unchanged_values() {
+        let start = Instant::now();
+        assert!(feedback_due(None, 0.5, start));
+        let sent = Some((0.5, start));
+        assert!(!feedback_due(
+            sent,
+            0.5,
+            start + std::time::Duration::from_millis(100)
+        ));
+        assert!(!feedback_due(
+            sent,
+            0.6,
+            start + std::time::Duration::from_millis(10)
+        ));
+        assert!(feedback_due(
+            sent,
+            0.6,
+            start + std::time::Duration::from_millis(40)
+        ));
     }
 }

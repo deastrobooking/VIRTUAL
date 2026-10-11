@@ -119,6 +119,12 @@ pub struct UiState {
     pub pinned_deck: Option<DeckId>,
     /// UI buttons pressed from MIDI/OSC since the last frame.
     pub pending_buttons: std::collections::BTreeSet<u64>,
+    /// Clip automation master switch per deck; off leaves every parameter
+    /// under manual control.
+    pub automation_enabled: [bool; 4],
+    /// Parameters the performer has taken over from running clip automation,
+    /// per deck. Automation skips them until resumed.
+    pub automation_overrides: [Vec<ControlTarget>; 4],
     pub lfos: [DeckLfos; 4],
     /// Last rendered modulation source values per deck, for UI meters.
     pub mod_sources: [[f32; MODULATION_SOURCES]; 4],
@@ -242,6 +248,8 @@ impl Default for UiState {
             layer_order: virtual_render::DEFAULT_LAYER_ORDER,
             pinned_deck: None,
             pending_buttons: Default::default(),
+            automation_enabled: [true; 4],
+            automation_overrides: Default::default(),
             lfos: [DeckLfos::default(); 4],
             mod_sources: [[0.0; MODULATION_SOURCES]; 4],
             master_mod_sources: [0.0; MASTER_MODULATION_SOURCES],

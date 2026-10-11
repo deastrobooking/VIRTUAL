@@ -43,6 +43,7 @@ addresses are one-based. Feedback is sent under `/virtual` too.
 | `/virtual/deck/{1-4}/package/{parameter-key}` | float | Set a deck-package parameter by its 16-digit stable hexadecimal key |
 | `/virtual/deck/{1-4}/generator/{0-45}` | float 0–1 | Set a generator parameter by its stable ID (see GENERATORS.md) |
 | `/virtual/deck/{1-4}/mute` | bool or 0/1 | Mute (bypass) the deck in the program mix |
+| `/virtual/deck/{1-4}/automation` | bool or 0/1 | Clip automation on (1) or off (0) for the deck; on re-arms grabbed parameters |
 | `/virtual/deck/{1-4}/layer/pin` | bool or 0/1 | Pin the deck over the crossfaded mix; 0 unpins it |
 | `/virtual/deck/{1-4}/layer/top` | optional trigger | Bring the deck to the top layer |
 | `/virtual/deck/{1-4}/layer/up` | optional trigger | Move the deck up one layer |
