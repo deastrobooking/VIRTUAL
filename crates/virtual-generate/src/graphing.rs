@@ -69,6 +69,8 @@ pub enum PlotKind {
     Point3(String, String, String),
     /// `f(x, y) = 0`.
     Implicit(String),
+    /// `f(x, y, z) = 0`.
+    Implicit3D(String),
     /// `f(x, y) <op> 0`.
     Inequality(String, Comparison),
     Slider {
@@ -93,6 +95,7 @@ impl PlotKind {
             Self::Parametric3(..) => "3D curve",
             Self::Point3(..) => "3D point",
             Self::Implicit(_) => "implicit",
+            Self::Implicit3D(_) => "implicit surface",
             Self::Inequality(..) => "inequality",
             Self::Slider { .. } => "slider",
             Self::Surface(_) => "surface",
@@ -105,7 +108,7 @@ impl PlotKind {
     pub fn is_3d(&self) -> bool {
         matches!(
             self,
-            Self::Surface(_) | Self::Parametric3(..) | Self::Point3(..)
+            Self::Surface(_) | Self::Implicit3D(_) | Self::Parametric3(..) | Self::Point3(..)
         )
     }
 
@@ -327,7 +330,11 @@ pub fn classify(source: &str) -> Result<PlotKind, String> {
     }
     let difference = format!("({lhs})-({rhs})");
     compile(&difference)?;
-    Ok(PlotKind::Implicit(difference))
+    Ok(if uses_any(&difference, &["z"]) {
+        PlotKind::Implicit3D(difference)
+    } else {
+        PlotKind::Implicit(difference)
+    })
 }
 
 /// Visible region in world units.
@@ -389,6 +396,7 @@ impl Plot {
             | PlotKind::FunctionOfY(a)
             | PlotKind::Polar(a)
             | PlotKind::Implicit(a)
+            | PlotKind::Implicit3D(a)
             | PlotKind::Inequality(a, _)
             | PlotKind::Surface(a)
             | PlotKind::SlopeField(a) => vec![a],
@@ -609,6 +617,7 @@ impl Plot {
             }
             PlotKind::Slider { .. }
             | PlotKind::Surface(_)
+            | PlotKind::Implicit3D(_)
             | PlotKind::Parametric3(..)
             | PlotKind::Point3(..) => {}
         }
@@ -710,6 +719,19 @@ impl Plot {
                     }
                 }
             }
+            PlotKind::Implicit3D(_) => {
+                let steps = steps.clamp(12, 40);
+                let x_span = (domain.x[1] - domain.x[0]).abs();
+                let y_span = (domain.y[1] - domain.y[0]).abs();
+                let z_extent = x_span.max(y_span).max(1.0) * 0.5;
+                out.triangles = marching_tetrahedra(
+                    &self.bound[0],
+                    &mut values,
+                    domain,
+                    [-z_extent, z_extent],
+                    steps,
+                );
+            }
             PlotKind::Parametric3(..) => {
                 let samples = steps.clamp(16, 2000) * 8;
                 for i in 0..=samples {
@@ -739,7 +761,149 @@ pub struct Sampled3 {
     /// Surface heights, `(grid_steps + 1)^2` points in row-major order.
     pub grid: Vec<[f32; 3]>,
     pub grid_steps: usize,
+    /// Triangles for implicit 3D equations, in world coordinates.
+    pub triangles: Vec<[[f32; 3]; 3]>,
     pub curve: Vec<[f32; 3]>,
+}
+
+/// Extracts a zero isosurface by splitting each grid cube into six tetrahedra.
+/// The fixed grid and triangle cap keep user expressions bounded.
+fn marching_tetrahedra(
+    expression: &BoundExpression,
+    values: &mut [f32],
+    domain: View,
+    z_range: [f32; 2],
+    steps: usize,
+) -> Vec<[[f32; 3]; 3]> {
+    const TETRAHEDRA: [[usize; 4]; 6] = [
+        [0, 5, 1, 6],
+        [0, 1, 2, 6],
+        [0, 2, 3, 6],
+        [0, 3, 7, 6],
+        [0, 7, 4, 6],
+        [0, 4, 5, 6],
+    ];
+    const EDGES: [(usize, usize); 6] = [(0, 1), (0, 2), (0, 3), (1, 2), (1, 3), (2, 3)];
+    const TRIANGLE_CAP: usize = 60_000;
+    let count = steps + 1;
+    let x_at = |i: usize| domain.x[0] + (domain.x[1] - domain.x[0]) * i as f32 / steps as f32;
+    let y_at = |j: usize| domain.y[0] + (domain.y[1] - domain.y[0]) * j as f32 / steps as f32;
+    let z_at = |k: usize| z_range[0] + (z_range[1] - z_range[0]) * k as f32 / steps as f32;
+    let index = |i: usize, j: usize, k: usize| (k * count + j) * count + i;
+    let mut field = vec![0.0_f32; count * count * count];
+    for k in 0..count {
+        values[2] = z_at(k);
+        for j in 0..count {
+            values[1] = y_at(j);
+            for i in 0..count {
+                values[0] = x_at(i);
+                field[index(i, j, k)] = expression.eval(values);
+            }
+        }
+    }
+
+    let mut triangles = Vec::new();
+    for k in 0..steps {
+        for j in 0..steps {
+            for i in 0..steps {
+                let points = [
+                    [x_at(i), y_at(j), z_at(k)],
+                    [x_at(i + 1), y_at(j), z_at(k)],
+                    [x_at(i + 1), y_at(j + 1), z_at(k)],
+                    [x_at(i), y_at(j + 1), z_at(k)],
+                    [x_at(i), y_at(j), z_at(k + 1)],
+                    [x_at(i + 1), y_at(j), z_at(k + 1)],
+                    [x_at(i + 1), y_at(j + 1), z_at(k + 1)],
+                    [x_at(i), y_at(j + 1), z_at(k + 1)],
+                ];
+                let scalar = [
+                    field[index(i, j, k)],
+                    field[index(i + 1, j, k)],
+                    field[index(i + 1, j + 1, k)],
+                    field[index(i, j + 1, k)],
+                    field[index(i, j, k + 1)],
+                    field[index(i + 1, j, k + 1)],
+                    field[index(i + 1, j + 1, k + 1)],
+                    field[index(i, j + 1, k + 1)],
+                ];
+                if scalar.iter().all(|v| !v.is_finite() || *v > 0.0)
+                    || scalar.iter().all(|v| !v.is_finite() || *v < 0.0)
+                {
+                    continue;
+                }
+                for tetra in TETRAHEDRA {
+                    let mut intersections = Vec::with_capacity(4);
+                    for (a, b) in EDGES {
+                        let ia = tetra[a];
+                        let ib = tetra[b];
+                        let va = scalar[ia];
+                        let vb = scalar[ib];
+                        if !va.is_finite() || !vb.is_finite() || (va < 0.0) == (vb < 0.0) {
+                            continue;
+                        }
+                        let t = (va / (va - vb)).clamp(0.0, 1.0);
+                        intersections.push([
+                            points[ia][0] + (points[ib][0] - points[ia][0]) * t,
+                            points[ia][1] + (points[ib][1] - points[ia][1]) * t,
+                            points[ia][2] + (points[ib][2] - points[ia][2]) * t,
+                        ]);
+                    }
+                    match intersections.as_slice() {
+                        [a, b, c] => triangles.push([*a, *b, *c]),
+                        [a, b, c, d] => {
+                            let mut quad = [*a, *b, *c, *d];
+                            let centre = [
+                                quad.iter().map(|p| p[0]).sum::<f32>() * 0.25,
+                                quad.iter().map(|p| p[1]).sum::<f32>() * 0.25,
+                                quad.iter().map(|p| p[2]).sum::<f32>() * 0.25,
+                            ];
+                            let ab = [
+                                quad[1][0] - quad[0][0],
+                                quad[1][1] - quad[0][1],
+                                quad[1][2] - quad[0][2],
+                            ];
+                            let ac = [
+                                quad[2][0] - quad[0][0],
+                                quad[2][1] - quad[0][1],
+                                quad[2][2] - quad[0][2],
+                            ];
+                            let normal = [
+                                ab[1] * ac[2] - ab[2] * ac[1],
+                                ab[2] * ac[0] - ab[0] * ac[2],
+                                ab[0] * ac[1] - ab[1] * ac[0],
+                            ];
+                            let u = [
+                                quad[0][0] - centre[0],
+                                quad[0][1] - centre[1],
+                                quad[0][2] - centre[2],
+                            ];
+                            let v = [
+                                normal[1] * u[2] - normal[2] * u[1],
+                                normal[2] * u[0] - normal[0] * u[2],
+                                normal[0] * u[1] - normal[1] * u[0],
+                            ];
+                            quad.sort_by(|left, right| {
+                                let angle = |p: [f32; 3]| {
+                                    let d = [p[0] - centre[0], p[1] - centre[1], p[2] - centre[2]];
+                                    let du = d[0] * u[0] + d[1] * u[1] + d[2] * u[2];
+                                    let dv = d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+                                    dv.atan2(du)
+                                };
+                                angle(*left).total_cmp(&angle(*right))
+                            });
+                            triangles.push([quad[0], quad[1], quad[2]]);
+                            triangles.push([quad[0], quad[2], quad[3]]);
+                        }
+                        _ => {}
+                    }
+                    if triangles.len() >= TRIANGLE_CAP {
+                        return triangles;
+                    }
+                }
+            }
+        }
+    }
+    triangles
 }
 
 fn field_grid(view: View) -> (usize, usize) {

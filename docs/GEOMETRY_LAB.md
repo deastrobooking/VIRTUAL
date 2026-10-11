@@ -47,6 +47,7 @@ implicit: `2x`, `3sin(x)`, `x(1+x)`, `2pi`.
 | `y < sin(x)`, `x^2 + y^2 ≤ 4` | shaded inequality with its boundary |
 | `a = 2` | slider; any other object can use `a` |
 | `z = sin(x) cos(y)` | surface (3D view) |
+| `x^2 + y^2 + z^2 = 16` | implicit 3D surface (sphere) |
 | `(cos(t), sin(t), t/5)`, `(1, 2, 3)` | 3D curve, 3D point |
 | `(-y, x)`, `F = (P, Q)` | vector field with RK4 streamlines |
 | `dy/dx = y - x` | slope field with solution curves |
@@ -55,6 +56,9 @@ Every expression can use `time` (seconds); **▶ Animate time** runs it, so
 physics such as a projectile `(10t cos(0.8), 10t sin(0.8) - 4.9t^2)`, damped
 oscillation `e^(-0.2x) cos(3x - time)` or fields with moving terms animate.
 **Examples** adds a set of these with one click.
+The **3D scenes** presets add several coordinated equations together, including
+sliders, implicit surfaces and parametric curves, so they can be explored as
+one layered scene.
 
 Functions: `sin cos tan asin acos atan sec csc cot sinh cosh tanh asinh acosh
 atanh sqrt cbrt abs exp ln log log10 log2 floor ceil fract round sign min max
@@ -67,9 +71,10 @@ points (gaps), not errors, and curves break at asymptotes such as `tan(x)`.
 - **2D graph:** drag to pan, scroll to zoom at the cursor, double-click to
   reset. The readout shows the cursor position and the active function's
   value there.
-- **3D graph:** drag to orbit, scroll to zoom. Surfaces are shaded by height;
-  x and y use the 2D view's range and z fits the visible objects. 2D curves are
-  drawn in the z = 0 plane.
+- **3D graph:** drag to orbit, scroll to zoom. Explicit and implicit surfaces
+  render as shaded triangle meshes; implicit surfaces use a bounded marching
+  tetrahedra sampler. x and y use the 2D view's range, while z fits the visible
+  objects. 2D curves are drawn in the z = 0 plane.
 - Per function: **f′** draws the derivative (dashed), **roots/extrema** marks
   roots, local extrema and intersections with other marked functions, and
   **∫ area** shades and evaluates the integral between a and b (Simpson's
@@ -107,5 +112,5 @@ the project file.
 
 This authoring version evaluates on the CPU and stores reusable definitions in
 the project. It does not yet provide standalone geometry files, unrestricted
-code or custom functions, 3D mesh/solid topology, GPU graph evaluation,
-parameter automation/MIDI mapping, or canvas grouping and undo.
+code or custom functions, exported/manifold solid topology, GPU graph
+evaluation, parameter automation/MIDI mapping, or canvas grouping and undo.

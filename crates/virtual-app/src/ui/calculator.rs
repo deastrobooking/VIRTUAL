@@ -5,6 +5,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use virtual_generate::graphing::{
     self, Plot, PlotKind, Primitives, Sampled3, Scope, View, classify,
@@ -52,6 +53,7 @@ pub struct GraphItem {
     /// Slider limits.
     pub range: [f32; 2],
     cache: Option<(u64, Primitives)>,
+    cache_3d: Option<(u64, Arc<Sampled3>)>,
 }
 
 impl GraphItem {
@@ -66,6 +68,7 @@ impl GraphItem {
             parameter: [0.0, std::f32::consts::TAU],
             range: [-5.0, 5.0],
             cache: None,
+            cache_3d: None,
         }
     }
 }
@@ -232,9 +235,22 @@ impl GraphingCalculator {
     }
 
     fn add(&mut self, source: String) {
+        if self.items.len() >= MAX_SAVED_ITEMS {
+            return;
+        }
         self.items.push(GraphItem::new(source, self.next_color));
         self.next_color += 1;
         self.active = self.items.len() - 1;
+    }
+
+    fn add_scene(&mut self, sources: &[&str]) {
+        for source in sources {
+            if self.items.len() >= MAX_SAVED_ITEMS {
+                break;
+            }
+            self.add((*source).to_owned());
+        }
+        self.mode = ViewMode::Graph3d;
     }
 
     /// Slider names and values defined anywhere in the list.
@@ -564,6 +580,8 @@ fn draw_algebra(
                 "(-y, x)",
                 "dy/dx = y - x",
                 "z = sin(x) cos(y)",
+                "x^2 + y^2 + z^2 = 16",
+                "x^2 + y^2 - z^2 = 4",
                 "(cos(t), sin(t), t/5)",
                 "y = e^(-0.2x) cos(3x - time)",
                 "(10 t cos(0.8), 10 t sin(0.8) - 4.9t^2)",
@@ -574,6 +592,36 @@ fn draw_algebra(
                 {
                     calc.add(example.to_owned());
                 }
+            }
+        });
+        ui.separator();
+        ui.label(
+            egui::RichText::new("3D scenes · add coordinated equations together")
+                .small()
+                .color(palette.muted_text),
+        );
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Orbital sphere").clicked() {
+                calc.add_scene(&[
+                    "a = 4",
+                    "x^2 + y^2 + z^2 = a^2",
+                    "(a cos(t), a sin(t), t/2)",
+                ]);
+            }
+            if ui.button("Saddle study").clicked() {
+                calc.add_scene(&["z = 0.25(x^2 - y^2)", "z = 0", "x^2 + y^2 - z^2 = 9"]);
+            }
+            if ui.button("Torus field").clicked() {
+                calc.add_scene(&[
+                    "a = 3",
+                    "b = 1",
+                    "(x^2 + y^2 + z^2 + a^2 - b^2)^2 = 4a^2(x^2 + y^2)",
+                    "((a + b cos(t)) cos(2t), (a + b cos(t)) sin(2t), b sin(t))",
+                ]);
+            }
+            if ui.button("Wave surfaces").clicked() {
+                calc.add_scene(&["z = 2 sin(x) cos(y)", "z = sin(2x + time) + cos(2y - time)"]);
+                calc.animate = true;
             }
         });
     });
@@ -1205,8 +1253,8 @@ fn draw_plot_3d(
     let domain = calc.view;
 
     // Sample 3D objects first so the z range fits what is visible.
-    let mut sampled: Vec<(usize, PlotKind, Sampled3)> = Vec::new();
-    for (index, item) in calc.items.iter().enumerate() {
+    let mut sampled: Vec<(usize, PlotKind, Arc<Sampled3>)> = Vec::new();
+    for (index, item) in calc.items.iter_mut().enumerate() {
         let Ok(kind) = classify(&item.source) else {
             continue;
         };
@@ -1214,16 +1262,32 @@ fn draw_plot_3d(
             continue;
         }
         if let Ok(plot) = Plot::new(kind.clone(), scope) {
+            let key = cache_key(item, &kind, scope, domain, 48);
+            if item
+                .cache_3d
+                .as_ref()
+                .is_none_or(|(cached, _)| *cached != key)
+            {
+                item.cache_3d = Some((
+                    key,
+                    Arc::new(plot.sample_3d(scope, domain, 48, item.parameter)),
+                ));
+            }
             sampled.push((
                 index,
                 kind,
-                plot.sample_3d(scope, domain, 48, item.parameter),
+                Arc::clone(&item.cache_3d.as_ref().expect("filled above").1),
             ));
         }
     }
     let mut z_range = [f32::INFINITY, f32::NEG_INFINITY];
     for (_, _, s) in &sampled {
-        for p in s.grid.iter().chain(&s.curve) {
+        for p in s
+            .grid
+            .iter()
+            .chain(&s.curve)
+            .chain(s.triangles.iter().flatten())
+        {
             if p[2].is_finite() {
                 z_range = [z_range[0].min(p[2]), z_range[1].max(p[2])];
             }
@@ -1309,24 +1373,7 @@ fn draw_plot_3d(
         }
     }
 
-    // 2D curves lie in the z = 0 plane, as in GeoGebra's 3D view.
-    for item in &calc.items {
-        if let Some((_, primitives)) = &item.cache
-            && item.visible
-        {
-            let color = with_alpha(series(palette, item.color), 160);
-            for line in &primitives.polylines {
-                for pair in line.windows(2) {
-                    line3(
-                        [pair[0][0], pair[0][1], cz],
-                        [pair[1][0], pair[1][1], cz],
-                        egui::Stroke::new(1.2, color),
-                    );
-                }
-            }
-        }
-    }
-
+    let mut mesh_faces: Vec<(f32, egui::Color32, [egui::Pos2; 3])> = Vec::new();
     for (index, kind, s) in &sampled {
         let color = series(palette, calc.items[*index].color);
         match kind {
@@ -1344,20 +1391,94 @@ fn draw_plot_3d(
                         mix(low.b() / 2 + color.b() / 2, color.b()),
                     )
                 };
-                for row in 0..n {
-                    for column in 0..n {
-                        let p = s.grid[row * n + column];
-                        if column + 1 < n {
-                            let q = s.grid[row * n + column + 1];
-                            line3(p, q, egui::Stroke::new(1.0, shade((p[2] + q[2]) * 0.5)));
-                        }
-                        if row + 1 < n {
-                            let q = s.grid[(row + 1) * n + column];
-                            line3(p, q, egui::Stroke::new(1.0, shade((p[2] + q[2]) * 0.5)));
+                let mut add_face = |points: [[f32; 3]; 3]| {
+                    let Some((a, da)) = camera.project(points[0]) else {
+                        return;
+                    };
+                    let Some((b, db)) = camera.project(points[1]) else {
+                        return;
+                    };
+                    let Some((c, dc)) = camera.project(points[2]) else {
+                        return;
+                    };
+                    let height = (points[0][2] + points[1][2] + points[2][2]) / 3.0;
+                    let base = shade(height);
+                    let ab = [
+                        points[1][0] - points[0][0],
+                        points[1][1] - points[0][1],
+                        points[1][2] - points[0][2],
+                    ];
+                    let ac = [
+                        points[2][0] - points[0][0],
+                        points[2][1] - points[0][1],
+                        points[2][2] - points[0][2],
+                    ];
+                    let normal = [
+                        ab[1] * ac[2] - ab[2] * ac[1],
+                        ab[2] * ac[0] - ab[0] * ac[2],
+                        ab[0] * ac[1] - ab[1] * ac[0],
+                    ];
+                    let length =
+                        (normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2])
+                            .sqrt()
+                            .max(1e-6);
+                    let light =
+                        ((normal[0] * 0.35 - normal[1] * 0.45 + normal[2] * 0.82) / length).abs();
+                    let factor = 0.55 + light * 0.45;
+                    let fill = egui::Color32::from_rgba_unmultiplied(
+                        (f32::from(base.r()) * factor) as u8,
+                        (f32::from(base.g()) * factor) as u8,
+                        (f32::from(base.b()) * factor) as u8,
+                        225,
+                    );
+                    mesh_faces.push(((da + db + dc) / 3.0, fill, [a, b, c]));
+                };
+                for row in 0..s.grid_steps {
+                    for column in 0..s.grid_steps {
+                        let a = s.grid[row * n + column];
+                        let b = s.grid[row * n + column + 1];
+                        let c = s.grid[(row + 1) * n + column + 1];
+                        let d = s.grid[(row + 1) * n + column];
+                        if [a, b, c, d].iter().all(|p| p.iter().all(|v| v.is_finite())) {
+                            add_face([a, b, c]);
+                            add_face([a, c, d]);
                         }
                     }
                 }
             }
+            PlotKind::Implicit3D(_) => {
+                for triangle in &s.triangles {
+                    let Some((a, da)) = camera.project(triangle[0]) else {
+                        continue;
+                    };
+                    let Some((b, db)) = camera.project(triangle[1]) else {
+                        continue;
+                    };
+                    let Some((c, dc)) = camera.project(triangle[2]) else {
+                        continue;
+                    };
+                    mesh_faces.push(((da + db + dc) / 3.0, with_alpha(color, 225), [a, b, c]));
+                }
+            }
+            PlotKind::Parametric3(..) | PlotKind::Point3(..) => {}
+            _ => {}
+        }
+    }
+
+    // Paint distant triangles first so nearer parts of each model cover them.
+    mesh_faces.sort_by(|a, b| b.0.total_cmp(&a.0));
+    for (_, fill, points) in mesh_faces {
+        painter.add(egui::Shape::convex_polygon(
+            points.to_vec(),
+            fill,
+            egui::Stroke::NONE,
+        ));
+    }
+
+    // Keep curves and points legible over filled equation surfaces.
+    for (index, kind, s) in &sampled {
+        let color = series(palette, calc.items[*index].color);
+        match kind {
             PlotKind::Parametric3(..) => {
                 let points: Vec<egui::Pos2> = s
                     .curve
@@ -1381,6 +1502,22 @@ fn draw_plot_3d(
                 }
             }
             _ => {}
+        }
+    }
+    for item in &calc.items {
+        if let Some((_, primitives)) = &item.cache
+            && item.visible
+        {
+            let color = with_alpha(series(palette, item.color), 190);
+            for line in &primitives.polylines {
+                for pair in line.windows(2) {
+                    line3(
+                        [pair[0][0], pair[0][1], cz],
+                        [pair[1][0], pair[1][1], cz],
+                        egui::Stroke::new(1.4, color),
+                    );
+                }
+            }
         }
     }
 
