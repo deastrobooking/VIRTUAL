@@ -711,6 +711,17 @@ impl State {
         if human {
             self.take_over_from_automation(update.target);
         }
+        // A leader forwards every applied change to its followers.
+        let applied =
+            super::current_control_value(&self.ui, &self.mixer, &self.transports, update.target);
+        self.network_sync.note(
+            update.target,
+            if update.target.is_clip_automatable() {
+                applied
+            } else {
+                update.value
+            },
+        );
         let feedback_value = match update.target {
             ControlTarget::DeckRestart(_)
             | ControlTarget::ClipLaunch { .. }

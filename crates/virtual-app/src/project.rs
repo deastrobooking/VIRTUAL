@@ -62,6 +62,7 @@ pub fn snapshot(
             layer_order: ui.layer_order,
             pinned_deck: ui.pinned_deck.map(|deck| deck.index() as u8),
             scenes: ui.scenes,
+            sync: ui.sync.clone(),
             output: OutputProject {
                 enabled: ui.output_enabled,
                 fullscreen: ui.output_fullscreen,
@@ -450,6 +451,7 @@ pub fn apply_master(project: &ProjectFile, ui: &mut UiState) {
     ui.quantization = quantization_from_project(project.settings.quantization);
     ui.crossfader = project.settings.crossfader;
     ui.equal_power = project.settings.equal_power;
+    ui.sync = project.settings.sync.clone();
     ui.master_opacity = project.settings.master_opacity;
     ui.layer_order = virtual_render::sanitized_layer_order(project.settings.layer_order);
     ui.pinned_deck = project

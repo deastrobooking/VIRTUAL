@@ -694,6 +694,17 @@ restarts the sender.
 
 NDI® is a registered trademark of Vizrt NDI AB.
 
+### Network sync
+
+**Setup → Network sync** links VIRTUAL machines and lighting devices on the
+local network. Make the main machine the **Leader** and other VIRTUAL machines
+**Followers** (same show key on all), and choose what followers mirror: tempo
+and beat, mixer and master, transport, clips and scenes, effects and
+generators. ESP32, Arduino and Raspberry Pi lighting controllers can use the
+beat, audio bands, parameter values and light zones sampled from the program
+image. See [network sync](NETWORK_SYNC.md) for setup, Wi-Fi advice and the
+protocol, and `clients/` for the device libraries.
+
 ### Projection mapping
 
 Expand **Setup → Projection mapping · corner pin, crop, masks & blend** to calibrate

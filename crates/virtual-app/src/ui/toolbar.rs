@@ -82,6 +82,14 @@ pub(super) fn draw_toolbar(
         );
         status_dot(ui, &palette, "MIDI", metrics.midi.any_connected(), false);
         status_dot(ui, &palette, "OSC", metrics.osc.connected, false);
+        // Green while synced with a leader or followers; red on an error.
+        status_dot(
+            ui,
+            &palette,
+            "SYNC",
+            metrics.sync.active && (metrics.sync.following.is_some() || !metrics.sync.peers.is_empty()),
+            metrics.sync.error.is_some(),
+        );
         // Lit while at least one NDI receiver watches; red when it failed.
         status_dot(
             ui,

@@ -53,7 +53,7 @@ pub(super) fn label(key: u64) -> String {
 }
 
 /// Every button drawn since launch, for the MIDI Manager target list.
-pub(super) fn known_targets() -> Vec<ControlTarget> {
+pub(crate) fn known_targets() -> Vec<ControlTarget> {
     LABELS
         .lock()
         .map(|labels| {

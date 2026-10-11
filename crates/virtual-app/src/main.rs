@@ -17,6 +17,7 @@ mod recovery;
 mod runtime;
 mod shortcuts;
 mod structural;
+mod sync;
 mod ui;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -91,6 +92,7 @@ struct State {
     gpu: Gpu,
     program: ProgramTarget,
     ndi: ndi::NdiOutput,
+    network_sync: sync::NetworkSync,
     master_effect_processor: MasterEffectProcessor,
     effect_registry_worker: effects::EffectRegistryWorker,
     operator_presenter: ProgramPresenter,
@@ -680,6 +682,7 @@ impl State {
             gpu,
             program,
             ndi: ndi::NdiOutput::default(),
+            network_sync: sync::NetworkSync::default(),
             master_effect_processor,
             effect_registry_worker,
             operator_presenter,
@@ -805,6 +808,7 @@ impl State {
         self.poll_midi(now);
         self.poll_osc(now);
         self.poll_link();
+        self.update_network_sync(now);
         if now.saturating_duration_since(self.output.last_display_refresh) >= Duration::from_secs(2)
         {
             self.refresh_output_displays();
@@ -925,6 +929,7 @@ impl State {
                         },
                     },
                     ndi: self.ndi.status(),
+                    sync: self.network_sync.status(),
                     osc: ui::OscMetrics {
                         status: &self.osc_status,
                         connected: self.osc_input.is_some(),
@@ -1187,6 +1192,13 @@ impl State {
         if render_plan.has_program_output() {
             self.ndi
                 .capture(&self.gpu.device, &mut encoder, &self.program);
+            self.network_sync.capture(
+                &self.gpu.device,
+                &mut encoder,
+                &self.program,
+                &self.ui.sync,
+                now,
+            );
         }
 
         let operator_frame = self.gpu.acquire();
@@ -1258,6 +1270,7 @@ impl State {
             .queue
             .submit(upload_cmds.into_iter().chain([encoder.finish()]));
         self.ndi.after_submit(&self.gpu.device);
+        self.network_sync.after_submit(&self.gpu.device);
         if let Some(frame) = operator_frame {
             frame.present();
         }

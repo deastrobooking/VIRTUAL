@@ -92,6 +92,8 @@ pub struct UiState {
     pub projection_mask_origin: Option<[f32; 2]>,
     pub ndi_enabled: bool,
     pub ndi_name: String,
+    /// VIRTUAL Sync networking (leader, follower or off).
+    pub sync: virtual_io::SyncProject,
     pub composition_extent: [u32; 2],
     pub custom_composition_extent: [u32; 2],
     pub master_effects: MasterEffectChain,
@@ -226,6 +228,7 @@ impl Default for UiState {
             projection_mask_origin: None,
             ndi_enabled: false,
             ndi_name: crate::ndi::DEFAULT_SOURCE_NAME.to_owned(),
+            sync: virtual_io::SyncProject::default(),
             composition_extent: [1920, 1080],
             custom_composition_extent: [1920, 1080],
             master_effects: MasterEffectChain::default(),
@@ -571,6 +574,7 @@ pub struct PerformanceMetrics<'a> {
     pub audio_visual: &'a AudioVisual,
     pub midi: MidiMetrics<'a>,
     pub ndi: crate::ndi::NdiStatus,
+    pub sync: crate::sync::SyncStatus,
     pub osc: OscMetrics<'a>,
     pub output_displays: &'a [OutputDisplay],
     pub output_health: OutputHealthMetrics<'a>,
@@ -1425,6 +1429,11 @@ fn mapping_mode_label(mode: MappingMode) -> &'static str {
         MappingMode::RelativeBinaryOffset => "Relative offset",
         MappingMode::RelativeTwosComplement => "Relative 2's comp",
     }
+}
+
+/// Every control target the MIDI manager lists, for mapping network ids.
+pub(crate) fn known_control_targets() -> Vec<ControlTarget> {
+    midi::midi_targets()
 }
 
 #[cfg(test)]

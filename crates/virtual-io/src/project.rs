@@ -129,6 +129,20 @@ impl ProjectFile {
                 "output.projection",
                 !self.settings.output.projection.is_valid(),
             ),
+            ("sync", {
+                let sync = &self.settings.sync;
+                sync.name.len() > 63
+                    || sync.name.chars().any(char::is_control)
+                    || sync.passphrase.len() > 128
+                    || sync.port == 0
+                    || !(1..=128).contains(&sync.zones)
+                    || sync.leader.len() > 63
+                    || sync.targets.len() > 32
+                    || sync.targets.iter().any(|target| {
+                        target.parse::<std::net::SocketAddr>().is_err()
+                            && target.parse::<std::net::IpAddr>().is_err()
+                    })
+            }),
             ("bpm", !self.settings.bpm.is_finite()),
             ("bpm", !(20.0..=400.0).contains(&self.settings.bpm)),
             ("crossfader", !unit(self.settings.crossfader)),
@@ -680,6 +694,74 @@ pub struct ProjectSettings {
     /// `stop_decks` explicitly stops and clears it.
     #[serde(default = "default_scenes")]
     pub scenes: [SceneProject; SCENE_COUNT],
+    /// VIRTUAL Sync: leader/follower networking with other machines and
+    /// lighting devices.
+    #[serde(default)]
+    pub sync: SyncProject,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncRoleProject {
+    #[default]
+    Off,
+    Leader,
+    Follower,
+}
+
+/// VIRTUAL Sync settings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SyncProject {
+    pub role: SyncRoleProject,
+    /// This machine's name on the network.
+    pub name: String,
+    /// Show key typed into every device; empty sends unsigned traffic.
+    pub passphrase: String,
+    /// UDP port followers listen on.
+    pub port: u16,
+    /// Leader: also send every stream to the subnet broadcast address, for
+    /// listen-only devices.
+    pub broadcast: bool,
+    /// Leader: fixed extra receivers, `ip` or `ip:port`.
+    pub targets: Vec<String>,
+    pub send_clock: bool,
+    pub send_controls: bool,
+    pub send_audio: bool,
+    pub send_zones: bool,
+    /// Number of light zones sampled from the program image.
+    pub zones: u8,
+    /// Follower: leader name to follow; empty follows the first heard.
+    pub leader: String,
+    pub follow_tempo: bool,
+    pub follow_mixer: bool,
+    pub follow_transport: bool,
+    pub follow_effects: bool,
+    pub follow_buttons: bool,
+}
+
+impl Default for SyncProject {
+    fn default() -> Self {
+        Self {
+            role: SyncRoleProject::Off,
+            name: "VIRTUAL".to_owned(),
+            passphrase: String::new(),
+            port: 41_641,
+            broadcast: true,
+            targets: Vec::new(),
+            send_clock: true,
+            send_controls: true,
+            send_audio: true,
+            send_zones: true,
+            zones: 8,
+            leader: String::new(),
+            follow_tempo: true,
+            follow_mixer: true,
+            follow_transport: true,
+            follow_effects: true,
+            follow_buttons: false,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -727,6 +809,7 @@ impl Default for ProjectSettings {
             layer_order: default_layer_order(),
             pinned_deck: None,
             scenes: default_scenes(),
+            sync: SyncProject::default(),
         }
     }
 }

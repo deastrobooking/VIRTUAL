@@ -226,6 +226,7 @@ impl State {
         for (target, value) in updates {
             let update = virtual_core::ControlUpdate { target, value };
             self.apply_control_update_unrecorded(update, now);
+            self.network_sync.note(target, value);
             // Controller feedback follows automation, throttled so a running
             // lane cannot flood the network.
             let last = self.automation_feedback.get(&target).copied();

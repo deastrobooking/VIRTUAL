@@ -18,6 +18,7 @@ virtual-io.workspace = true
 virtual-media.workspace = true
 virtual-render.workspace = true
 virtual-session.workspace = true
+virtual-sync.workspace = true
 
 anyhow.workspace = true
 egui.workspace = true

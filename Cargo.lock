@@ -3685,6 +3685,7 @@ dependencies = [
  "virtual-media",
  "virtual-render",
  "virtual-session",
+ "virtual-sync",
  "wgpu",
  "winit",
 ]
@@ -3786,6 +3787,14 @@ dependencies = [
  "thiserror 2.0.19",
  "virtual-core",
  "virtual-graph",
+]
+
+[[package]]
+name = "virtual-sync"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "thiserror 2.0.19",
 ]
 
 [[package]]

@@ -136,6 +136,7 @@ pub(super) fn draw_setup(
             });
             draw_projection_mapping(ui, state);
             draw_ndi_output(ui, state, &metrics.ndi, palette);
+            draw_network_sync(ui, state, &metrics.sync, palette);
             draw_output_health(ui, state, metrics, palette);
             ui.horizontal(|ui| {
                 ui.label(if metrics.project_dirty {
@@ -783,6 +784,161 @@ fn draw_ndi_output(
             ui.weak(
                 "Off. Frames are sent at the composition resolution with synthesized timecode.",
             );
+        }
+    });
+}
+
+/// VIRTUAL Sync: leader / follower networking with other machines and lights.
+fn draw_network_sync(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    status: &crate::sync::SyncStatus,
+    palette: super::theme::ThemePalette,
+) {
+    use virtual_io::SyncRoleProject as Role;
+    egui::CollapsingHeader::new("Network sync · second rooms, TVs and lighting").show(ui, |ui| {
+        let sync = &mut state.sync;
+        ui.horizontal(|ui| {
+            ui.label("Role");
+            for (role, label, key) in [
+                (Role::Off, "Off", "off"),
+                (Role::Leader, "Leader", "leader"),
+                (Role::Follower, "Follower", "follower"),
+            ] {
+                buttons::midi_select(
+                    ui,
+                    &format!("setup.sync.role.{key}"),
+                    &format!("Network sync · {label}"),
+                    &mut sync.role,
+                    role,
+                    label,
+                );
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Name");
+            ui.add(egui::TextEdit::singleline(&mut sync.name).desired_width(140.0))
+                .on_hover_text("How this machine appears to other devices");
+            ui.label("Show key");
+            ui.add(
+                egui::TextEdit::singleline(&mut sync.passphrase)
+                    .password(true)
+                    .desired_width(140.0)
+                    .hint_text("none (unsigned)"),
+            )
+            .on_hover_text(
+                "Type the same key on every device. Packets are signed with it, so other \
+                 machines on the network cannot spoof or replay your show.",
+            );
+            ui.label("Port");
+            ui.add(egui::DragValue::new(&mut sync.port).range(1024..=65535));
+        });
+        match sync.role {
+            Role::Off => {
+                ui.weak("Off. Choose Leader on the main machine and Follower on the others.");
+            }
+            Role::Leader => {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Send");
+                    ui.checkbox(&mut sync.send_clock, "Tempo & beat");
+                    ui.checkbox(&mut sync.send_controls, "Parameter changes");
+                    ui.checkbox(&mut sync.send_audio, "Audio bands");
+                    ui.checkbox(&mut sync.send_zones, "Light zones");
+                    ui.add_enabled(
+                        sync.send_zones,
+                        egui::DragValue::new(&mut sync.zones).range(1..=128).suffix(" zones"),
+                    )
+                    .on_hover_text("The program image averaged into this many vertical colour strips");
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut sync.broadcast, "Broadcast for listen-only devices")
+                        .on_hover_text(
+                            "Devices that never say hello (simple light controllers) receive the \
+                             broadcast. Followers that say hello also get unicast, which is more \
+                             reliable on busy Wi-Fi.",
+                        );
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Fixed receivers");
+                    let mut text = sync.targets.join(", ");
+                    if ui
+                        .add(
+                            egui::TextEdit::singleline(&mut text)
+                                .desired_width(260.0)
+                                .hint_text("192.168.1.50, 192.168.1.51:41641"),
+                        )
+                        .on_hover_text("Devices with static IPs on networks that block broadcast")
+                        .changed()
+                    {
+                        sync.targets = text
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|target| !target.is_empty())
+                            .map(str::to_owned)
+                            .collect();
+                    }
+                });
+            }
+            Role::Follower => {
+                ui.horizontal(|ui| {
+                    ui.label("Follow leader");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut sync.leader)
+                            .desired_width(140.0)
+                            .hint_text("first one heard"),
+                    );
+                });
+                ui.horizontal_wrapped(|ui| {
+                    ui.label("Follow");
+                    ui.checkbox(&mut sync.follow_tempo, "Tempo & beat");
+                    ui.checkbox(&mut sync.follow_mixer, "Mixer & master");
+                    ui.checkbox(&mut sync.follow_transport, "Transport, clips & scenes");
+                    ui.checkbox(&mut sync.follow_effects, "Effects & generators");
+                    ui.checkbox(&mut sync.follow_buttons, "Button presses")
+                        .on_hover_text("Mirror every on-screen button the leader presses. Off by default.");
+                });
+                if sync.follow_tempo {
+                    ui.weak("Following the leader's tempo replaces the local clock source while connected.");
+                }
+            }
+        }
+        if let Some(error) = &status.error {
+            ui.colored_label(palette.danger, error);
+        } else if status.active {
+            match status.role {
+                Role::Leader => ui.label(format!(
+                    "{} follower(s) · {} datagrams sent · {} rejected",
+                    status.peers.len(),
+                    status.sent_or_received,
+                    status.rejected
+                )),
+                _ => ui.label(format!(
+                    "{} · {} received · {} applied · {} rejected{}",
+                    status
+                        .following
+                        .as_ref()
+                        .map_or("Searching for a leader…".to_owned(), |name| format!("Following {name}")),
+                    status.sent_or_received,
+                    status.applied,
+                    status.rejected,
+                    status
+                        .round_trip_ms
+                        .map_or(String::new(), |rtt| format!(" · round trip {rtt:.1} ms"))
+                )),
+            };
+            for peer in &status.peers {
+                ui.label(
+                    egui::RichText::new(format!("• {} — {}", peer.name, peer.detail))
+                        .small()
+                        .color(palette.muted_text),
+                );
+            }
+            if status.rejected > 0 && status.peers.is_empty() {
+                ui.colored_label(
+                    palette.warning,
+                    "Packets are arriving but failing their signature: check the show key matches.",
+                );
+            }
         }
     });
 }

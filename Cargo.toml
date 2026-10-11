@@ -10,6 +10,7 @@ members = [
     "crates/virtual-render",
     "crates/virtual-io",
     "crates/virtual-session",
+    "crates/virtual-sync",
     "crates/virtual-app",
 ]
 
@@ -29,6 +30,7 @@ virtual-media = { path = "crates/virtual-media" }
 virtual-render = { path = "crates/virtual-render" }
 virtual-io = { path = "crates/virtual-io" }
 virtual-session = { path = "crates/virtual-session" }
+virtual-sync = { path = "crates/virtual-sync" }
 
 # wgpu is pinned to 29 because egui-wgpu 0.35 depends on wgpu 29.0.
 # Bumping wgpu ahead of egui-wgpu puts two incompatible wgpu versions in the
