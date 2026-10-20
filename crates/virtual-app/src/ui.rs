@@ -462,7 +462,7 @@ pub enum UiAction {
     Eject(DeckId),
     ConnectGenerator {
         deck: DeckId,
-        settings: virtual_generate::GeneratorSettings,
+        settings: Box<virtual_generate::GeneratorSettings>,
     },
     SaveProject,
     SaveProjectAs,

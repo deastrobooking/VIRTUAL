@@ -36,6 +36,7 @@ struct GeometryKey {
     audio: [i32; 3],
     time: i32,
     custom_revision: u64,
+    text: [u8; crate::settings::TEXT_MAX_CHARS],
 }
 
 impl GeometryKey {
@@ -102,6 +103,11 @@ impl GeometryKey {
                 .geometry_graph
                 .as_ref()
                 .map_or(0, |graph| graph.revision),
+            text: if settings.pattern == crate::RecursivePattern::Text {
+                crate::text::encode(&settings.text)
+            } else {
+                [0; crate::settings::TEXT_MAX_CHARS]
+            },
         }
     }
 }
@@ -134,6 +140,10 @@ pub struct Generator {
     last_time: Option<f64>,
     stats: GeneratorStats,
     segment_budget: usize,
+    /// Noise flow for fill sources, integrated from grow speed.
+    flow: f32,
+    /// The last fill-source frame and its inputs, reused while unchanged.
+    fill_cache: Option<(Vec<u32>, Vec<u8>)>,
 }
 
 /// Runtime for a deck's generator stack. Uses one reusable RGBA scratch frame;
@@ -327,6 +337,8 @@ impl Generator {
             last_time: None,
             stats: GeneratorStats::default(),
             segment_budget: crate::MAX_SEGMENTS,
+            flow: 0.0,
+            fill_cache: None,
         }
     }
 
@@ -403,6 +415,10 @@ impl Generator {
         self.last_time = Some(time);
         let settings = self.settings.clone();
         let seconds = time as f32;
+        if settings.pattern.is_raster() && settings.geometry_graph.is_none() {
+            self.render_fill(&settings, dt, audio, out, started);
+            return;
+        }
 
         let key = GeometryKey::new(&settings, audio, seconds);
         if self.key != Some(key) {
@@ -538,6 +554,67 @@ impl Generator {
             planar: self.geometry.is_planar(),
             generate_micros: self.stats.generate_micros,
             render_micros: started.elapsed().as_micros().min(u32::MAX as u128) as u32,
+        };
+    }
+}
+
+impl Generator {
+    /// Draws a fill source (ramp, noise, bars…), reusing the previous frame
+    /// when nothing that affects it has changed.
+    fn render_fill(
+        &mut self,
+        settings: &GeneratorSettings,
+        dt: f32,
+        audio: AudioBands,
+        out: &mut [u8],
+        started: Instant,
+    ) {
+        self.spin = (self.spin + settings.spin_speed * 0.5 * TAU * dt).rem_euclid(TAU);
+        self.grow_phase = (self.grow_phase + settings.grow_speed * 0.5 * dt).rem_euclid(1.0);
+        self.flow = (self.flow + settings.grow_speed * dt).rem_euclid(4096.0);
+        self.hue_phase = (self.hue_phase + settings.color_speed * 0.04 * dt).rem_euclid(1.0);
+        let mut palette = Palette::from_settings(settings, audio, 0.0);
+        palette.hue += self.hue_phase;
+        let lut: Vec<[f32; 3]> = (0..PALETTE_ENTRIES)
+            .map(|index| {
+                palette
+                    .color(index as f32 / (PALETTE_ENTRIES - 1) as f32)
+                    .map(|channel| channel * settings.brightness)
+            })
+            .collect();
+        let fill = crate::texture::Fill {
+            pattern: settings.pattern,
+            extent: settings.resolution,
+            lut: &lut,
+            brightness: settings.brightness,
+            depth_fade: settings.depth_fade,
+            spread: settings.spread,
+            twist: settings.twist,
+            scale: settings.scale,
+            depth: settings.depth,
+            zoom: settings.zoom,
+            line_width: settings.line_width,
+            // Two units per cycle: the mirrored ramp's period.
+            scroll: self.grow_phase * 2.0,
+            angle: self.spin + settings.tilt * FRAC_PI_2,
+            flow: self.flow,
+            seed: settings.seed,
+            transparent: settings.transparent,
+        };
+        let key = fill.key();
+        match &mut self.fill_cache {
+            Some((cached, frame)) if *cached == key && frame.len() == out.len() => {
+                out.copy_from_slice(frame);
+            }
+            _ => {
+                crate::texture::render(&fill, out);
+                self.fill_cache = Some((key, out.to_vec()));
+            }
+        }
+        self.stats = GeneratorStats {
+            planar: true,
+            render_micros: started.elapsed().as_micros().min(u32::MAX as u128) as u32,
+            ..GeneratorStats::default()
         };
     }
 }
@@ -943,7 +1020,7 @@ mod tests {
             let out = frame(&mut generator, 0.0);
             let lit = out.chunks_exact(4).filter(|p| p[3] > 0).count();
             assert!(lit > 50, "{} lit only {lit} pixels", pattern.label());
-            assert!(generator.stats().segments > 0);
+            assert!(pattern.is_raster() || generator.stats().segments > 0);
         }
     }
 

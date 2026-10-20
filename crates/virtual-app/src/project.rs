@@ -274,6 +274,7 @@ pub fn generator_from_project(project: &GeneratorProject) -> GeneratorSettings {
         trace_speed: project.trace_speed,
         trace_spread: project.trace_spread,
         geometry_graph: project.geometry_graph.clone(),
+        text: project.text.clone(),
     }
     .sanitized()
 }
@@ -330,6 +331,7 @@ pub fn generator_to_project(settings: &GeneratorSettings) -> GeneratorProject {
         trace_speed: settings.trace_speed,
         trace_spread: settings.trace_spread,
         geometry_graph: settings.geometry_graph.clone(),
+        text: settings.text.clone(),
     }
 }
 

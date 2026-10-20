@@ -23,7 +23,7 @@ and recording continue to work on the result.
 3. The window has a layer row with **+ Add layer** and **Remove** controls.
    Select a layer to edit it independently. Each has position, scale,
    rotation, opacity, enable, and Over/Add/Screen blend controls, followed by
-   the pattern gallery (2D and 3D tiles) and the Shape,
+   the pattern gallery (2D, 3D and source tiles) and the Shape,
    Motion & camera, Color & light, Audio and Output sections. Pattern and
    controls can be changed live; rotation, growth and trails carry on
    without a restart.
@@ -86,6 +86,30 @@ deliberate changes were made:
   twist. Both are neutral at the default values.
 - **Randomness** uses a seeded generator, so a seed always gives the same
   shape.
+
+### Sources
+
+The **SOURCES** row in the gallery holds deck sources that need no media,
+like TouchDesigner's TOP generators. They mix, blend, take effects, map to
+MIDI and save like any other generator layer, so a ramp can multiply over a
+fractal on another layer, or a test grid can sit under a projection warp.
+
+| Source | What it draws | Controls |
+|---|---|---|
+| Solid Color | one colour | hue, saturation, lightness; colour speed drifts the hue |
+| Color Bars | 75% broadcast bars over a reverse row | brightness |
+| Linear Ramp | a gradient from the palette start colour to its end colour | spread: angle · twist: repeats (mirrored) · hue range: end colour · depth fade: darken toward the end · grow speed: scroll · spin speed: rotate |
+| Radial Ramp | rings from the centre outward | twist: rings · hue range · depth fade · grow speed: pulse outward |
+| Noise | seeded fractal value noise | scale: feature size · depth: detail octaves · grow speed: flow · seed |
+| Checkerboard | alternating cells in the start and end colours | spread: cell count · spin speed: rotate · zoom |
+| Test Grid | border, centre cross, circle and grid lines for projector alignment | spread: cell count · line width |
+| Text | the typed text in a glowing 16-segment font, drawn as lines | spread: letter spacing · twist: slant · randomness: jitter; `\|` starts a new line |
+
+Fill sources are drawn per pixel. A frame whose inputs have not changed is
+reused, so static fills cost nothing after the first frame; an animated fill
+takes about 10 ms per 1280×720 frame on one core. Text is drawn as line
+geometry, so it takes trails, echoes, tracing, reveal and the palette like
+any line pattern. Up to 48 characters are saved with the project.
 
 ## Controls
 

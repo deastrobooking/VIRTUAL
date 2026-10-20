@@ -12,6 +12,8 @@ mod math;
 mod patterns;
 mod render;
 mod settings;
+mod text;
+mod texture;
 mod turtle;
 
 pub use geometry::{
@@ -26,7 +28,7 @@ pub use math::{Mat3, Rng, Vec3, hsl_to_rgb};
 pub use render::{Generator, GeneratorStackRenderer, GeneratorStats};
 pub use settings::{
     ColorMode, Dimension, FRAME_RATES, GeneratorBlendMode, GeneratorLayer, GeneratorSettings,
-    GeneratorStack, RESOLUTIONS, RecursivePattern,
+    GeneratorStack, RESOLUTIONS, RecursivePattern, TEXT_MAX_CHARS,
 };
 pub use turtle::{Frame, MAX_SEGMENTS, Turtle};
 

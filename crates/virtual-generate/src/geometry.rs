@@ -58,6 +58,8 @@ pub struct GeometryParams {
     pub audio: AudioBands,
     pub time: f32,
     pub budget: usize,
+    /// The Text pattern's characters as ASCII, zero-padded.
+    pub text: [u8; crate::settings::TEXT_MAX_CHARS],
     pub degree_x: f32,
     pub degree_y: f32,
     pub degree_z: f32,
@@ -90,6 +92,7 @@ impl GeometryParams {
             audio: audio.scaled(settings.audio_amount),
             time,
             budget: MAX_SEGMENTS,
+            text: crate::text::encode(&settings.text),
             degree_x: settings.degree_x,
             degree_y: settings.degree_y,
             degree_z: settings.degree_z,
@@ -386,6 +389,10 @@ mod tests {
     #[test]
     fn every_pattern_generates_finite_bounded_geometry() {
         for pattern in RecursivePattern::ALL {
+            if pattern.is_raster() {
+                assert!(generate(&params(pattern)).segments.is_empty());
+                continue;
+            }
             for depth in [0.0, 0.6, 1.0] {
                 let mut p = params(pattern);
                 p.levels = GeneratorSettings {

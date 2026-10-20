@@ -28,6 +28,7 @@ pub(crate) fn requested_depth(pattern: RecursivePattern, levels: u32) -> u32 {
         GeodesicSphere => levels.saturating_sub(4),
         ChebyshevCurve | PolynomialContours | Supershape | RoseCurve | Lissajous
         | SphericalWeave | MobiusRibbon | Spirograph | TorusKnot => levels,
+        SolidColor | ColorBars | LinearRamp | RadialRamp | Noise | Checker | Grid | Text => 1,
     }
 }
 
@@ -72,6 +73,9 @@ pub(crate) fn estimate(params: &GeometryParams, depth: u32) -> u64 {
         RoseCurve | Lissajous | SphericalWeave | MobiusRibbon | Spirograph | TorusKnot => {
             256 * u64::from(depth.max(1))
         }
+        // Fill sources draw pixels, not segments.
+        SolidColor | ColorBars | LinearRamp | RadialRamp | Noise | Checker | Grid => 0,
+        Text => 18 * crate::settings::TEXT_MAX_CHARS as u64,
     }
 }
 
@@ -189,6 +193,16 @@ pub(crate) fn build(p: &GeometryParams, depth: u32, out: &mut Builder) {
         RoseCurve | Lissajous | SphericalWeave | MobiusRibbon | Spirograph | TorusKnot => {
             parametric_curve(&mut c, depth)
         }
+        SolidColor | ColorBars | LinearRamp | RadialRamp | Noise | Checker | Grid => {}
+        Text => crate::text::build(
+            &p.text,
+            scale,
+            p.spread,
+            p.twist,
+            p.randomness,
+            p.seed,
+            c.out,
+        ),
     }
 }
 

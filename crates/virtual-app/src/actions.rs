@@ -279,7 +279,7 @@ impl State {
                             ),
                         },
                     );
-                    self.connect_generator(deck, settings);
+                    self.connect_generator(deck, *settings);
                 }
                 ui::UiAction::StartCameraRecording(address) => {
                     self.start_camera_recording(address, now);

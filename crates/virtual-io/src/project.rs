@@ -1910,6 +1910,8 @@ pub struct GeneratorProject {
     pub trace_spread: f32,
     #[serde(default)]
     pub geometry_graph: Option<GeometryGraph>,
+    /// What the Text pattern writes.
+    pub text: String,
 }
 
 impl Default for GeneratorProject {
@@ -1967,6 +1969,7 @@ impl Default for GeneratorProject {
             trace_speed: 0.0,
             trace_spread: 0.0,
             geometry_graph: None,
+            text: "VIRTUAL".to_owned(),
         }
     }
 }

@@ -5,7 +5,10 @@ use virtual_generate::{
 
 #[test]
 fn echoes_share_budget_and_keep_trace_coordinates() {
-    for pattern in RecursivePattern::ALL {
+    for pattern in RecursivePattern::ALL
+        .into_iter()
+        .filter(|pattern| !pattern.is_raster())
+    {
         let settings = GeneratorSettings {
             pattern,
             echo_copies: 24.0,

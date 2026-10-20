@@ -63,10 +63,10 @@ pub(super) fn draw_generator_source(
             {
                 actions.push(UiAction::ConnectGenerator {
                     deck,
-                    settings: GeneratorSettings {
+                    settings: Box::new(GeneratorSettings {
                         pattern: state.generator_pattern,
                         ..GeneratorSettings::default()
-                    },
+                    }),
                 });
                 state.generator_windows[deck.index()] = true;
             }
@@ -502,16 +502,20 @@ fn draw_window_body(
     ui.weak("Use MIDI Map in the main window, then click a parameter to learn; right-click clears its mapping.");
     {
         // Pattern gallery.
-        for (heading, dimension) in [
-            ("2D PATTERNS", Dimension::Planar),
-            ("3D PATTERNS", Dimension::Spatial),
+        for (heading, dimension, sources) in [
+            ("2D PATTERNS", Dimension::Planar, false),
+            ("3D PATTERNS", Dimension::Spatial, false),
+            (
+                "SOURCES · fills, test patterns and text",
+                Dimension::Planar,
+                true,
+            ),
         ] {
             ui.weak(heading);
             ui.horizontal_wrapped(|ui| {
-                for pattern in RecursivePattern::ALL
-                    .into_iter()
-                    .filter(|pattern| pattern.dimension() == dimension)
-                {
+                for pattern in RecursivePattern::ALL.into_iter().filter(|pattern| {
+                    pattern.is_source() == sources && pattern.dimension() == dimension
+                }) {
                     if buttons::midi_button(
                         ui,
                         &format!("generator.{}.pattern.{}", deck.index(), pattern.id()),
@@ -525,6 +529,17 @@ fn draw_window_body(
                         settings.pattern = pattern;
                     }
                 }
+            });
+        }
+        if settings.pattern == RecursivePattern::Text {
+            ui.horizontal(|ui| {
+                ui.label("Text");
+                ui.add(
+                    egui::TextEdit::singleline(&mut settings.text)
+                        .char_limit(virtual_generate::TEXT_MAX_CHARS)
+                        .hint_text("Type here · | starts a new line")
+                        .desired_width(320.0),
+                );
             });
         }
     }

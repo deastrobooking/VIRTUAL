@@ -164,6 +164,15 @@ be surfaced before launch, leaving the current output intact.
 
 ## 3. Procedural texture sources
 
+**Status (October 2026):** Built as generator **Sources** (see
+[GENERATORS.md](GENERATORS.md#sources)): Solid Color, Color Bars, Linear and
+Radial Ramp, Noise, Checkerboard, Test Grid and Text. They run on the CPU
+generator path rather than the GPU, so they share layers, blend modes, MIDI
+targets and persistence with every generator; unchanged frames are reused, and
+an animated fill costs about 10 ms per 1280×720 frame. Text uses a built-in
+ASCII 16-segment line font rather than system fonts. Moving fills to GPU
+shaders and Unicode text remain open.
+
 **Inspiration:** TouchDesigner TOP generators such as Ramp, Noise and Text.
 
 **User outcome:** Create useful visuals without importing a movie or opening a

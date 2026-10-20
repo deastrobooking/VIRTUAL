@@ -30,6 +30,14 @@ pub enum RecursivePattern {
     Lissajous,
     SphericalWeave,
     MobiusRibbon,
+    SolidColor,
+    ColorBars,
+    LinearRamp,
+    RadialRamp,
+    Noise,
+    Checker,
+    Grid,
+    Text,
 }
 
 /// Whether a pattern is drawn in the XY plane or occupies 3D space.
@@ -53,7 +61,7 @@ pub enum ColorMode {
 }
 
 impl RecursivePattern {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 31] = [
         Self::FractalTree,
         Self::RecursiveSpiral,
         Self::Mandala,
@@ -77,6 +85,14 @@ impl RecursivePattern {
         Self::Lissajous,
         Self::SphericalWeave,
         Self::MobiusRibbon,
+        Self::SolidColor,
+        Self::ColorBars,
+        Self::LinearRamp,
+        Self::RadialRamp,
+        Self::Noise,
+        Self::Checker,
+        Self::Grid,
+        Self::Text,
     ];
 
     pub const fn id(self) -> &'static str {
@@ -104,6 +120,14 @@ impl RecursivePattern {
             Self::Lissajous => "lissajous",
             Self::SphericalWeave => "spherical_weave",
             Self::MobiusRibbon => "mobius_ribbon",
+            Self::SolidColor => "solid_color",
+            Self::ColorBars => "color_bars",
+            Self::LinearRamp => "linear_ramp",
+            Self::RadialRamp => "radial_ramp",
+            Self::Noise => "noise",
+            Self::Checker => "checker",
+            Self::Grid => "grid",
+            Self::Text => "text",
         }
     }
 
@@ -136,6 +160,14 @@ impl RecursivePattern {
             Self::Lissajous => "Lissajous",
             Self::SphericalWeave => "Spherical Weave",
             Self::MobiusRibbon => "Möbius Ribbon",
+            Self::SolidColor => "Solid Color",
+            Self::ColorBars => "Color Bars",
+            Self::LinearRamp => "Linear Ramp",
+            Self::RadialRamp => "Radial Ramp",
+            Self::Noise => "Noise",
+            Self::Checker => "Checkerboard",
+            Self::Grid => "Test Grid",
+            Self::Text => "Text",
         }
     }
 
@@ -165,6 +197,24 @@ impl RecursivePattern {
             Self::Lissajous => "Spread: frequency ratio · Twist: phase",
             Self::SphericalWeave => "Spread: windings · Twist: latitude sweep",
             Self::MobiusRibbon => "Spread: half twists · Twist: ribbon width",
+            Self::SolidColor => {
+                "Hue, saturation and lightness set the colour; colour speed drifts it"
+            }
+            Self::ColorBars => "Broadcast-style bars for checking projectors and outputs",
+            Self::LinearRamp => {
+                "Spread: angle · Twist: repeats · Hue range: end colour · Depth fade: darken toward the end · Grow speed: scroll"
+            }
+            Self::RadialRamp => {
+                "Twist: rings · Hue range: outer colour · Depth fade: darken outward · Grow speed: pulse outward"
+            }
+            Self::Noise => {
+                "Scale: feature size · Depth: detail · Grow speed: flow · Hue range and depth fade colour it"
+            }
+            Self::Checker => {
+                "Spread: cells · Spin speed: rotate · Hue range: second colour · Depth fade: darken it"
+            }
+            Self::Grid => "Projection alignment: Spread sets cells, line width the lines",
+            Self::Text => "Spread: letter spacing · Twist: slant · Randomness: jitter",
         }
     }
 
@@ -179,7 +229,15 @@ impl RecursivePattern {
             | Self::DragonCurve
             | Self::HilbertCurve
             | Self::HTree
-            | Self::PythagorasTree => Dimension::Planar,
+            | Self::PythagorasTree
+            | Self::SolidColor
+            | Self::ColorBars
+            | Self::LinearRamp
+            | Self::RadialRamp
+            | Self::Noise
+            | Self::Checker
+            | Self::Grid
+            | Self::Text => Dimension::Planar,
             Self::SphericalWeave
             | Self::MobiusRibbon
             | Self::ChebyshevCurve
@@ -208,7 +266,15 @@ impl RecursivePattern {
             | Self::DragonCurve
             | Self::HilbertCurve
             | Self::Spirograph
-            | Self::TorusKnot => ColorMode::Path,
+            | Self::TorusKnot
+            | Self::SolidColor
+            | Self::ColorBars
+            | Self::LinearRamp
+            | Self::RadialRamp
+            | Self::Noise
+            | Self::Checker
+            | Self::Grid
+            | Self::Text => ColorMode::Path,
             Self::SierpinskiTriangle
             | Self::SierpinskiTetrahedron
             | Self::MengerSponge
@@ -221,6 +287,26 @@ impl RecursivePattern {
             | Self::HTree
             | Self::PythagorasTree => ColorMode::Depth,
         }
+    }
+
+    /// Fill sources drawn per pixel instead of as lines.
+    pub const fn is_raster(self) -> bool {
+        matches!(
+            self,
+            Self::SolidColor
+                | Self::ColorBars
+                | Self::LinearRamp
+                | Self::RadialRamp
+                | Self::Noise
+                | Self::Checker
+                | Self::Grid
+        )
+    }
+
+    /// Sources (fills, test patterns and text) rather than generative
+    /// patterns; the deck gallery lists them separately.
+    pub const fn is_source(self) -> bool {
+        self.is_raster() || matches!(self, Self::Text)
     }
 
     /// Whether live audio changes this pattern's geometry (not only colour).
@@ -319,7 +405,12 @@ pub struct GeneratorSettings {
     pub trace_spread: f32,
     /// Optional node graph evaluated in place of the built-in source pattern.
     pub geometry_graph: Option<GeometryGraph>,
+    /// What the Text pattern writes (up to [`TEXT_MAX_CHARS`] characters).
+    pub text: String,
 }
+
+/// Characters the Text pattern draws.
+pub const TEXT_MAX_CHARS: usize = 48;
 
 /// How a generator layer is combined with the layers below it.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -500,6 +591,7 @@ impl Default for GeneratorSettings {
             trace_speed: 0.0,
             trace_spread: 0.0,
             geometry_graph: None,
+            text: "VIRTUAL".to_owned(),
         }
     }
 }
@@ -570,6 +662,9 @@ impl GeneratorSettings {
             self.resolution[1].clamp(64, 2160),
         ];
         self.fps = self.fps.clamp(1, 120);
+        if let Some((end, _)) = self.text.char_indices().nth(TEXT_MAX_CHARS) {
+            self.text.truncate(end);
+        }
         self
     }
 
