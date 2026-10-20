@@ -7,6 +7,7 @@
 mod geometry;
 mod geometry_graph;
 pub mod graphing;
+pub mod graphing_library;
 mod math;
 mod patterns;
 mod render;

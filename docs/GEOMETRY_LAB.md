@@ -51,20 +51,42 @@ implicit: `2x`, `3sin(x)`, `x(1+x)`, `2pi`.
 | `(cos(t), sin(t), t/5)`, `(1, 2, 3)` | 3D curve, 3D point |
 | `(-y, x)`, `F = (P, Q)` | vector field with RK4 streamlines |
 | `dy/dx = y - x` | slope field with solution curves |
+| `(cos(u) sin(v), sin(u) sin(v), cos(v))` | parametric surface over its u and v ranges (3D view) |
+| `(n, isprime(n))` | sequence: a point for each whole n in its n range |
 
 Every expression can use `time` (seconds); **▶ Animate time** runs it, so
 physics such as a projectile `(10t cos(0.8), 10t sin(0.8) - 4.9t^2)`, damped
 oscillation `e^(-0.2x) cos(3x - time)` or fields with moving terms animate.
-**Examples** adds a set of these with one click.
-The **3D scenes** presets add several coordinated equations together, including
-sliders, implicit surfaces and parametric curves, so they can be explored as
-one layered scene.
+
+Sums and products take an index, bounds and a body: `sum(k, 0, N, x^k/k!)` is
+a Taylor polynomial whose length follows the slider `N`, and `prod(k, 1, n, k)`
+is `n!`. `Σ` and `∏` are accepted, bounds round to whole numbers, and one sum
+adds at most 10,000 terms. `x`, `y`, `z`, `t`, `θ`, `u`, `v`, `n`, `r`, `e` and
+`time` are reserved, so name sliders something else (for example `N`).
 
 Functions: `sin cos tan asin acos atan sec csc cot sinh cosh tanh asinh acosh
 atanh sqrt cbrt abs exp ln log log10 log2 floor ceil fract round sign min max
-pow atan2 mod hypot clamp lerp smoothstep`; constants `pi tau e`. Plotting uses
+pow atan2 mod hypot clamp lerp smoothstep gamma fact binom erf gcd lcm isprime`,
+postfix `n!`; constants `pi tau e`. `-x^2` means `-(x^2)`. Plotting uses
 real-valued maths: `sqrt(-1)`, `ln(0)` and division by zero are undefined
 points (gaps), not errors, and curves break at asymptotes such as `tan(x)`.
+
+### Math Library
+
+**📚 Math Library** opens a window of nearly 300 ready-made examples in folders
+covering mathematics broadly: number theory, algebra, functions, trigonometry, geometry,
+conic sections, polar and parametric curves, calculus (limits, derivatives,
+integrals, series), multivariable and vector calculus, differential equations,
+linear algebra, complex numbers, probability and statistics, discrete maths and
+logic, fractals and chaos, 3D shapes, topology, physics, signals, economics and
+biology, famous curves, and animated art.
+
+Click an example to read a short explanation and see its equations; ◇ marks 2D,
+◆ 3D and ▶ animated examples. **Open** replaces the graph with it, setting its
+slider ranges, parameter ranges, view and animation; **Add to graph** keeps the
+current objects. Double-click opens directly. The search box matches titles,
+explanations, folders and equations, so `taylor`, `spiral`, `torus` or `isprime`
+find every related example. A test checks that every example parses and draws.
 
 ### Views and analysis
 

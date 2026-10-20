@@ -10,6 +10,7 @@ use std::sync::Arc;
 use virtual_generate::graphing::{
     self, Plot, PlotKind, Primitives, Sampled3, Scope, View, classify,
 };
+use virtual_generate::graphing_library::{self, LIBRARY, LibraryEntry, LibraryFolder};
 use virtual_generate::{GeometryGraph, GeometryNodeKind};
 
 use super::theme::ThemePalette;
@@ -96,6 +97,10 @@ pub struct GraphingCalculator {
     pub show_table: bool,
     pub table_step: f32,
     pub window_open: bool,
+    pub library_open: bool,
+    library_query: String,
+    /// The example previewed in the library, with its folder path.
+    library_pick: Option<(String, &'static LibraryEntry)>,
     active: usize,
     target: Target,
     next_color: usize,
@@ -116,6 +121,9 @@ impl Default for GraphingCalculator {
             show_table: false,
             table_step: 1.0,
             window_open: false,
+            library_open: false,
+            library_query: String::new(),
+            library_pick: None,
             active: 0,
             target: Target::Input,
             next_color: 1,
@@ -252,14 +260,58 @@ impl GraphingCalculator {
         self.active = self.items.len() - 1;
     }
 
-    fn add_scene(&mut self, sources: &[&str]) {
-        for source in sources {
+    /// Adds a library example, or replaces the graph with it, applying its
+    /// slider, parameter and view ranges.
+    fn load_entry(&mut self, entry: &LibraryEntry, replace: bool) {
+        if replace {
+            self.items.clear();
+            self.next_color = 0;
+            self.active = 0;
+            self.time = 0.0;
+            self.animate = entry.animate;
+            self.view = entry.window.map_or(DEFAULT_VIEW, |[x0, x1, y0, y1]| View {
+                x: [x0, x1],
+                y: [y0, y1],
+            });
+        } else {
+            self.animate |= entry.animate;
+        }
+        let mut three_d = false;
+        for line in entry.lines {
             if self.items.len() >= MAX_SAVED_ITEMS {
                 break;
             }
-            self.add((*source).to_owned());
+            let mut item = GraphItem::new(*line, self.next_color);
+            match classify(line) {
+                Ok(PlotKind::Slider { name, .. }) => {
+                    if let Some(range) = entry.slider_range(&name) {
+                        item.range = range;
+                    }
+                }
+                Ok(PlotKind::ParametricSurface(..)) => {
+                    three_d = true;
+                    item.parameter = entry.parameter.unwrap_or(item.parameter);
+                    item.range = entry.secondary.unwrap_or(item.range);
+                }
+                Ok(kind) => {
+                    three_d |= kind.is_3d();
+                    if kind.uses_parameter() || matches!(kind, PlotKind::Polar(_)) {
+                        item.parameter = entry.parameter.unwrap_or(item.parameter);
+                    }
+                }
+                Err(_) => {}
+            }
+            self.items.push(item);
+            self.next_color += 1;
+            self.active = self.items.len() - 1;
         }
-        self.mode = ViewMode::Graph3d;
+        if replace || three_d {
+            self.mode = if three_d {
+                ViewMode::Graph3d
+            } else {
+                ViewMode::Graph2d
+            };
+        }
     }
 
     /// Slider names and values defined anywhere in the list.
@@ -384,7 +436,16 @@ pub(super) fn draw(
             calc.zoom_3d = 1.0;
         }
         changed |= apply_to_graph(ui, calc, graph, selected_node);
+        ui.separator();
+        ui.toggle_value(
+            &mut calc.library_open,
+            format!("📚 Math Library ({})", graphing_library::entry_count()),
+        )
+        .on_hover_text("Hundreds of examples in folders, from algebra to topology");
     });
+    if calc.library_open {
+        draw_library(ui.ctx(), calc, &palette, salt);
+    }
     let wide = ui.available_width() >= 820.0;
     if wide {
         ui.horizontal_top(|ui| {
@@ -585,68 +646,223 @@ fn draw_algebra(
             ui.memory_mut(|memory| memory.request_focus(id));
         }
     });
-    ui.collapsing("Examples", |ui| {
-        ui.label(
-            egui::RichText::new("Click to add")
+    if ui
+        .link(
+            egui::RichText::new("📚 Browse the Math Library for examples")
                 .small()
-                .color(palette.muted_text),
-        );
-        ui.horizontal_wrapped(|ui| {
-            for example in [
-                "y = a sin(b x)",
-                "a = 1",
-                "b = 2",
-                "x^2/9 + y^2/4 = 1",
-                "y < x^2 - 2",
-                "r = 2 sin(4θ)",
-                "(cos(3t), sin(2t))",
-                "(-y, x)",
-                "dy/dx = y - x",
-                "z = sin(x) cos(y)",
-                "x^2 + y^2 + z^2 = 16",
-                "x^2 + y^2 - z^2 = 4",
-                "(cos(t), sin(t), t/5)",
-                "y = e^(-0.2x) cos(3x - time)",
-                "(10 t cos(0.8), 10 t sin(0.8) - 4.9t^2)",
-            ] {
-                if ui
-                    .small_button(egui::RichText::new(example).monospace())
-                    .clicked()
-                {
-                    calc.add(example.to_owned());
-                }
+                .color(palette.accent),
+        )
+        .clicked()
+    {
+        calc.library_open = true;
+    }
+}
+
+/// The Math Library window: a searchable folder tree beside a preview of
+/// the chosen example, which can be opened or added to the graph.
+fn draw_library(
+    ctx: &egui::Context,
+    calc: &mut GraphingCalculator,
+    palette: &ThemePalette,
+    salt: egui::Id,
+) {
+    let mut open = true;
+    egui::Window::new(
+        egui::RichText::new("📚 MATH LIBRARY")
+            .strong()
+            .color(palette.accent),
+    )
+    .id(salt.with("math-library"))
+    .open(&mut open)
+    .default_size([820.0, 560.0])
+    .min_width(520.0)
+    .resizable(true)
+    .show(ctx, |ui| {
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut calc.library_query)
+                    .hint_text(format!(
+                        "Search {} examples: taylor, spiral, torus, prime…",
+                        graphing_library::entry_count()
+                    ))
+                    .desired_width(360.0),
+            );
+            if !calc.library_query.is_empty() && ui.small_button("✕").clicked() {
+                calc.library_query.clear();
             }
         });
         ui.separator();
+        let mut action = None;
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(300.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("library-tree")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        if calc.library_query.trim().is_empty() {
+                            for folder in LIBRARY {
+                                library_folder(ui, folder, "", calc, palette, &mut action);
+                            }
+                        } else {
+                            let found = graphing_library::search(&calc.library_query);
+                            if found.is_empty() {
+                                ui.weak("No examples match.");
+                            }
+                            for (path, entry) in found {
+                                library_row(ui, entry, path, calc, palette, &mut action);
+                            }
+                        }
+                    });
+            });
+            ui.separator();
+            ui.vertical(|ui| library_preview(ui, calc, palette, &mut action));
+        });
+        if let Some((entry, replace)) = action {
+            calc.load_entry(entry, replace);
+        }
+    });
+    calc.library_open &= open;
+}
+
+fn library_folder(
+    ui: &mut egui::Ui,
+    folder: &'static LibraryFolder,
+    path: &str,
+    calc: &mut GraphingCalculator,
+    palette: &ThemePalette,
+    action: &mut Option<(&'static LibraryEntry, bool)>,
+) {
+    let path = if path.is_empty() {
+        folder.name.to_owned()
+    } else {
+        format!("{path} › {}", folder.name)
+    };
+    egui::CollapsingHeader::new(format!("📁 {}  ({})", folder.name, folder.entry_count()))
+        .id_salt(("library-folder", &path))
+        .show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(folder.blurb)
+                    .small()
+                    .color(palette.muted_text),
+            );
+            for sub in folder.folders {
+                library_folder(ui, sub, &path, calc, palette, action);
+            }
+            for entry in folder.entries {
+                library_row(ui, entry, path.clone(), calc, palette, action);
+            }
+        });
+}
+
+/// One example in the tree: click to preview, double-click to open.
+fn library_row(
+    ui: &mut egui::Ui,
+    entry: &'static LibraryEntry,
+    path: String,
+    calc: &mut GraphingCalculator,
+    palette: &ThemePalette,
+    action: &mut Option<(&'static LibraryEntry, bool)>,
+) {
+    let selected = calc
+        .library_pick
+        .as_ref()
+        .is_some_and(|(_, pick)| std::ptr::eq(*pick, entry));
+    let three_d = entry
+        .lines
+        .iter()
+        .any(|line| classify(line).is_ok_and(|kind| kind.is_3d()));
+    let mut text = egui::RichText::new(format!(
+        "{} {}{}",
+        if three_d { "◆" } else { "◇" },
+        entry.title,
+        if entry.animate { "  ▶" } else { "" }
+    ));
+    if selected {
+        text = text.color(palette.accent);
+    }
+    let response = ui
+        .selectable_label(selected, text)
+        .on_hover_text(entry.blurb);
+    if response.clicked() {
+        calc.library_pick = Some((path.clone(), entry));
+    }
+    if response.double_clicked() {
+        calc.library_pick = Some((path, entry));
+        *action = Some((entry, true));
+    }
+}
+
+fn library_preview(
+    ui: &mut egui::Ui,
+    calc: &mut GraphingCalculator,
+    palette: &ThemePalette,
+    action: &mut Option<(&'static LibraryEntry, bool)>,
+) {
+    let Some((path, entry)) = calc.library_pick.clone() else {
+        ui.add_space(12.0);
+        ui.heading("Pick an example");
         ui.label(
-            egui::RichText::new("3D scenes · add coordinated equations together")
+            "Open a folder and click an example to read about it. Double-click opens it \
+             straight away. ◇ marks 2D graphs, ◆ 3D, and ▶ animated ones.",
+        );
+        ui.add_space(8.0);
+        ui.label(
+            egui::RichText::new(format!(
+                "{} examples in {} folders.",
+                graphing_library::entry_count(),
+                LIBRARY.len()
+            ))
+            .color(palette.muted_text),
+        );
+        return;
+    };
+    ui.label(egui::RichText::new(path).small().color(palette.muted_text));
+    ui.heading(entry.title);
+    ui.add_space(4.0);
+    ui.label(entry.blurb);
+    ui.add_space(8.0);
+    egui::Frame::group(ui.style())
+        .fill(palette.extreme)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            for line in entry.lines {
+                let kind = classify(line).map(|kind| kind.label()).unwrap_or("?");
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(egui::RichText::new(*line).monospace().color(palette.text));
+                    ui.label(egui::RichText::new(kind).small().color(palette.muted_text));
+                });
+            }
+        });
+    if !entry.sliders.is_empty() {
+        ui.add_space(4.0);
+        let ranges: Vec<String> = entry
+            .sliders
+            .iter()
+            .map(|(name, min, max)| format!("{name} {}…{}", trim_number(*min), trim_number(*max)))
+            .collect();
+        ui.label(
+            egui::RichText::new(format!("Sliders: {}", ranges.join(" · ")))
                 .small()
                 .color(palette.muted_text),
         );
-        ui.horizontal_wrapped(|ui| {
-            if ui.button("Orbital sphere").clicked() {
-                calc.add_scene(&[
-                    "a = 4",
-                    "x^2 + y^2 + z^2 = a^2",
-                    "(a cos(t), a sin(t), t/2)",
-                ]);
-            }
-            if ui.button("Saddle study").clicked() {
-                calc.add_scene(&["z = 0.25(x^2 - y^2)", "z = 0", "x^2 + y^2 - z^2 = 9"]);
-            }
-            if ui.button("Torus field").clicked() {
-                calc.add_scene(&[
-                    "a = 3",
-                    "b = 1",
-                    "(x^2 + y^2 + z^2 + a^2 - b^2)^2 = 4a^2(x^2 + y^2)",
-                    "((a + b cos(t)) cos(2t), (a + b cos(t)) sin(2t), b sin(t))",
-                ]);
-            }
-            if ui.button("Wave surfaces").clicked() {
-                calc.add_scene(&["z = 2 sin(x) cos(y)", "z = sin(2x + time) + cos(2y - time)"]);
-                calc.animate = true;
-            }
-        });
+    }
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        if ui
+            .button(egui::RichText::new("Open").strong())
+            .on_hover_text("Replace the graph with this example")
+            .clicked()
+        {
+            *action = Some((entry, true));
+        }
+        if ui
+            .button("Add to graph")
+            .on_hover_text("Keep the current objects and add this example's")
+            .clicked()
+        {
+            *action = Some((entry, false));
+        }
     });
 }
 
@@ -1915,5 +2131,32 @@ mod tests {
         assert_eq!(text, "sin(2cos())");
         insert(&ctx, id, &mut text, "θ", 0);
         assert_eq!(text, "sin(2cos(θ))");
+    }
+
+    #[test]
+    fn library_examples_open_with_their_ranges() {
+        let find = |title: &str| {
+            graphing_library::search(title)
+                .into_iter()
+                .find(|(_, entry)| entry.title == title)
+                .unwrap_or_else(|| panic!("{title}"))
+                .1
+        };
+        let mut calc = GraphingCalculator::default();
+        calc.load_entry(find("Rose curves"), true);
+        assert_eq!(calc.mode, ViewMode::Graph2d);
+        assert_eq!(calc.items.len(), 2);
+        assert_eq!(calc.items[0].range, [0.5, 12.0], "slider range");
+        assert_eq!(calc.items[1].parameter, [0.0, 4.0 * std::f32::consts::PI]);
+
+        calc.load_entry(find("Helicoid"), false);
+        assert_eq!(calc.items.len(), 3, "added, not replaced");
+        assert_eq!(calc.mode, ViewMode::Graph3d);
+        assert_eq!(calc.items[2].range, [-2.0, 2.0], "v range");
+
+        calc.load_entry(find("Standing wave"), true);
+        assert!(calc.animate);
+        assert_eq!(calc.items.len(), 3);
+        assert_eq!(calc.view.x, [-5.0, 5.0]);
     }
 }

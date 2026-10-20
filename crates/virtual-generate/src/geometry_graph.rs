@@ -1306,10 +1306,11 @@ impl Parser<'_> {
     }
     fn expression(&mut self, min: u8) -> Result<Expr, CalculatorError> {
         self.space();
+        // Unary signs bind looser than `^`, so `-x^2` is `-(x^2)`.
         let mut lhs = if self.take(b'-') {
-            Expr::Unary('-', Box::new(self.expression(4)?))
+            Expr::Unary('-', Box::new(self.expression(3)?))
         } else if self.take(b'+') {
-            Expr::Unary('+', Box::new(self.expression(4)?))
+            Expr::Unary('+', Box::new(self.expression(3)?))
         } else if self.take(b'(') {
             let e = self.expression(0)?;
             self.space();
@@ -1499,6 +1500,8 @@ mod tests {
         assert_eq!(value("2e3", 0.0), 2000.0);
         assert_eq!(value("1e-2", 0.0), 0.01);
         assert_eq!(value("-2x", 3.0), -6.0);
+        assert_eq!(value("-x^2", 3.0), -9.0);
+        assert_eq!(value("2^-x", 1.0), 0.5);
         assert!((value("ln(e^2)+log10(100)", 0.0) - 4.0).abs() < 1e-5);
         assert!((value("cosh(0)+tanh(0)", 0.0) - 1.0).abs() < 1e-6);
     }
