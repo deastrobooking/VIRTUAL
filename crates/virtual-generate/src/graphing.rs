@@ -19,21 +19,31 @@
 //! | `z = sin(x)*cos(y)` | surface |
 //! | `(y, -x)`, `F = (P, Q)` with x/y and no t | vector field with streamlines |
 //! | `dy/dx = x - y` | slope field |
+//! | `(cos(u) sin(v), sin(u) sin(v), cos(v))` | parametric surface over u and v |
+//! | `(n, isprime(n))` | sequence: a point for each whole n in the range |
 //!
-//! Every expression may also use `time` (seconds) to animate and any slider.
+//! Every expression may also use `time` (seconds) to animate and any slider,
+//! `sum(k, 1, N, …)` and `prod(k, 1, N, …)` (Σ and ∏), `n!`, `binom(n, k)`,
+//! `gamma`, `erf`, `gcd`, `lcm` and `isprime`.
 
 use crate::geometry_graph::{BoundExpression, CalculatorError, CalculatorExpression};
 
 /// Variables every object can read, in slot order; sliders follow.
-pub const BASE_VARIABLES: [&str; 6] = ["x", "y", "z", "t", "theta", "time"];
+pub const BASE_VARIABLES: [&str; 9] = ["x", "y", "z", "t", "theta", "time", "u", "v", "n"];
 const X: usize = 0;
 const Y: usize = 1;
 const T: usize = 3;
 const THETA: usize = 4;
 const TIME: usize = 5;
+const U: usize = 6;
+const V: usize = 7;
+const N: usize = 8;
+
+/// Points one sequence may draw.
+const MAX_SEQUENCE_POINTS: i64 = 5000;
 
 /// Names reserved for variables, so they cannot become sliders.
-const RESERVED: [&str; 8] = ["x", "y", "z", "t", "theta", "time", "r", "e"];
+const RESERVED: [&str; 11] = ["x", "y", "z", "t", "theta", "time", "u", "v", "n", "r", "e"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Comparison {
@@ -67,6 +77,10 @@ pub enum PlotKind {
     Point(String, String),
     Parametric3(String, String, String),
     Point3(String, String, String),
+    /// `(X(u, v), Y(u, v), Z(u, v))`.
+    ParametricSurface(String, String, String),
+    /// `(a(n), b(n))` for each whole `n` in the range.
+    Sequence(String, String),
     /// `f(x, y) = 0`.
     Implicit(String),
     /// `f(x, y, z) = 0`.
@@ -94,6 +108,8 @@ impl PlotKind {
             Self::Point(..) => "point",
             Self::Parametric3(..) => "3D curve",
             Self::Point3(..) => "3D point",
+            Self::ParametricSurface(..) => "parametric surface",
+            Self::Sequence(..) => "sequence",
             Self::Implicit(_) => "implicit",
             Self::Implicit3D(_) => "implicit surface",
             Self::Inequality(..) => "inequality",
@@ -108,13 +124,31 @@ impl PlotKind {
     pub fn is_3d(&self) -> bool {
         matches!(
             self,
-            Self::Surface(_) | Self::Implicit3D(_) | Self::Parametric3(..) | Self::Point3(..)
+            Self::Surface(_)
+                | Self::Implicit3D(_)
+                | Self::Parametric3(..)
+                | Self::Point3(..)
+                | Self::ParametricSurface(..)
         )
     }
 
-    /// Whether `t` is this object's sampling parameter.
+    /// Whether `t` (or `u`, or `n`) is this object's sampling parameter.
     pub fn uses_parameter(&self) -> bool {
-        matches!(self, Self::Parametric(..) | Self::Parametric3(..))
+        matches!(
+            self,
+            Self::Parametric(..)
+                | Self::Parametric3(..)
+                | Self::ParametricSurface(..)
+                | Self::Sequence(..)
+        )
+    }
+
+    /// The parameter range a new object of this kind starts with.
+    pub fn default_parameter(&self) -> [f32; 2] {
+        match self {
+            Self::Sequence(..) => [1.0, 30.0],
+            _ => [0.0, std::f32::consts::TAU],
+        }
     }
 }
 
@@ -134,6 +168,8 @@ pub fn normalize(source: &str) -> String {
             '≤' => out.push_str("<="),
             '≥' => out.push_str(">="),
             '√' => out.push_str("sqrt"),
+            'Σ' | '∑' => out.push_str("sum"),
+            '∏' => out.push_str("prod"),
             _ => out.push(c),
         }
     }
@@ -235,8 +271,14 @@ fn classify_tuple(body: &str) -> Result<PlotKind, String> {
     let has = |names: &[&str]| parts.iter().any(|part| uses_any(part, names));
     match parts.as_slice() {
         [px, py] if has(&["t"]) => Ok(PlotKind::Parametric(px.to_string(), py.to_string())),
+        [px, py] if has(&["n"]) => Ok(PlotKind::Sequence(px.to_string(), py.to_string())),
         [px, py] if has(&["x", "y"]) => Ok(PlotKind::VectorField(px.to_string(), py.to_string())),
         [px, py] => Ok(PlotKind::Point(px.to_string(), py.to_string())),
+        [px, py, pz] if has(&["u", "v"]) => Ok(PlotKind::ParametricSurface(
+            px.to_string(),
+            py.to_string(),
+            pz.to_string(),
+        )),
         [px, py, pz] if has(&["t"]) => Ok(PlotKind::Parametric3(
             px.to_string(),
             py.to_string(),
@@ -400,10 +442,13 @@ impl Plot {
             | PlotKind::Inequality(a, _)
             | PlotKind::Surface(a)
             | PlotKind::SlopeField(a) => vec![a],
-            PlotKind::Parametric(a, b) | PlotKind::Point(a, b) | PlotKind::VectorField(a, b) => {
-                vec![a, b]
-            }
-            PlotKind::Parametric3(a, b, c) | PlotKind::Point3(a, b, c) => vec![a, b, c],
+            PlotKind::Parametric(a, b)
+            | PlotKind::Point(a, b)
+            | PlotKind::VectorField(a, b)
+            | PlotKind::Sequence(a, b) => vec![a, b],
+            PlotKind::Parametric3(a, b, c)
+            | PlotKind::Point3(a, b, c)
+            | PlotKind::ParametricSurface(a, b, c) => vec![a, b, c],
             PlotKind::Slider { .. } => vec![],
         };
         let bound = sources
@@ -536,6 +581,21 @@ impl Plot {
                     out.points.push(point);
                 }
             }
+            PlotKind::Sequence(..) => {
+                let first = parameter[0].min(parameter[1]).ceil();
+                let last = parameter[0].max(parameter[1]).floor();
+                if first.is_finite() && last.is_finite() {
+                    let first = first as i64;
+                    let last = (last as i64).min(first + MAX_SEQUENCE_POINTS - 1);
+                    for n in first..=last {
+                        values[N] = n as f32;
+                        let point = [self.bound[0].eval(&values), self.bound[1].eval(&values)];
+                        if point.iter().all(|v| v.is_finite()) {
+                            out.points.push(point);
+                        }
+                    }
+                }
+            }
             PlotKind::Implicit(_) => {
                 out.segments = marching_squares(
                     &self.bound[0],
@@ -619,7 +679,8 @@ impl Plot {
             | PlotKind::Surface(_)
             | PlotKind::Implicit3D(_)
             | PlotKind::Parametric3(..)
-            | PlotKind::Point3(..) => {}
+            | PlotKind::Point3(..)
+            | PlotKind::ParametricSurface(..) => {}
         }
         out
     }
@@ -693,13 +754,15 @@ impl Plot {
     }
 
     /// Samples a 3D object: surface grid rows and columns, a 3D polyline, or
-    /// a single point. `domain` is the x/y range used for surfaces.
+    /// a single point. `domain` is the x/y range used for surfaces;
+    /// `parameter` is the t (or u) range and `secondary` the v range.
     pub fn sample_3d(
         &self,
         scope: &Scope,
         domain: View,
         steps: usize,
         parameter: [f32; 2],
+        secondary: [f32; 2],
     ) -> Sampled3 {
         let mut values = self.values(scope);
         let mut out = Sampled3::default();
@@ -716,6 +779,23 @@ impl Plot {
                         values[X] = x;
                         values[Y] = y;
                         out.grid.push([x, y, self.bound[0].eval(&values)]);
+                    }
+                }
+            }
+            PlotKind::ParametricSurface(..) => {
+                let steps = steps.clamp(4, 96);
+                out.grid_steps = steps;
+                for row in 0..=steps {
+                    values[V] =
+                        secondary[0] + (secondary[1] - secondary[0]) * row as f32 / steps as f32;
+                    for column in 0..=steps {
+                        values[U] = parameter[0]
+                            + (parameter[1] - parameter[0]) * column as f32 / steps as f32;
+                        out.grid.push([
+                            self.bound[0].eval(&values),
+                            self.bound[1].eval(&values),
+                            self.bound[2].eval(&values),
+                        ]);
                     }
                 }
             }
@@ -1202,7 +1282,7 @@ mod tests {
     #[test]
     fn surfaces_and_3d_curves_sample_their_domains() {
         let surface = Plot::new(kind("z = x + y"), &Scope::default()).unwrap();
-        let sampled = surface.sample_3d(&Scope::default(), VIEW, 10, [0.0, 1.0]);
+        let sampled = surface.sample_3d(&Scope::default(), VIEW, 10, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(sampled.grid.len(), 121);
         assert!(
             sampled
@@ -1211,7 +1291,7 @@ mod tests {
                 .all(|[x, y, z]| (x + y - z).abs() < 1e-5)
         );
         let helix = Plot::new(kind("(cos(t), sin(t), t)"), &Scope::default()).unwrap();
-        let sampled = helix.sample_3d(&Scope::default(), VIEW, 20, [0.0, 1.0]);
+        let sampled = helix.sample_3d(&Scope::default(), VIEW, 20, [0.0, 1.0], [0.0, 1.0]);
         assert_eq!(sampled.curve.first(), Some(&[1.0, 0.0, 0.0]));
     }
 
@@ -1229,5 +1309,62 @@ mod tests {
         assert!((peaks[0][0] - std::f32::consts::FRAC_PI_2).abs() < 1e-3);
         assert!((integral(|x| x * x, [0.0, 3.0], 64) - 9.0).abs() < 1e-3);
         assert!((derivative(|x| x * x * x, 2.0) - 12.0).abs() < 1e-2);
+    }
+
+    #[test]
+    fn series_surfaces_and_sequences() {
+        // Taylor polynomial of sin with N terms, N a slider.
+        let taylor = "sum(k, 0, N, (-1)^k x^(2k+1)/(2k+1)!)";
+        let scope = scope(&[("N", 6.0)]);
+        let plot = Plot::new(kind(taylor), &scope).unwrap();
+        for x in [-2.0_f32, 0.5, 2.5] {
+            assert!((plot.evaluate_function(&scope, x) - x.sin()).abs() < 1e-3);
+        }
+        assert!(matches!(kind(taylor), PlotKind::Function(_)));
+        assert!(classify("N = 6").is_ok(), "index variables are not sliders");
+
+        let mobius = "((1 + (v/pi - 1)/2 cos(u/2)) cos(u), (1 + (v/pi - 1)/2 cos(u/2)) sin(u), (v/pi - 1)/2 sin(u/2))";
+        let surface = Plot::new(kind(mobius), &Scope::default()).unwrap();
+        assert!(surface.kind.is_3d());
+        let sampled = surface.sample_3d(
+            &Scope::default(),
+            VIEW,
+            12,
+            [0.0, std::f32::consts::TAU],
+            [0.0, std::f32::consts::TAU],
+        );
+        assert_eq!(sampled.grid.len(), 13 * 13);
+        // u = 0, v = π lies on the centre circle at (1, 0, 0).
+        let centre = sampled.grid[6 * 13];
+        assert!((centre[0] - 1.0).abs() < 1e-4 && centre[2].abs() < 1e-4);
+
+        let primes = Plot::new(kind("(n, isprime(n))"), &Scope::default()).unwrap();
+        assert_eq!(primes.kind.default_parameter(), [1.0, 30.0]);
+        let sampled = primes.sample(&Scope::default(), VIEW, 400, [1.0, 30.0]);
+        assert_eq!(sampled.points.len(), 30);
+        let count = sampled.points.iter().filter(|p| p[1] == 1.0).count();
+        assert_eq!(count, 10, "ten primes up to 30");
+        let huge = primes.sample(&Scope::default(), VIEW, 400, [0.0, 1e9]);
+        assert_eq!(huge.points.len() as i64, MAX_SEQUENCE_POINTS);
+    }
+
+    #[test]
+    fn special_functions() {
+        let value = |source: &str| {
+            Plot::new(kind(source), &Scope::default())
+                .unwrap()
+                .evaluate_function(&Scope::default(), 0.0)
+        };
+        assert!((value("gamma(5)") - 24.0).abs() < 1e-3);
+        assert!((value("gamma(0.5)") - std::f32::consts::PI.sqrt()).abs() < 1e-4);
+        assert_eq!(value("5!"), 120.0);
+        assert_eq!(value("2 3!"), 12.0);
+        assert_eq!(value("binom(10, 3)"), 120.0);
+        assert_eq!(value("gcd(12, 18) + lcm(4, 6)"), 18.0);
+        assert!((value("erf(1)") - 0.842_700_8).abs() < 1e-5);
+        assert_eq!(value("prod(k, 1, 5, k)"), 120.0);
+        // The term cap keeps an enormous bound finite and fast.
+        assert_eq!(value("sum(k, 1, 1e9, 1)"), 10_000.0);
+        assert_eq!(value("isprime(97) + isprime(91)"), 1.0);
     }
 }

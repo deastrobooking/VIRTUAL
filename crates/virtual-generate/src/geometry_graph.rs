@@ -696,7 +696,30 @@ enum Expr {
     Unary(char, Box<Expr>),
     Binary(char, Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
+    /// `sum(k, lo, hi, body)` or `prod(…)`: `var` takes each integer in
+    /// `lo..=hi` (at most [`MAX_REDUCE_TERMS`] of them) inside `body`.
+    Reduce {
+        product: bool,
+        var: String,
+        bounds: Box<[Expr; 2]>,
+        body: Box<Expr>,
+    },
 }
+
+/// Terms one `sum`/`prod` may add, so a large bound cannot stall a frame.
+pub const MAX_REDUCE_TERMS: usize = 10_000;
+
+/// The integer indices a `sum`/`prod` visits, or `None` when a bound is
+/// undefined. Bounds round to the nearest integer.
+fn reduce_range(lo: f32, hi: f32) -> Option<(i64, i64)> {
+    if !lo.is_finite() || !hi.is_finite() {
+        return None;
+    }
+    let lo = lo.round() as i64;
+    let hi = (hi.round() as i64).min(lo.saturating_add(MAX_REDUCE_TERMS as i64 - 1));
+    Some((lo, hi))
+}
+
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum CalculatorError {
     #[error("expression is empty or exceeds {MAX_EXPRESSION_BYTES} bytes")]
@@ -748,6 +771,12 @@ impl CalculatorExpression {
                 Expr::Unary(_, value) => visit(value, variable),
                 Expr::Binary(_, left, right) => visit(left, variable) || visit(right, variable),
                 Expr::Call(_, args) => args.iter().any(|arg| visit(arg, variable)),
+                Expr::Reduce {
+                    var, bounds, body, ..
+                } => {
+                    bounds.iter().any(|bound| visit(bound, variable))
+                        || (var != variable && visit(body, variable))
+                }
                 Expr::Number(_) => false,
             }
         }
@@ -769,6 +798,17 @@ impl CalculatorExpression {
                     for arg in args {
                         visit(arg, names);
                     }
+                }
+                Expr::Reduce {
+                    var, bounds, body, ..
+                } => {
+                    for bound in bounds.iter() {
+                        visit(bound, names);
+                    }
+                    let mut inner = HashSet::new();
+                    visit(body, &mut inner);
+                    inner.remove(var);
+                    names.extend(inner);
                 }
                 Expr::Number(_) => {}
             }
@@ -797,32 +837,53 @@ enum Bound {
     One(fn(f32) -> f32, Box<Bound>),
     Two(fn(f32, f32) -> f32, Box<Bound>, Box<Bound>),
     Three(fn(f32, f32, f32) -> f32, Box<Bound>, Box<Bound>, Box<Bound>),
+    /// A `sum`/`prod` index, by nesting depth.
+    Local(usize),
+    Reduce {
+        product: bool,
+        bounds: Box<[Bound; 2]>,
+        body: Box<Bound>,
+    },
 }
 
 impl CalculatorExpression {
     /// Resolves variables to positions in `slots`. Unknown variables fail.
     pub fn bind(&self, slots: &[&str]) -> Result<BoundExpression, CalculatorError> {
-        fn bind(expr: &Expr, slots: &[&str]) -> Result<Bound, CalculatorError> {
+        fn bind(
+            expr: &Expr,
+            slots: &[&str],
+            locals: &mut Vec<String>,
+        ) -> Result<Bound, CalculatorError> {
             Ok(match expr {
                 Expr::Number(value) => Bound::Number(*value),
-                Expr::Variable(name) => Bound::Slot(
-                    slots
-                        .iter()
-                        .position(|slot| slot == name)
-                        .ok_or_else(|| CalculatorError::Variable(name.clone()))?,
-                ),
-                Expr::Unary('-', value) => Bound::Negate(Box::new(bind(value, slots)?)),
-                Expr::Unary(_, value) => bind(value, slots)?,
+                Expr::Variable(name) => {
+                    if let Some(depth) = locals.iter().rposition(|local| local == name) {
+                        Bound::Local(depth)
+                    } else {
+                        Bound::Slot(
+                            slots
+                                .iter()
+                                .position(|slot| slot == name)
+                                .ok_or_else(|| CalculatorError::Variable(name.clone()))?,
+                        )
+                    }
+                }
+                Expr::Unary('-', value) => Bound::Negate(Box::new(bind(value, slots, locals)?)),
+                Expr::Unary(_, value) => bind(value, slots, locals)?,
                 Expr::Binary(op, left, right) => Bound::Binary(
                     *op,
-                    Box::new(bind(left, slots)?),
-                    Box::new(bind(right, slots)?),
+                    Box::new(bind(left, slots, locals)?),
+                    Box::new(bind(right, slots, locals)?),
                 ),
                 Expr::Call(name, args) => {
-                    let mut args = args.iter().map(|arg| bind(arg, slots).map(Box::new));
+                    let mut args = args
+                        .iter()
+                        .map(|arg| bind(arg, slots, locals).map(Box::new))
+                        .collect::<Result<Vec<_>, _>>()?
+                        .into_iter();
                     let mut next = || {
                         args.next()
-                            .ok_or_else(|| CalculatorError::Arity(name.clone()))?
+                            .ok_or_else(|| CalculatorError::Arity(name.clone()))
                     };
                     match function(name).ok_or_else(|| CalculatorError::Function(name.clone()))? {
                         Function::One(f) => Bound::One(f, next()?),
@@ -830,10 +891,29 @@ impl CalculatorExpression {
                         Function::Three(f) => Bound::Three(f, next()?, next()?, next()?),
                     }
                 }
+                Expr::Reduce {
+                    product,
+                    var,
+                    bounds,
+                    body,
+                } => {
+                    let bounds = [
+                        bind(&bounds[0], slots, locals)?,
+                        bind(&bounds[1], slots, locals)?,
+                    ];
+                    locals.push(var.clone());
+                    let body = bind(body, slots, locals);
+                    locals.pop();
+                    Bound::Reduce {
+                        product: *product,
+                        bounds: Box::new(bounds),
+                        body: Box::new(body?),
+                    }
+                }
             })
         }
         Ok(BoundExpression {
-            root: bind(&self.root, slots)?,
+            root: bind(&self.root, slots, &mut Vec::new())?,
         })
     }
 }
@@ -841,13 +921,14 @@ impl CalculatorExpression {
 impl BoundExpression {
     /// Evaluates with `values[i]` for slot `i`. May return NaN or infinity.
     pub fn eval(&self, values: &[f32]) -> f32 {
-        fn eval(node: &Bound, values: &[f32]) -> f32 {
+        fn eval(node: &Bound, values: &[f32], locals: &mut Vec<f32>) -> f32 {
             match node {
                 Bound::Number(value) => *value,
                 Bound::Slot(index) => values[*index],
-                Bound::Negate(value) => -eval(value, values),
+                Bound::Local(depth) => locals[*depth],
+                Bound::Negate(value) => -eval(value, values, locals),
                 Bound::Binary(op, left, right) => {
-                    let (a, b) = (eval(left, values), eval(right, values));
+                    let (a, b) = (eval(left, values, locals), eval(right, values, locals));
                     match op {
                         '+' => a + b,
                         '-' => a - b,
@@ -856,12 +937,41 @@ impl BoundExpression {
                         _ => a.powf(b),
                     }
                 }
-                Bound::One(f, a) => f(eval(a, values)),
-                Bound::Two(f, a, b) => f(eval(a, values), eval(b, values)),
-                Bound::Three(f, a, b, c) => f(eval(a, values), eval(b, values), eval(c, values)),
+                Bound::One(f, a) => f(eval(a, values, locals)),
+                Bound::Two(f, a, b) => f(eval(a, values, locals), eval(b, values, locals)),
+                Bound::Three(f, a, b, c) => f(
+                    eval(a, values, locals),
+                    eval(b, values, locals),
+                    eval(c, values, locals),
+                ),
+                Bound::Reduce {
+                    product,
+                    bounds,
+                    body,
+                } => {
+                    let lo = eval(&bounds[0], values, locals);
+                    let hi = eval(&bounds[1], values, locals);
+                    let Some((lo, hi)) = reduce_range(lo, hi) else {
+                        return f32::NAN;
+                    };
+                    let mut total = if *product { 1.0 } else { 0.0 };
+                    locals.push(0.0);
+                    let depth = locals.len() - 1;
+                    for index in lo..=hi {
+                        locals[depth] = index as f32;
+                        let term = eval(body, values, locals);
+                        if *product {
+                            total *= term;
+                        } else {
+                            total += term;
+                        }
+                    }
+                    locals.pop();
+                    total
+                }
             }
         }
-        eval(&self.root, values)
+        eval(&self.root, values, &mut Vec::new())
     }
 }
 
@@ -900,6 +1010,107 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
+/// Γ(x) by the Lanczos approximation (g = 7), with reflection below ½.
+fn gamma(x: f32) -> f32 {
+    const COEFFICIENTS: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+    ];
+    fn lanczos(x: f64) -> f64 {
+        if x < 0.5 {
+            std::f64::consts::PI / ((std::f64::consts::PI * x).sin() * lanczos(1.0 - x))
+        } else {
+            let x = x - 1.0;
+            let t = x + 7.5;
+            let sum = COEFFICIENTS[1..]
+                .iter()
+                .enumerate()
+                .fold(COEFFICIENTS[0], |sum, (i, c)| {
+                    sum + c / (x + i as f64 + 1.0)
+                });
+            (2.0 * std::f64::consts::PI).sqrt() * t.powf(x + 0.5) * (-t).exp() * sum
+        }
+    }
+    if x <= 0.0 && x.fract() == 0.0 {
+        return f32::NAN;
+    }
+    lanczos(f64::from(x)) as f32
+}
+
+/// n! exactly for whole numbers (infinite past 34!), Γ(n + 1) otherwise.
+fn factorial(n: f32) -> f32 {
+    if n.fract() != 0.0 || n < 0.0 {
+        return gamma(n + 1.0);
+    }
+    (2..=(n.min(171.0) as u32)).fold(1.0_f64, |product, k| product * f64::from(k)) as f32
+}
+
+/// "n choose k", exact for whole numbers.
+fn binomial(n: f32, k: f32) -> f32 {
+    if n.fract() == 0.0 && k.fract() == 0.0 && n >= 0.0 {
+        if k < 0.0 || k > n {
+            return 0.0;
+        }
+        let k = k.min(n - k) as u32;
+        return (0..k)
+            .fold(1.0_f64, |c, i| {
+                c * f64::from(n - i as f32) / f64::from(i + 1)
+            })
+            .round() as f32;
+    }
+    gamma(n + 1.0) / (gamma(k + 1.0) * gamma(n - k + 1.0))
+}
+
+/// The error function (Abramowitz & Stegun 7.1.26, error below 1.5e-7).
+fn erf(x: f32) -> f32 {
+    let t = 1.0 / (1.0 + 0.327_591_1 * x.abs());
+    let poly = t
+        * (0.254_829_6
+            + t * (-0.284_496_74 + t * (1.421_413_7 + t * (-1.453_152_1 + t * 1.061_405_4))));
+    (1.0 - poly * (-x * x).exp()).copysign(x)
+}
+
+/// Greatest common divisor of the rounded inputs.
+fn gcd(a: f32, b: f32) -> f32 {
+    if !a.is_finite() || !b.is_finite() {
+        return f32::NAN;
+    }
+    let (mut a, mut b) = (a.round().abs() as u64, b.round().abs() as u64);
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a as f32
+}
+
+/// 1 for a prime whole number, else 0.
+fn is_prime(n: f32) -> f32 {
+    if n.fract() != 0.0 || !(2.0..=4.0e9).contains(&n) {
+        return 0.0;
+    }
+    let n = n as u64;
+    if n < 4 {
+        return 1.0;
+    }
+    if n.is_multiple_of(2) {
+        return 0.0;
+    }
+    let mut divisor = 3;
+    while divisor * divisor <= n {
+        if n.is_multiple_of(divisor) {
+            return 0.0;
+        }
+        divisor += 2;
+    }
+    1.0
+}
+
 /// Every function an expression may call.
 fn function(name: &str) -> Option<Function> {
     use Function::{One, Three, Two};
@@ -928,7 +1139,7 @@ fn function(name: &str) -> Option<Function> {
         "log2" => One(f32::log2),
         "floor" => One(f32::floor),
         "ceil" => One(f32::ceil),
-        "fract" => One(f32::fract),
+        "fract" | "frac" => One(f32::fract),
         "round" => One(f32::round),
         "sign" | "sgn" => One(f32::signum),
         "min" => Two(f32::min),
@@ -940,6 +1151,20 @@ fn function(name: &str) -> Option<Function> {
         "clamp" => Three(|x, a, b| x.clamp(a.min(b), a.max(b))),
         "lerp" => Three(|a, b, t| a + (b - a) * t),
         "smoothstep" => Three(smoothstep),
+        "gamma" => One(gamma),
+        "fact" | "factorial" => One(factorial),
+        "binom" | "nCr" => Two(binomial),
+        "erf" => One(erf),
+        "gcd" => Two(gcd),
+        "lcm" => Two(|a, b| {
+            let g = gcd(a, b);
+            if g == 0.0 {
+                0.0
+            } else {
+                (a.round() * b.round() / g).abs()
+            }
+        }),
+        "isprime" => One(is_prime),
         _ => return None,
     })
 }
@@ -962,6 +1187,11 @@ fn validate_expr(expr: &Expr) -> Result<(), CalculatorError> {
                 return Err(CalculatorError::Arity(name.clone()));
             }
             Ok(())
+        }
+        Expr::Reduce { bounds, body, .. } => {
+            validate_expr(&bounds[0])?;
+            validate_expr(&bounds[1])?;
+            validate_expr(body)
         }
         Expr::Number(_) | Expr::Variable(_) => Ok(()),
     }
@@ -1035,6 +1265,27 @@ fn eval(expr: &Expr, c: &CalculatorValue) -> Result<f32, CalculatorError> {
                 },
             }
         }
+        Expr::Reduce {
+            product,
+            var,
+            bounds,
+            body,
+        } => {
+            let (lo, hi) = reduce_range(eval(&bounds[0], c)?, eval(&bounds[1], c)?)
+                .ok_or(CalculatorError::NonFinite)?;
+            let mut inner = c.clone();
+            let mut total = if *product { 1.0 } else { 0.0 };
+            for index in lo..=hi {
+                inner.values.insert(var.clone(), index as f32);
+                let term = eval(body, &inner)?;
+                if *product {
+                    total *= term;
+                } else {
+                    total += term;
+                }
+            }
+            total
+        }
     };
     if value.is_finite() {
         Ok(value)
@@ -1073,7 +1324,29 @@ impl Parser<'_> {
             self.space();
             // `name(` is a call only for a built-in function; otherwise it is
             // a variable times a parenthesised factor, e.g. `x(1+x)`.
-            if function(&name).is_some() && self.take(b'(') {
+            if matches!(name.as_str(), "sum" | "prod") && self.take(b'(') {
+                self.space();
+                let var = self.identifier()?;
+                let mut parts = Vec::with_capacity(3);
+                for _ in 0..3 {
+                    if !self.take(b',') {
+                        return Err(CalculatorError::Token(self.at));
+                    }
+                    parts.push(self.expression(0)?);
+                }
+                if !self.take(b')') {
+                    return Err(CalculatorError::Token(self.at));
+                }
+                let body = parts.pop().expect("three parts");
+                let hi = parts.pop().expect("three parts");
+                let lo = parts.pop().expect("three parts");
+                Expr::Reduce {
+                    product: name == "prod",
+                    var,
+                    bounds: Box::new([lo, hi]),
+                    body: Box::new(body),
+                }
+            } else if function(&name).is_some() && self.take(b'(') {
                 let mut args = Vec::new();
                 self.space();
                 if !self.take(b')') {
@@ -1099,6 +1372,10 @@ impl Parser<'_> {
                 Expr::Variable(name)
             }
         };
+        // Postfix factorial binds tighter than any operator: `2n!` = 2·(n!).
+        while self.take(b'!') {
+            lhs = Expr::Call("fact".into(), vec![lhs]);
+        }
         loop {
             self.space();
             let Some(op) = self.peek().map(char::from) else {

@@ -58,15 +58,24 @@ pub struct GraphItem {
 
 impl GraphItem {
     fn new(source: impl Into<String>, color: usize) -> Self {
+        let source = source.into();
+        let kind = classify(&source).ok();
         Self {
-            source: source.into(),
             color,
             visible: true,
             derivative: false,
             points: false,
             area: None,
-            parameter: [0.0, std::f32::consts::TAU],
-            range: [-5.0, 5.0],
+            parameter: kind
+                .as_ref()
+                .map_or([0.0, std::f32::consts::TAU], PlotKind::default_parameter),
+            // The v range for parametric surfaces, the slider range otherwise.
+            range: if matches!(kind, Some(PlotKind::ParametricSurface(..))) {
+                [0.0, std::f32::consts::TAU]
+            } else {
+                [-5.0, 5.0]
+            },
+            source,
             cache: None,
             cache_3d: None,
         }
@@ -509,16 +518,30 @@ fn draw_algebra(
                         }
                         PlotKind::Parametric(..)
                         | PlotKind::Parametric3(..)
+                        | PlotKind::ParametricSurface(..)
+                        | PlotKind::Sequence(..)
                         | PlotKind::Polar(_) => {
-                            let label = if matches!(kind, PlotKind::Polar(_)) {
-                                "θ"
+                            let label = match kind {
+                                PlotKind::Polar(_) => "θ",
+                                PlotKind::ParametricSurface(..) => "u",
+                                PlotKind::Sequence(..) => "n",
+                                _ => "t",
+                            };
+                            let speed = if matches!(kind, PlotKind::Sequence(..)) {
+                                0.2
                             } else {
-                                "t"
+                                0.05
                             };
                             ui.label(egui::RichText::new(label).color(palette.muted_text));
-                            ui.add(egui::DragValue::new(&mut item.parameter[0]).speed(0.05));
+                            ui.add(egui::DragValue::new(&mut item.parameter[0]).speed(speed));
                             ui.label("…");
-                            ui.add(egui::DragValue::new(&mut item.parameter[1]).speed(0.05));
+                            ui.add(egui::DragValue::new(&mut item.parameter[1]).speed(speed));
+                            if matches!(kind, PlotKind::ParametricSurface(..)) {
+                                ui.label(egui::RichText::new("v").color(palette.muted_text));
+                                ui.add(egui::DragValue::new(&mut item.range[0]).speed(0.05));
+                                ui.label("…");
+                                ui.add(egui::DragValue::new(&mut item.range[1]).speed(0.05));
+                            }
                         }
                         _ => {}
                     }
@@ -868,6 +891,7 @@ fn cache_key(item: &GraphItem, kind: &PlotKind, scope: &Scope, view: View, width
         .iter()
         .chain(&view.y)
         .chain(&item.parameter)
+        .chain(&item.range)
         .chain(&scope.values)
     {
         value.to_bits().hash(&mut hasher);
@@ -1270,7 +1294,7 @@ fn draw_plot_3d(
             {
                 item.cache_3d = Some((
                     key,
-                    Arc::new(plot.sample_3d(scope, domain, 48, item.parameter)),
+                    Arc::new(plot.sample_3d(scope, domain, 48, item.parameter, item.range)),
                 ));
             }
             sampled.push((
@@ -1377,7 +1401,7 @@ fn draw_plot_3d(
     for (index, kind, s) in &sampled {
         let color = series(palette, calc.items[*index].color);
         match kind {
-            PlotKind::Surface(_) => {
+            PlotKind::Surface(_) | PlotKind::ParametricSurface(..) => {
                 let n = s.grid_steps + 1;
                 let shade = |z: f32| {
                     // Lower parts darker, higher parts brighter.
@@ -1696,6 +1720,14 @@ fn apply_to_graph(
                 replace_variable(&substitute(b), "t", &t),
                 replace_variable(&substitute(c), "t", &t),
             ))
+        }
+        PlotKind::ParametricSurface(a, b, c) => {
+            let [v0, v1] = item.range;
+            let (u, v) = (along(p0, p1, "u"), along(v0, v1, "v"));
+            let map = |source: &str| {
+                replace_variable(&replace_variable(&substitute(source), "u", &u), "v", &v)
+            };
+            Some((true, map(a), map(b), map(c)))
         }
         PlotKind::Surface(z) => {
             let (x, y) = (along(x0, x1, "u"), along(y0, y1, "v"));
