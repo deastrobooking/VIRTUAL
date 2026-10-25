@@ -142,9 +142,31 @@ GPU-compressed path; other supported movies and stills use FFmpeg.
    fills the following slots of the same deck. Dropping onto a deck strip loads
    that deck's selected slot; dropping anywhere else uses the selected deck and
    slot, as before.
-2. Wait for the slot to show its thumbnail and filled-circle first-frame
-   readiness marker.
+2. Wait for the slot to show its thumbnail and the **●** first-frame
+   readiness marker in its name strip.
 3. Click the slot to launch it.
+
+### Layers and Session views
+
+The **CLIPS** bar switches between two arrangements of the same 32 slots,
+saved with the project's appearance:
+
+- **▤ Layers** (as in Resolume): one row per deck. On the left of each row
+  are the deck name (click to select), **X** eject, **B** bypass, **S** solo
+  and, at medium and large tile sizes, the deck level. The **▼** buttons
+  along the top launch scenes, like Resolume's column triggers.
+- **▥ Session** (as in Ableton Live): one column per deck under a title bar
+  in the deck colour, with B/S and level below it. Scenes launch from the
+  **▶** buttons on the right, each column has a **■** stop button (eject)
+  underneath, and **■ All** stops every deck.
+
+**S / M / L** sets the tile size. Each tile shows the clip's thumbnail above
+its name, with a thin bar in the deck colour. A playing clip gets a
+play-coloured border and name strip, a queued clip pulses, and the selected
+clip has an accent border. The strip marks a preloaded first frame with **●**
+and a clip still preloading with **○**. Every control keeps its MIDI and OSC
+mapping in both views; X, S, the stop buttons and ■ All can be mapped like
+any other button.
 
 To reorganize a bank, drag any populated or missing-media slot onto another
 slot. An empty destination receives the clip; an occupied destination swaps

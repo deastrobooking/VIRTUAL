@@ -84,17 +84,28 @@ fn blend(a: egui::Color32, b: egui::Color32, amount: f32) -> egui::Color32 {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ThemePreset {
     /// The original operator look: cold cyan on blue-black.
-    #[default]
     Nocturne,
     Ultraviolet,
     Ember,
     Cathode,
     /// Light theme for daylight patching and rehearsal, not for show mode.
     Daylight,
+    /// Neutral charcoal with a teal accent, thin lines and tight spacing,
+    /// after Resolume's media-server look. The default starting point.
+    #[default]
+    Arena,
+    /// Warm greys with a green play state and orange selection, after
+    /// Ableton Live's session view.
+    Session,
+    /// Black and white with colour only for state: playing, queued, danger.
+    Graphite,
 }
 
 impl ThemePreset {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 8] = [
+        Self::Arena,
+        Self::Session,
+        Self::Graphite,
         Self::Nocturne,
         Self::Ultraviolet,
         Self::Ember,
@@ -109,6 +120,60 @@ impl ThemePreset {
             Self::Ember => "Ember",
             Self::Cathode => "Cathode",
             Self::Daylight => "Daylight",
+            Self::Arena => "Arena",
+            Self::Session => "Session",
+            Self::Graphite => "Graphite",
+        }
+    }
+
+    /// One line describing the template, for the picker.
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Nocturne => "Cold cyan on blue-black, the original look",
+            Self::Ultraviolet => "Violet and pink for club lighting",
+            Self::Ember => "Warm orange that is easy on the eyes in the dark",
+            Self::Cathode => "Phosphor green, retro terminal",
+            Self::Daylight => "Light theme for rehearsal and daylight patching",
+            Self::Arena => "Charcoal, teal accent, thin lines, compact: media-server style",
+            Self::Session => "Warm greys, green play, orange selection: DAW session style",
+            Self::Graphite => "Black and white; colour only marks state",
+        }
+    }
+
+    /// The outlines, rounding, text and spacing this template starts from.
+    pub fn starting_point(self) -> (ThemeAppearanceProject, Density) {
+        let base = ThemeAppearanceProject::default();
+        match self {
+            Self::Arena => (
+                ThemeAppearanceProject {
+                    element_outline: 0.75,
+                    text_outline: 0.0,
+                    text_scale: 0.95,
+                    corner_radius: 2,
+                    ..base
+                },
+                Density::Compact,
+            ),
+            Self::Session => (
+                ThemeAppearanceProject {
+                    element_outline: 0.5,
+                    text_outline: 0.0,
+                    text_scale: 0.95,
+                    corner_radius: 3,
+                    ..base
+                },
+                Density::Compact,
+            ),
+            Self::Graphite => (
+                ThemeAppearanceProject {
+                    element_outline: 1.0,
+                    text_outline: 0.0,
+                    corner_radius: 4,
+                    ..base
+                },
+                Density::Cozy,
+            ),
+            _ => (base, Density::Cozy),
         }
     }
 
@@ -120,6 +185,9 @@ impl ThemePreset {
             Self::Ember => "ember",
             Self::Cathode => "cathode",
             Self::Daylight => "daylight",
+            Self::Arena => "arena",
+            Self::Session => "session",
+            Self::Graphite => "graphite",
         }
     }
 
@@ -243,6 +311,93 @@ impl ThemePreset {
                     rgb(94, 240, 255),
                     rgb(240, 255, 120),
                     rgb(255, 168, 94),
+                ],
+                dark: true,
+            },
+            Self::Arena => ThemePalette {
+                text: rgb(222, 224, 228),
+                muted_text: rgb(142, 146, 152),
+                strong_text: rgb(255, 255, 255),
+                selected_text: rgb(255, 255, 255),
+                grid_text: rgb(222, 224, 228),
+                text_outline: rgb(0, 0, 0),
+                outline_width: 0.75,
+                background: rgb(17, 17, 18),
+                surface: rgb(27, 27, 29),
+                control: rgb(40, 40, 43),
+                faint: rgb(33, 33, 36),
+                extreme: rgb(9, 9, 10),
+                code: rgb(23, 23, 25),
+                stroke: rgb(56, 57, 61),
+                accent: rgb(0, 198, 214),
+                secondary: rgb(120, 136, 255),
+                danger: rgb(236, 66, 66),
+                success: rgb(0, 214, 168),
+                warning: rgb(244, 182, 42),
+                idle: rgb(92, 94, 99),
+                deck: [
+                    rgb(0, 198, 214),
+                    rgb(222, 84, 196),
+                    rgb(244, 168, 42),
+                    rgb(132, 220, 84),
+                ],
+                dark: true,
+            },
+            Self::Session => ThemePalette {
+                text: rgb(214, 214, 210),
+                muted_text: rgb(146, 146, 140),
+                strong_text: rgb(255, 255, 255),
+                selected_text: rgb(255, 255, 255),
+                grid_text: rgb(214, 214, 210),
+                text_outline: rgb(0, 0, 0),
+                outline_width: 0.5,
+                background: rgb(30, 30, 30),
+                surface: rgb(42, 42, 41),
+                control: rgb(58, 58, 56),
+                faint: rgb(50, 50, 48),
+                extreme: rgb(22, 22, 22),
+                code: rgb(36, 36, 35),
+                stroke: rgb(76, 76, 73),
+                accent: rgb(255, 160, 40),
+                secondary: rgb(96, 176, 255),
+                danger: rgb(255, 76, 76),
+                success: rgb(110, 214, 64),
+                warning: rgb(255, 214, 40),
+                idle: rgb(104, 104, 100),
+                deck: [
+                    rgb(255, 146, 166),
+                    rgb(255, 172, 56),
+                    rgb(112, 200, 255),
+                    rgb(150, 222, 104),
+                ],
+                dark: true,
+            },
+            Self::Graphite => ThemePalette {
+                text: rgb(236, 236, 236),
+                muted_text: rgb(150, 150, 150),
+                strong_text: rgb(255, 255, 255),
+                selected_text: rgb(255, 255, 255),
+                grid_text: rgb(236, 236, 236),
+                text_outline: rgb(0, 0, 0),
+                outline_width: 1.0,
+                background: rgb(10, 10, 10),
+                surface: rgb(19, 19, 19),
+                control: rgb(31, 31, 31),
+                faint: rgb(25, 25, 25),
+                extreme: rgb(0, 0, 0),
+                code: rgb(15, 15, 15),
+                stroke: rgb(52, 52, 52),
+                accent: rgb(255, 255, 255),
+                secondary: rgb(170, 170, 170),
+                danger: rgb(255, 72, 72),
+                success: rgb(64, 224, 124),
+                warning: rgb(255, 192, 60),
+                idle: rgb(92, 92, 92),
+                deck: [
+                    rgb(240, 240, 240),
+                    rgb(184, 184, 184),
+                    rgb(140, 200, 255),
+                    rgb(255, 146, 104),
                 ],
                 dark: true,
             },
@@ -413,19 +568,117 @@ impl DeckLayout {
     }
 }
 
+/// How the clip grid is arranged.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ClipView {
+    /// Decks as horizontal rows of clips, columns triggered from the top,
+    /// as in Resolume.
+    #[default]
+    Layers,
+    /// Decks as vertical columns, scenes as rows launched from the right
+    /// and stop buttons underneath, as in Ableton Live's session view.
+    Session,
+}
+
+impl ClipView {
+    pub const ALL: [Self; 2] = [Self::Layers, Self::Session];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Layers => "▤ Layers",
+            Self::Session => "▥ Session",
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Layers => "layers",
+            Self::Session => "session",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|view| view.name() == name)
+    }
+}
+
+/// Clip tile size in the grid.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ClipSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl ClipSize {
+    pub const ALL: [Self; 3] = [Self::Small, Self::Medium, Self::Large];
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Small => "S",
+            Self::Medium => "M",
+            Self::Large => "L",
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|size| size.name() == name)
+    }
+
+    /// The whole tile: a 16:9 thumbnail over a name strip.
+    pub fn tile(self) -> egui::Vec2 {
+        match self {
+            Self::Small => egui::vec2(88.0, 49.5 + 14.0),
+            Self::Medium => egui::vec2(120.0, 67.5 + 16.0),
+            Self::Large => egui::vec2(160.0, 90.0 + 18.0),
+        }
+    }
+}
+
 /// Theme choices are saved in projects; the preset library is shared across shows.
-#[derive(Default)]
 pub struct ThemeState {
     pub preset: ThemePreset,
     pub accent_override: Option<egui::Color32>,
     pub density: Density,
     pub deck_layout: DeckLayout,
+    pub clip_view: ClipView,
+    pub clip_size: ClipSize,
     pub appearance: ThemeAppearanceProject,
     pub editor_open: bool,
     library: presets::PresetLibrary,
     preset_name: String,
     selected_preset: String,
     applied: Option<ThemeProject>,
+}
+
+impl Default for ThemeState {
+    fn default() -> Self {
+        let preset = ThemePreset::default();
+        let (appearance, density) = preset.starting_point();
+        Self {
+            preset,
+            accent_override: None,
+            density,
+            deck_layout: DeckLayout::default(),
+            clip_view: ClipView::default(),
+            clip_size: ClipSize::default(),
+            appearance,
+            editor_open: false,
+            library: Default::default(),
+            preset_name: String::new(),
+            selected_preset: String::new(),
+            applied: None,
+        }
+    }
 }
 
 impl ThemeState {
@@ -436,6 +689,8 @@ impl ThemeState {
             density: self.density.name().to_owned(),
             deck_layout: self.deck_layout.name().to_owned(),
             appearance: self.appearance.sanitized(),
+            clip_view: self.clip_view.name().to_owned(),
+            clip_size: self.clip_size.name().to_owned(),
         }
     }
 
@@ -453,6 +708,12 @@ impl ThemeState {
             self.deck_layout = layout;
         }
         self.appearance = project.appearance.sanitized();
+        if let Some(view) = ClipView::from_name(&project.clip_view) {
+            self.clip_view = view;
+        }
+        if let Some(size) = ClipSize::from_name(&project.clip_size) {
+            self.clip_size = size;
+        }
     }
 
     pub fn load_library(&mut self) {
@@ -502,20 +763,23 @@ impl ThemeState {
     pub fn picker_ui(&mut self, ui: &mut egui::Ui) {
         ui.heading("Make it yours");
         ui.weak("Changes preview live. Save a named preset to reuse it across shows.");
-        ui.label("Built-in starting points");
+        ui.label("Templates · starting points for colour, lines and spacing");
         ui.horizontal_wrapped(|ui| {
             for preset in ThemePreset::ALL {
                 if super::buttons::midi_button(
                     ui,
                     &format!("theme.preset.{}", preset.label()),
                     &format!("Appearance · {}", preset.label()),
-                    |ui| ui.selectable_label(self.preset == preset, preset.label()),
+                    |ui| preset_swatch(ui, preset, self.preset == preset),
                 )
+                .on_hover_text(preset.description())
                 .clicked()
                 {
                     self.preset = preset;
                     self.accent_override = None;
-                    self.appearance.colors.clear();
+                    let (appearance, density) = preset.starting_point();
+                    self.appearance = appearance;
+                    self.density = density;
                 }
             }
         });
@@ -557,6 +821,16 @@ impl ThemeState {
                     layout,
                     layout.label(),
                 );
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Clip view");
+            for view in ClipView::ALL {
+                ui.selectable_value(&mut self.clip_view, view, view.label());
+            }
+            ui.label("Tiles");
+            for size in ClipSize::ALL {
+                ui.selectable_value(&mut self.clip_size, size, size.label());
             }
         });
         ui.separator();
@@ -661,6 +935,50 @@ impl ThemeState {
         }
         ui.label(self.library.status());
     }
+}
+
+/// A template button: four colour chips (background, surface, accent and
+/// play colour) above the name.
+fn preset_swatch(ui: &mut egui::Ui, preset: ThemePreset, selected: bool) -> egui::Response {
+    let palette = preset.palette();
+    let size = egui::vec2(86.0, 46.0);
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    if ui.is_rect_visible(rect) {
+        let painter = ui.painter();
+        painter.rect_filled(rect, 4.0, palette.background);
+        let chips = [
+            palette.surface,
+            palette.control,
+            palette.accent,
+            palette.success,
+        ];
+        let chip_width = (size.x - 12.0) / chips.len() as f32;
+        for (index, color) in chips.into_iter().enumerate() {
+            let min = rect.min + egui::vec2(6.0 + index as f32 * chip_width, 6.0);
+            painter.rect_filled(
+                egui::Rect::from_min_size(min, egui::vec2(chip_width - 2.0, 14.0)),
+                2.0,
+                color,
+            );
+        }
+        painter.text(
+            egui::pos2(rect.center().x, rect.max.y - 12.0),
+            egui::Align2::CENTER_CENTER,
+            preset.label(),
+            egui::FontId::proportional(12.0),
+            palette.text,
+        );
+        let current = ui.visuals();
+        let stroke = if selected {
+            egui::Stroke::new(2.0, current.selection.stroke.color)
+        } else if response.hovered() {
+            egui::Stroke::new(1.0, current.widgets.hovered.fg_stroke.color)
+        } else {
+            egui::Stroke::new(1.0, palette.stroke)
+        };
+        painter.rect_stroke(rect, 4.0, stroke, egui::StrokeKind::Inside);
+    }
+    response
 }
 
 fn palette_fields(p: &mut ThemePalette) -> [(&'static str, &mut egui::Color32); 23] {

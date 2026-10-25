@@ -1,0 +1,63 @@
+//! Section bars in the style of a media server's panels: a slim tinted bar
+//! with a chevron, an icon and a small upper-case title. Clicking the
+//! chevron or the title folds the section, so the surface stays condensed.
+
+use super::theme::ThemePalette;
+
+/// Draws a foldable section. `header` adds compact status widgets to the
+/// right of the title; `body` is only built while the section is open.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn section<R>(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    icon: &str,
+    title: &str,
+    palette: ThemePalette,
+    default_open: bool,
+    header: impl FnOnce(&mut egui::Ui),
+    body: impl FnOnce(&mut egui::Ui) -> R,
+) -> Option<R> {
+    let id = ui.make_persistent_id(("section", id_salt));
+    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+        ui.ctx(),
+        id,
+        default_open,
+    );
+    egui::Frame::new()
+        .fill(palette.surface_tint(palette.accent, 0.06))
+        .stroke(egui::Stroke::new(
+            palette.outline_width.min(1.0),
+            palette.stroke,
+        ))
+        .corner_radius(3)
+        .inner_margin(egui::Margin::symmetric(6, 3))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal(|ui| {
+                state.show_toggle_button(ui, egui::collapsing_header::paint_default_icon);
+                ui.label(egui::RichText::new(icon).color(palette.accent));
+                let title = ui
+                    .add(
+                        egui::Label::new(
+                            egui::RichText::new(title)
+                                .small()
+                                .strong()
+                                .color(palette.strong_text),
+                        )
+                        .sense(egui::Sense::click()),
+                    )
+                    .on_hover_cursor(egui::CursorIcon::PointingHand);
+                if title.clicked() {
+                    state.toggle(ui);
+                }
+                ui.add_space(8.0);
+                header(ui);
+            });
+        });
+    state
+        .show_body_unindented(ui, |ui| {
+            ui.add_space(2.0);
+            body(ui)
+        })
+        .map(|response| response.inner)
+}

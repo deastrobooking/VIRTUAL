@@ -15,6 +15,7 @@ mod generator;
 mod master_fx;
 mod midi;
 mod midi_manager;
+mod panel;
 mod setup;
 pub mod theme;
 mod toolbar;
@@ -964,21 +965,39 @@ pub fn draw(
             // be scrolled through or folded away entirely while the
             // performance surface below keeps the space.
             draw_setup(ui, state, mixer, &midi_map, &mut actions, &mut metrics);
-            draw_clip_grid(
+            let beat_position = metrics.tempo.beat_at(metrics.now_seconds);
+            let playing = DeckId::ALL
+                .iter()
+                .filter(|deck| clips.active(**deck).is_some())
+                .count();
+            panel::section(
                 ui,
-                state,
-                mixer,
-                clips,
-                ClipGridContext {
-                    launches,
-                    midi_map: &midi_map,
-                    cameras: metrics.cameras,
-                    camera_status: metrics.camera_status,
-                    camera_recordings: metrics.camera_recordings,
-                    transports,
-                    beat_position: metrics.tempo.beat_at(metrics.now_seconds),
+                "clips",
+                "▦",
+                "CLIPS",
+                palette,
+                true,
+                |ui| {
+                    ui.weak(format!("{playing} of 4 decks playing"));
                 },
-                &mut actions,
+                |ui| {
+                    draw_clip_grid(
+                        ui,
+                        state,
+                        mixer,
+                        clips,
+                        ClipGridContext {
+                            launches,
+                            midi_map: &midi_map,
+                            cameras: metrics.cameras,
+                            camera_status: metrics.camera_status,
+                            camera_recordings: metrics.camera_recordings,
+                            transports,
+                            beat_position,
+                        },
+                        &mut actions,
+                    );
+                },
             );
 
             ui.separator();
@@ -1037,11 +1056,18 @@ pub fn draw(
                         actions_ref,
                     );
                 };
-                ui.strong(format!(
-                    "SELECTED DECK {} · PERFORMANCE CONTROLS & FX",
-                    selected_deck.label()
-                ));
-                if state.master_freeze {
+                let master_freeze = state.master_freeze;
+                let show_mode = state.show_mode;
+                panel::section(
+                    ui,
+                    "selected-deck",
+                    "◧",
+                    &format!("DECK {} · PERFORMANCE & FX", selected_deck.label()),
+                    palette,
+                    true,
+                    |_| {},
+                    |ui| {
+                if master_freeze {
                     ui.colored_label(
                         palette.warning,
                         "PROGRAM FROZEN · Deck FX and source changes are staged until master freeze is released.",
@@ -1049,7 +1075,7 @@ pub fn draw(
                 }
                 deck_strip(ui, selected_deck);
 
-                if !state.show_mode {
+                if !show_mode {
                     egui::CollapsingHeader::new("Other deck editors")
                         .default_open(false)
                         .show(ui, |ui| match layout {
@@ -1101,6 +1127,8 @@ pub fn draw(
                             }
                         });
                 }
+                    },
+                );
             }
 
             ui.separator();

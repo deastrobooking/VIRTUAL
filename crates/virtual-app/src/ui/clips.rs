@@ -1,25 +1,45 @@
-//! Clip grid: slots, health, launch and thumbnail rendering.
+//! Clip grid: slots, health, launch and thumbnail rendering, in two
+//! arrangements: Layers (decks as rows, after Resolume) and Session (decks as
+//! columns with scene launchers and stop buttons, after Ableton Live).
 
+use super::theme::{ClipSize, ClipView};
 use super::*;
 
-const CLIP_CELL: egui::Vec2 = egui::vec2(132.0, 50.0);
-const SCENE_CELL: egui::Vec2 = egui::vec2(CLIP_CELL.x, 28.0);
-const CLIP_THUMBNAIL: egui::Vec2 = egui::vec2(48.0, 27.0);
+/// Width of the per-deck controls at the left of each row in Layers view.
+const LAYER_HEADER_WIDTH: f32 = 150.0;
+/// Width of the scene launch column in Session view.
+const SCENE_LAUNCH_WIDTH: f32 = 64.0;
+const HEADER_HEIGHT: f32 = 22.0;
 
 /// Gives a grid cell an exact rect. A child scope placed straight into the
 /// grid (drag sources, MIDI-map overlays) gets a max rect reaching the bottom
 /// of the panel and the row's centred layout, which drops each button lower
 /// than the one before and grows the row.
 fn fixed_cell<R>(ui: &mut egui::Ui, size: egui::Vec2, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
-    ui.allocate_ui_with_layout(
+    fixed_layout(
+        ui,
         size,
         egui::Layout::centered_and_justified(egui::Direction::TopDown),
-        |ui| {
-            ui.set_min_size(size);
-            ui.set_max_size(size);
-            add(ui)
-        },
+        add,
     )
+}
+
+/// Like [`fixed_cell`] but stacking its contents from the top left.
+fn fixed_column<R>(ui: &mut egui::Ui, size: egui::Vec2, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
+    fixed_layout(ui, size, egui::Layout::top_down(egui::Align::Min), add)
+}
+
+fn fixed_layout<R>(
+    ui: &mut egui::Ui,
+    size: egui::Vec2,
+    layout: egui::Layout,
+    add: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    ui.allocate_ui_with_layout(size, layout, |ui| {
+        ui.set_min_size(size);
+        ui.set_max_size(size);
+        add(ui)
+    })
     .inner
 }
 
@@ -33,6 +53,181 @@ pub(super) struct ClipGridContext<'a> {
     pub beat_position: f64,
 }
 
+/// What a clip tile shows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TileState {
+    Empty,
+    Loading,
+    Missing,
+    /// Loaded, first frame not yet preloaded.
+    Idle,
+    /// First frame preloaded: launches instantly.
+    Ready,
+    Queued,
+    Playing,
+}
+
+struct Tile<'a> {
+    thumbnail: Option<&'a egui::TextureHandle>,
+    thumbnail_failed: bool,
+    name: String,
+    state: TileState,
+    selected: bool,
+    deck_color: egui::Color32,
+}
+
+/// A clip tile: the thumbnail fills the tile above a name strip, a thin
+/// bar in the deck colour marks filled slots, and the border and strip show
+/// playing (play colour), queued (pulsing warning) and selected (accent).
+fn tile_widget(
+    ui: &mut egui::Ui,
+    size: egui::Vec2,
+    tile: &Tile<'_>,
+    palette: ThemePalette,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let hovered = response.hovered();
+    let radius = ui.visuals().widgets.inactive.corner_radius;
+    let strip_height = (size.y - size.x * 9.0 / 16.0).max(12.0);
+    let image =
+        egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.max.y - strip_height));
+    let strip = egui::Rect::from_min_max(egui::pos2(rect.min.x, image.max.y), rect.max);
+    let painter = ui.painter();
+    let empty = tile.state == TileState::Empty;
+    painter.rect_filled(
+        rect,
+        radius,
+        if empty {
+            palette.faint
+        } else {
+            palette.extreme
+        },
+    );
+    if let Some(texture) = tile.thumbnail {
+        // Cover-fit: crop the thumbnail to the tile's aspect.
+        let [width, height] = texture.size().map(|v| v.max(1) as f32);
+        let (texture_aspect, box_aspect) = (width / height, image.width() / image.height());
+        let uv = if texture_aspect > box_aspect {
+            let u = box_aspect / texture_aspect;
+            egui::Rect::from_min_max(
+                egui::pos2(0.5 - u / 2.0, 0.0),
+                egui::pos2(0.5 + u / 2.0, 1.0),
+            )
+        } else {
+            let v = texture_aspect / box_aspect;
+            egui::Rect::from_min_max(
+                egui::pos2(0.0, 0.5 - v / 2.0),
+                egui::pos2(1.0, 0.5 + v / 2.0),
+            )
+        };
+        let tint = if tile.state == TileState::Playing || hovered {
+            egui::Color32::WHITE
+        } else {
+            egui::Color32::from_gray(200)
+        };
+        painter.image(texture.id(), image, uv, tint);
+    } else {
+        let (glyph, color) = match tile.state {
+            TileState::Empty => ("+", palette.idle),
+            TileState::Loading => ("…", palette.muted_text),
+            TileState::Missing => ("⚠", palette.danger),
+            _ if tile.thumbnail_failed => ("▢", palette.muted_text),
+            _ => ("▶", palette.idle),
+        };
+        painter.text(
+            image.center(),
+            egui::Align2::CENTER_CENTER,
+            glyph,
+            egui::FontId::proportional((image.height() * 0.42).max(10.0)),
+            if empty && !hovered {
+                color.gamma_multiply(0.6)
+            } else {
+                color
+            },
+        );
+    }
+    if !empty {
+        painter.rect_filled(
+            egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), 2.5)),
+            egui::CornerRadius {
+                nw: radius.nw,
+                ne: radius.ne,
+                sw: 0,
+                se: 0,
+            },
+            tile.deck_color,
+        );
+    }
+    let strip_fill = match tile.state {
+        TileState::Playing => palette.control_tint(palette.success, 0.55),
+        TileState::Queued => palette.control_tint(palette.warning, 0.4),
+        TileState::Missing => palette.control_tint(palette.danger, 0.3),
+        _ if tile.selected => palette.control_tint(palette.accent, 0.35),
+        _ => palette.control,
+    };
+    painter.rect_filled(
+        strip,
+        egui::CornerRadius {
+            nw: 0,
+            ne: 0,
+            sw: radius.sw,
+            se: radius.se,
+        },
+        strip_fill,
+    );
+    let font = egui::FontId::proportional((strip_height * 0.68).clamp(9.0, 13.0));
+    let marker = match tile.state {
+        TileState::Playing => "▶",
+        TileState::Queued => "◷",
+        TileState::Ready => "●",
+        TileState::Idle => "○",
+        _ => "",
+    };
+    let text_color = match tile.state {
+        TileState::Playing | TileState::Queued => palette.selected_text,
+        TileState::Empty => palette.muted_text,
+        _ => palette.grid_text,
+    };
+    let text_area = strip.shrink2(egui::vec2(4.0, 0.0));
+    painter.with_clip_rect(text_area).text(
+        text_area.left_center(),
+        egui::Align2::LEFT_CENTER,
+        &tile.name,
+        font.clone(),
+        text_color,
+    );
+    if !marker.is_empty() {
+        let marker_color = match tile.state {
+            TileState::Ready => palette.success,
+            TileState::Idle => palette.muted_text,
+            _ => palette.selected_text,
+        };
+        painter.text(
+            egui::pos2(strip.max.x - 4.0, strip.center().y),
+            egui::Align2::RIGHT_CENTER,
+            marker,
+            font,
+            marker_color,
+        );
+    }
+    let stroke = match tile.state {
+        TileState::Playing => egui::Stroke::new(2.0, palette.success),
+        TileState::Queued => {
+            let pulse = (ui.input(|input| input.time) * 6.0).sin() as f32 * 0.5 + 0.5;
+            ui.ctx().request_repaint();
+            egui::Stroke::new(2.0, palette.warning.gamma_multiply(0.35 + 0.65 * pulse))
+        }
+        _ if tile.selected => egui::Stroke::new(1.5, palette.accent),
+        _ if hovered => egui::Stroke::new(1.0, palette.text.gamma_multiply(0.6)),
+        _ => egui::Stroke::new(palette.outline_width.min(1.0), palette.stroke),
+    };
+    painter.rect_stroke(rect, radius, stroke, egui::StrokeKind::Inside);
+    response
+}
+
 pub(super) fn draw_clip_grid(
     ui: &mut egui::Ui,
     state: &mut UiState,
@@ -41,14 +236,27 @@ pub(super) fn draw_clip_grid(
     context: ClipGridContext<'_>,
     actions: &mut Vec<UiAction>,
 ) {
-    let launches = context.launches;
-    let midi_map = context.midi_map;
     let cameras = context.cameras;
     let camera_status = context.camera_status;
     let camera_recordings = context.camera_recordings;
     let transports = context.transports;
     let palette = state.theme.palette();
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
+        for view in ClipView::ALL {
+            ui.selectable_value(&mut state.theme.clip_view, view, view.label())
+                .on_hover_text(match view {
+                    ClipView::Layers => "Decks as rows of clips; columns launch from the top",
+                    ClipView::Session => {
+                        "Decks as columns; scenes launch from the right, stop buttons below"
+                    }
+                });
+        }
+        ui.separator();
+        for size in ClipSize::ALL {
+            ui.selectable_value(&mut state.theme.clip_size, size, size.label())
+                .on_hover_text("Clip tile size");
+        }
+        ui.separator();
         for (bank, label, range) in [
             (0, "A", "1–8"),
             (1, "B", "9–16"),
@@ -67,407 +275,11 @@ pub(super) fn draw_clip_grid(
             state.scene_bank * 8 + 8
         ));
     });
-    egui::Grid::new("clip-grid")
-        .num_columns(CLIPS_PER_DECK + 1)
-        .spacing([5.0, 5.0])
-        .show(ui, |ui| {
-            ui.label(
-                egui::RichText::new("SCENES")
-                    .small()
-                    .strong()
-                    .color(palette.grid_text),
-            );
-            for slot in 0..CLIPS_PER_DECK {
-                let scene_index = state.scene_bank * CLIPS_PER_DECK + slot;
-                let scene = fixed_cell(ui, SCENE_CELL, |ui| {
-                    mappable(
-                        ui,
-                        midi_map,
-                        ControlTarget::SceneLaunch(scene_index as u8),
-                        actions,
-                        |ui| {
-                            ui.add_sized(
-                                SCENE_CELL,
-                                egui::Button::new(
-                                    egui::RichText::new(format!("{}", scene_index + 1))
-                                        .small()
-                                        .color(palette.grid_text),
-                                )
-                                .fill(palette.control_tint(palette.secondary, 0.22)),
-                            )
-                        },
-                    )
-                });
-                let scene = scene.on_hover_text(format!(
-                    "Launch scene {} on the next quantized boundary · right-click to edit",
-                    scene_index + 1
-                ));
-                scene.context_menu(|ui| {
-                    if state.show_mode {
-                        ui.weak("Scene assignments are locked in Show Mode");
-                        return;
-                    }
-                    if ui.button("Capture selected clips from all decks").clicked() {
-                        for deck in DeckId::ALL {
-                            state.scenes[scene_index].clip_slots[deck.index()] =
-                                Some(clips.selected(deck) as u8);
-                            state.scenes[scene_index].stop_decks[deck.index()] = false;
-                        }
-                        ui.close();
-                    }
-                    ui.separator();
-                    for deck in DeckId::ALL {
-                        let index = deck.index();
-                        let scene_choice = if state.scenes[scene_index].stop_decks[index] {
-                            "Stop".to_owned()
-                        } else if let Some(slot) = state.scenes[scene_index].clip_slots[index] {
-                            format!("Clip {}", slot + 1)
-                        } else {
-                            "No change".to_owned()
-                        };
-                        ui.menu_button(format!("Deck {} · {scene_choice}", deck.label()), |ui| {
-                            if ui
-                                .selectable_label(
-                                    !state.scenes[scene_index].stop_decks[index]
-                                        && state.scenes[scene_index].clip_slots[index].is_none(),
-                                    "No change",
-                                )
-                                .clicked()
-                            {
-                                state.scenes[scene_index].clip_slots[index] = None;
-                                state.scenes[scene_index].stop_decks[index] = false;
-                                ui.close();
-                            }
-                            if ui
-                                .selectable_label(
-                                    state.scenes[scene_index].stop_decks[index],
-                                    "Stop deck",
-                                )
-                                .clicked()
-                            {
-                                state.scenes[scene_index].clip_slots[index] = None;
-                                state.scenes[scene_index].stop_decks[index] = true;
-                                ui.close();
-                            }
-                            ui.separator();
-                            for slot in 0..CLIPS_PER_DECK {
-                                if ui
-                                    .selectable_label(
-                                        !state.scenes[scene_index].stop_decks[index]
-                                            && state.scenes[scene_index].clip_slots[index]
-                                                == Some(slot as u8),
-                                        format!("Clip {}", slot + 1),
-                                    )
-                                    .clicked()
-                                {
-                                    state.scenes[scene_index].clip_slots[index] = Some(slot as u8);
-                                    state.scenes[scene_index].stop_decks[index] = false;
-                                    ui.close();
-                                }
-                            }
-                        });
-                    }
-                });
-                if scene.clicked() {
-                    actions.push(UiAction::LaunchScene(scene_index));
-                }
-            }
-            ui.end_row();
-
-            for deck in DeckId::ALL {
-                if mappable(
-                    ui,
-                    midi_map,
-                    ControlTarget::DeckSelect(deck.index() as u8),
-                    actions,
-                    |ui| {
-                        ui.selectable_label(
-                            mixer.selected() == deck,
-                            egui::RichText::new(format!("DECK {}", deck.label()))
-                                .strong()
-                                .color(palette.grid_text),
-                        )
-                        .on_hover_text("Select this deck's performance controls")
-                    },
-                )
-                .clicked()
-                {
-                    mixer.select(deck);
-                }
-                for slot in 0..CLIPS_PER_DECK {
-                    let address = ClipAddress { deck, slot };
-                    let selected = clips.selected(deck) == slot && mixer.selected() == deck;
-                    let active = clips.active(deck) == Some(slot);
-                    let queued = launches.queued(address);
-                    let slot_state = clips
-                        .slot(address)
-                        .cloned()
-                        .expect("valid clip-grid address");
-                    let first_frame_ready = state
-                        .preloaded_frame(address, clips.path(address))
-                        .is_some();
-                    let automation_playing = clips
-                        .active_automation(deck)
-                        .is_some_and(|(active_slot, _)| active_slot == slot);
-                    let label = if let Some(movie) = &slot_state.movie {
-                        let name = movie
-                            .display_name
-                            .split('.')
-                            .next()
-                            .unwrap_or(&movie.display_name);
-                        let short: String = name.chars().take(14).collect();
-                        if queued {
-                            format!("◷ {short}")
-                        } else if active {
-                            format!("▶ {short}")
-                        } else if first_frame_ready {
-                            format!("● {short}")
-                        } else {
-                            format!("○ {short}")
-                        }
-                    } else if slot_state.error.is_some() {
-                        format!("⚠ {}{}", deck.label(), slot + 1)
-                    } else if let Some(path) = &slot_state.pending_path {
-                        format!(
-                            "… {}",
-                            path.file_stem()
-                                .and_then(|name| name.to_str())
-                                .unwrap_or("loading")
-                        )
-                    } else {
-                        format!("{}{}", deck.label(), slot + 1)
-                    };
-                    let label = egui::RichText::new(label).color(palette.grid_text);
-                    let button =
-                        if let Some(thumbnail) = state.thumbnail(address, clips.path(address)) {
-                            egui::Button::image_and_text(
-                                egui::Image::new(thumbnail).fit_to_exact_size(CLIP_THUMBNAIL),
-                                label,
-                            )
-                        } else {
-                            let label = if state
-                                .thumbnail_failure(address, clips.path(address))
-                                .is_some()
-                            {
-                                egui::RichText::new(format!("□ {}", label.text()))
-                                    .color(palette.grid_text)
-                            } else {
-                                label
-                            };
-                            egui::Button::new(label)
-                        }
-                        .truncate()
-                        .selected(selected || active)
-                        .fill(if active {
-                            palette.control_tint(palette.success, 0.24)
-                        } else if queued {
-                            palette.control_tint(palette.warning, 0.22)
-                        } else if selected {
-                            palette.control_tint(palette.accent, 0.24)
-                        } else {
-                            palette.control
-                        })
-                        .stroke(egui::Stroke::new(
-                            if active || queued {
-                                palette.outline_width + 1.0
-                            } else {
-                                palette.outline_width
-                            },
-                            if active {
-                                palette.success
-                            } else if queued {
-                                palette.warning
-                            } else {
-                                palette.stroke
-                            },
-                        ));
-                    let draggable = !state.show_mode
-                        && !midi_map.active
-                        && (slot_state.movie.is_some()
-                            || slot_state.pending_path.is_some()
-                            || slot_state.error.is_some());
-                    let (response, play) = fixed_cell(ui, CLIP_CELL, |ui| {
-                        let response = if midi_map.active {
-                            mappable(
-                                ui,
-                                midi_map,
-                                ControlTarget::ClipLaunch {
-                                    deck: deck.index() as u8,
-                                    slot: slot as u8,
-                                },
-                                actions,
-                                |ui| ui.add_sized(CLIP_CELL, button),
-                            )
-                        } else if draggable {
-                            // Drag moves the clip to another slot; a plain click
-                            // still selects and launches because the drag only
-                            // starts past egui's drag threshold.
-                            ui.dnd_drag_source(
-                                egui::Id::new(("clip-slot-drag", deck.index(), slot)),
-                                address,
-                                |ui| ui.add_sized(CLIP_CELL, button),
-                            )
-                            .inner
-                        } else {
-                            ui.add_sized(CLIP_CELL, button)
-                        };
-                        let play_rect = egui::Rect::from_min_size(
-                            response.rect.left_top() + egui::vec2(3.0, 3.0),
-                            egui::vec2(16.0, 16.0),
-                        );
-                        let play = ui.put(
-                            play_rect,
-                            egui::Button::new(
-                                egui::RichText::new(
-                                    if automation_playing && clips.movie(address).is_none() {
-                                        "■"
-                                    } else {
-                                        "▶"
-                                    },
-                                )
-                                .small(),
-                            )
-                            .fill(palette.control_tint(
-                                if automation_playing {
-                                    palette.success
-                                } else {
-                                    palette.secondary
-                                },
-                                0.72,
-                            )),
-                        );
-                        (response, play)
-                    });
-                    if play
-                        .on_hover_text(if automation_playing && clips.movie(address).is_none() {
-                            "Stop this automation clip"
-                        } else if clips.movie(address).is_some() {
-                            "Play this clip independently of scene launching"
-                        } else {
-                            "Open this clip slot"
-                        })
-                        .clicked()
-                    {
-                        clips.select(address);
-                        mixer.select(deck);
-                        if clips.movie(address).is_some() {
-                            actions.push(UiAction::Launch(address));
-                        } else if matches!(
-                            mixer.deck(deck).state,
-                            DeckState::Ready(_) | DeckState::Live(_) | DeckState::Generator(_)
-                        ) {
-                            actions.push(UiAction::LaunchAutomation(address));
-                        } else {
-                            state.clip_editor = Some(address);
-                        }
-                    }
-                    drop_targets::register(
-                        ui,
-                        response.rect,
-                        drop_targets::DropTarget::Clip(address),
-                    );
-                    let response = if draggable {
-                        response.on_hover_cursor(egui::CursorIcon::Grab)
-                    } else {
-                        response
-                    };
-                    if let Some(source) = response.dnd_hover_payload::<ClipAddress>()
-                        && *source != address
-                    {
-                        ui.painter().rect_stroke(
-                            response.rect.expand(2.0),
-                            6.0,
-                            egui::Stroke::new(2.0, palette.accent),
-                            egui::StrokeKind::Outside,
-                        );
-                    }
-                    if let Some(source) = response.dnd_release_payload::<ClipAddress>()
-                        && *source != address
-                    {
-                        actions.push(UiAction::MoveClip {
-                            from: *source,
-                            to: address,
-                        });
-                    }
-                    if response.clicked() {
-                        clips.select(address);
-                        mixer.select(deck);
-                        if clips.movie(address).is_some() {
-                            actions.push(UiAction::Launch(address));
-                        }
-                    }
-                    if response.double_clicked() {
-                        clips.select(address);
-                        mixer.select(deck);
-                        state.clip_editor = Some(address);
-                    }
-                    response
-                        .on_hover_text(if let Some(movie) = clips.movie(address) {
-                            let mut details = format!(
-                                "{}\n{}×{} · {}",
-                                movie.display_name,
-                                movie.visible_extent[0],
-                                movie.visible_extent[1],
-                                movie.codec
-                            );
-                            if movie.decode_path == virtual_media::DecodePath::FfmpegVideo {
-                                details.push_str(&format!(
-                                    "\n{} keyframe(s) indexed{}",
-                                    movie.keyframes.len(),
-                                    if movie.keyframes.is_complete() {
-                                        ""
-                                    } else {
-                                        " · capped"
-                                    }
-                                ));
-                            }
-                            if let Some(error) =
-                                state.thumbnail_failure(address, clips.path(address))
-                            {
-                                details.push_str(&format!("\nThumbnail unavailable: {error}"));
-                            } else if first_frame_ready {
-                                details.push_str("\nFirst frame ready for immediate launch");
-                            } else {
-                                details.push_str("\nFirst frame is still preloading");
-                            }
-                            if !state.show_mode {
-                                details.push_str(
-                                    "\nDrag onto another slot to move; occupied slots swap",
-                                );
-                            }
-                            details
-                        } else if let Some(error) = &slot_state.error {
-                            format!(
-                                "{}\n{error}",
-                                slot_state.pending_path.as_deref().map_or_else(
-                                    || "Missing media".to_owned(),
-                                    |path| path.display().to_string()
-                                )
-                            )
-                        } else if let Some(path) = &slot_state.pending_path {
-                            format!("Restoring {}", path.display())
-                        } else {
-                            "Empty slot · drop a movie or folder here".to_owned()
-                        })
-                        .context_menu(|ui| {
-                            if state.show_mode {
-                                ui.weak("Show Mode locks media management");
-                                return;
-                            }
-                            if clips.path(address).is_some() && ui.button("Relink media…").clicked()
-                            {
-                                actions.push(UiAction::BrowseRelink(address));
-                                ui.close();
-                            }
-                            if clips.path(address).is_some() && ui.button("Delete clip").clicked() {
-                                actions.push(UiAction::ClearSlot(address));
-                                ui.close();
-                            }
-                        });
-                }
-                ui.end_row();
-            }
-        });
+    let tile = state.theme.clip_size.tile();
+    match state.theme.clip_view {
+        ClipView::Layers => layers_grid(ui, state, mixer, clips, &context, actions, tile),
+        ClipView::Session => session_grid(ui, state, mixer, clips, &context, actions, tile),
+    }
 
     let deck = mixer.selected();
     let address = ClipAddress {
@@ -717,6 +529,753 @@ pub(super) fn draw_clip_grid(
             ui.weak("Trim, launch mode and beat-duration settings will be preserved.");
         });
     }
+}
+
+/// Resolume-style: one row per deck with its controls on the left, column
+/// triggers (scenes) across the top.
+fn layers_grid(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &mut FourDeckMixer,
+    clips: &mut ClipBank,
+    context: &ClipGridContext<'_>,
+    actions: &mut Vec<UiAction>,
+    tile: egui::Vec2,
+) {
+    let palette = state.theme.palette();
+    egui::Grid::new("clip-grid-layers")
+        .num_columns(CLIPS_PER_DECK + 1)
+        .spacing([4.0, 4.0])
+        .show(ui, |ui| {
+            fixed_cell(ui, egui::vec2(LAYER_HEADER_WIDTH, HEADER_HEIGHT), |ui| {
+                ui.label(
+                    egui::RichText::new("COLUMNS")
+                        .small()
+                        .strong()
+                        .color(palette.muted_text),
+                )
+            });
+            for slot in 0..CLIPS_PER_DECK {
+                let scene_index = state.scene_bank * CLIPS_PER_DECK + slot;
+                scene_cell(
+                    ui,
+                    state,
+                    clips,
+                    context.midi_map,
+                    actions,
+                    scene_index,
+                    egui::vec2(tile.x, HEADER_HEIGHT),
+                    &format!("▼ {}", scene_index + 1),
+                );
+            }
+            ui.end_row();
+            for deck in DeckId::ALL {
+                fixed_column(ui, egui::vec2(LAYER_HEADER_WIDTH, tile.y), |ui| {
+                    layer_header(ui, state, mixer, context.midi_map, actions, deck, tile.y);
+                });
+                for slot in 0..CLIPS_PER_DECK {
+                    clip_cell(
+                        ui,
+                        state,
+                        mixer,
+                        clips,
+                        context,
+                        actions,
+                        ClipAddress { deck, slot },
+                        tile,
+                    );
+                }
+                ui.end_row();
+            }
+        });
+}
+
+/// Ableton-style: one column per deck under its title bar, one row per
+/// scene with its launcher on the right, stop buttons along the bottom.
+fn session_grid(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &mut FourDeckMixer,
+    clips: &mut ClipBank,
+    context: &ClipGridContext<'_>,
+    actions: &mut Vec<UiAction>,
+    tile: egui::Vec2,
+) {
+    let palette = state.theme.palette();
+    let header = egui::vec2(tile.x, 44.0);
+    egui::Grid::new("clip-grid-session")
+        .num_columns(DeckId::ALL.len() + 1)
+        .spacing([4.0, 4.0])
+        .show(ui, |ui| {
+            for deck in DeckId::ALL {
+                fixed_column(ui, header, |ui| {
+                    track_header(ui, state, mixer, context.midi_map, actions, deck, tile.x);
+                });
+            }
+            fixed_cell(ui, egui::vec2(SCENE_LAUNCH_WIDTH, header.y), |ui| {
+                ui.label(
+                    egui::RichText::new("SCENES")
+                        .small()
+                        .strong()
+                        .color(palette.muted_text),
+                )
+            });
+            ui.end_row();
+            for slot in 0..CLIPS_PER_DECK {
+                for deck in DeckId::ALL {
+                    clip_cell(
+                        ui,
+                        state,
+                        mixer,
+                        clips,
+                        context,
+                        actions,
+                        ClipAddress { deck, slot },
+                        tile,
+                    );
+                }
+                let scene_index = state.scene_bank * CLIPS_PER_DECK + slot;
+                scene_cell(
+                    ui,
+                    state,
+                    clips,
+                    context.midi_map,
+                    actions,
+                    scene_index,
+                    egui::vec2(SCENE_LAUNCH_WIDTH, tile.y),
+                    &format!("▶ {}", scene_index + 1),
+                );
+                ui.end_row();
+            }
+            for deck in DeckId::ALL {
+                let enabled =
+                    !state.show_mode && !matches!(mixer.deck(deck).state, DeckState::Empty);
+                let stop = fixed_cell(ui, egui::vec2(tile.x, HEADER_HEIGHT), |ui| {
+                    buttons::midi_button(
+                        ui,
+                        &format!("clips.deck.{}.stop", deck.index()),
+                        &format!("Clips · Stop deck {}", deck.label()),
+                        |ui| ui.add_enabled(enabled, egui::Button::new("■")),
+                    )
+                });
+                if stop
+                    .on_hover_text(format!("Stop deck {}: eject its clip", deck.label()))
+                    .clicked()
+                {
+                    actions.push(UiAction::Eject(deck));
+                }
+            }
+            let any = !state.show_mode
+                && DeckId::ALL
+                    .iter()
+                    .any(|deck| !matches!(mixer.deck(*deck).state, DeckState::Empty));
+            let stop_all = fixed_cell(ui, egui::vec2(SCENE_LAUNCH_WIDTH, HEADER_HEIGHT), |ui| {
+                buttons::midi_button(ui, "clips.stop_all", "Clips · Stop all decks", |ui| {
+                    ui.add_enabled(
+                        any,
+                        egui::Button::new("■ All").fill(palette.control_tint(palette.danger, 0.2)),
+                    )
+                })
+            });
+            if stop_all
+                .on_hover_text("Stop every deck: eject all clips")
+                .clicked()
+            {
+                for deck in DeckId::ALL {
+                    if !matches!(mixer.deck(deck).state, DeckState::Empty) {
+                        actions.push(UiAction::Eject(deck));
+                    }
+                }
+            }
+            ui.end_row();
+        });
+}
+
+/// The deck name as a selectable label, mappable to deck select.
+fn deck_select(
+    ui: &mut egui::Ui,
+    mixer: &mut FourDeckMixer,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    deck: DeckId,
+    palette: ThemePalette,
+) {
+    if mappable(
+        ui,
+        midi_map,
+        ControlTarget::DeckSelect(deck.index() as u8),
+        actions,
+        |ui| {
+            ui.selectable_label(
+                mixer.selected() == deck,
+                egui::RichText::new(format!("DECK {}", deck.label()))
+                    .strong()
+                    .color(palette.grid_text),
+            )
+            .on_hover_text("Select this deck's performance controls")
+        },
+    )
+    .clicked()
+    {
+        mixer.select(deck);
+    }
+}
+
+/// X (eject), B (bypass) and S (solo), as on a Resolume layer.
+fn deck_toggles(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &FourDeckMixer,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    deck: DeckId,
+) {
+    let palette = state.theme.palette();
+    let index = deck.index();
+    let small = |text: &str| egui::RichText::new(text).small().strong();
+    let size = egui::vec2(22.0, 18.0);
+    let eject_enabled = !state.show_mode && !matches!(mixer.deck(deck).state, DeckState::Empty);
+    if buttons::midi_button(
+        ui,
+        &format!("clips.deck.{index}.eject"),
+        &format!("Clips · Deck {} eject", deck.label()),
+        |ui| ui.add_enabled(eject_enabled, egui::Button::new(small("X")).min_size(size)),
+    )
+    .on_hover_text("Eject the playing clip")
+    .clicked()
+    {
+        actions.push(UiAction::Eject(deck));
+    }
+    let bypassed = state.bypassed[index];
+    if mappable(
+        ui,
+        midi_map,
+        ControlTarget::DeckMute(index as u8),
+        actions,
+        |ui| {
+            ui.add(
+                egui::Button::new(small("B"))
+                    .min_size(size)
+                    .selected(bypassed)
+                    .fill(if bypassed {
+                        palette.control_tint(palette.warning, 0.6)
+                    } else {
+                        palette.control
+                    }),
+            )
+        },
+    )
+    .on_hover_text("Bypass: hide this deck from the mix")
+    .clicked()
+    {
+        state.bypassed[index] = !bypassed;
+    }
+    let solo = state.solo[index];
+    if buttons::midi_button(
+        ui,
+        &format!("clips.deck.{index}.solo"),
+        &format!("Clips · Deck {} solo", deck.label()),
+        |ui| {
+            ui.add(
+                egui::Button::new(small("S"))
+                    .min_size(size)
+                    .selected(solo)
+                    .fill(if solo {
+                        palette.control_tint(palette.accent, 0.6)
+                    } else {
+                        palette.control
+                    }),
+            )
+        },
+    )
+    .on_hover_text("Solo: show only soloed decks")
+    .clicked()
+    {
+        state.solo[index] = !solo;
+    }
+}
+
+fn deck_level(
+    ui: &mut egui::Ui,
+    mixer: &mut FourDeckMixer,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    deck: DeckId,
+    width: f32,
+) {
+    let level = &mut mixer.deck_mut(deck).level;
+    mappable(
+        ui,
+        midi_map,
+        ControlTarget::DeckLevel(deck.index() as u8),
+        actions,
+        |ui| {
+            ui.spacing_mut().slider_width = width;
+            ui.add(
+                egui::Slider::new(level, 0.0..=1.0)
+                    .show_value(false)
+                    .clamping(egui::SliderClamping::Always),
+            )
+            .on_hover_text("Deck level")
+        },
+    );
+}
+
+/// The controls at the left of a Layers row: a deck-coloured edge, the
+/// deck name, X/B/S and (when the row is tall enough) the level.
+fn layer_header(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &mut FourDeckMixer,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    deck: DeckId,
+    height: f32,
+) {
+    let palette = state.theme.palette();
+    let color = palette.deck_color(deck);
+    let rect = ui.max_rect();
+    ui.painter()
+        .rect_filled(rect, 3.0, palette.surface_tint(color, 0.08));
+    ui.painter().rect_filled(
+        egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
+        1.0,
+        color,
+    );
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.add_space(6.0);
+        deck_select(ui, mixer, midi_map, actions, deck, palette);
+    });
+    ui.horizontal(|ui| {
+        ui.add_space(6.0);
+        deck_toggles(ui, state, mixer, midi_map, actions, deck);
+    });
+    if height >= 78.0 {
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
+            deck_level(
+                ui,
+                mixer,
+                midi_map,
+                actions,
+                deck,
+                LAYER_HEADER_WIDTH - 20.0,
+            );
+        });
+    }
+}
+
+/// An Ableton-style track header: a title bar in the deck colour, then
+/// bypass/solo and the level.
+fn track_header(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &mut FourDeckMixer,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    deck: DeckId,
+    width: f32,
+) {
+    let palette = state.theme.palette();
+    let color = palette.deck_color(deck);
+    let selected = mixer.selected() == deck;
+    let title = mappable(
+        ui,
+        midi_map,
+        ControlTarget::DeckSelect(deck.index() as u8),
+        actions,
+        |ui| {
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(width, 18.0), egui::Sense::click());
+            let fill = if selected {
+                color
+            } else {
+                palette.surface_tint(color, if response.hovered() { 0.6 } else { 0.4 })
+            };
+            ui.painter().rect_filled(rect, 2.0, fill);
+            let luminance = 0.299 * f32::from(fill.r())
+                + 0.587 * f32::from(fill.g())
+                + 0.114 * f32::from(fill.b());
+            ui.painter().text(
+                rect.left_center() + egui::vec2(6.0, 0.0),
+                egui::Align2::LEFT_CENTER,
+                format!("DECK {}", deck.label()),
+                egui::FontId::proportional(12.0),
+                if luminance > 140.0 {
+                    egui::Color32::BLACK
+                } else {
+                    egui::Color32::WHITE
+                },
+            );
+            response.on_hover_text("Select this deck's performance controls")
+        },
+    );
+    if title.clicked() {
+        mixer.select(deck);
+    }
+    ui.horizontal(|ui| {
+        deck_toggles(ui, state, mixer, midi_map, actions, deck);
+        let used = 3.0 * 26.0;
+        deck_level(
+            ui,
+            mixer,
+            midi_map,
+            actions,
+            deck,
+            (width - used - 8.0).max(24.0),
+        );
+    });
+}
+
+/// A scene (column) launcher with its assignment menu.
+#[allow(clippy::too_many_arguments)]
+fn scene_cell(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    clips: &ClipBank,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    scene_index: usize,
+    size: egui::Vec2,
+    label: &str,
+) {
+    let palette = state.theme.palette();
+    let scene = fixed_cell(ui, size, |ui| {
+        mappable(
+            ui,
+            midi_map,
+            ControlTarget::SceneLaunch(scene_index as u8),
+            actions,
+            |ui| {
+                ui.add_sized(
+                    size,
+                    egui::Button::new(egui::RichText::new(label).small().color(palette.grid_text))
+                        .fill(palette.control_tint(palette.secondary, 0.18)),
+                )
+            },
+        )
+    });
+    let scene = scene.on_hover_text(format!(
+        "Launch scene {} on the next quantized boundary · right-click to edit",
+        scene_index + 1
+    ));
+    scene.context_menu(|ui| {
+        if state.show_mode {
+            ui.weak("Scene assignments are locked in Show Mode");
+            return;
+        }
+        if ui.button("Capture selected clips from all decks").clicked() {
+            for deck in DeckId::ALL {
+                state.scenes[scene_index].clip_slots[deck.index()] =
+                    Some(clips.selected(deck) as u8);
+                state.scenes[scene_index].stop_decks[deck.index()] = false;
+            }
+            ui.close();
+        }
+        ui.separator();
+        for deck in DeckId::ALL {
+            let index = deck.index();
+            let scene_choice = if state.scenes[scene_index].stop_decks[index] {
+                "Stop".to_owned()
+            } else if let Some(slot) = state.scenes[scene_index].clip_slots[index] {
+                format!("Clip {}", slot + 1)
+            } else {
+                "No change".to_owned()
+            };
+            ui.menu_button(format!("Deck {} · {scene_choice}", deck.label()), |ui| {
+                if ui
+                    .selectable_label(
+                        !state.scenes[scene_index].stop_decks[index]
+                            && state.scenes[scene_index].clip_slots[index].is_none(),
+                        "No change",
+                    )
+                    .clicked()
+                {
+                    state.scenes[scene_index].clip_slots[index] = None;
+                    state.scenes[scene_index].stop_decks[index] = false;
+                    ui.close();
+                }
+                if ui
+                    .selectable_label(state.scenes[scene_index].stop_decks[index], "Stop deck")
+                    .clicked()
+                {
+                    state.scenes[scene_index].clip_slots[index] = None;
+                    state.scenes[scene_index].stop_decks[index] = true;
+                    ui.close();
+                }
+                ui.separator();
+                for slot in 0..CLIPS_PER_DECK {
+                    if ui
+                        .selectable_label(
+                            !state.scenes[scene_index].stop_decks[index]
+                                && state.scenes[scene_index].clip_slots[index] == Some(slot as u8),
+                            format!("Clip {}", slot + 1),
+                        )
+                        .clicked()
+                    {
+                        state.scenes[scene_index].clip_slots[index] = Some(slot as u8);
+                        state.scenes[scene_index].stop_decks[index] = false;
+                        ui.close();
+                    }
+                }
+            });
+        }
+    });
+    if scene.clicked() {
+        actions.push(UiAction::LaunchScene(scene_index));
+    }
+}
+
+/// One clip slot: tile, play button, drag and drop, launch, editor and
+/// context menu. Shared by both grid arrangements.
+#[allow(clippy::too_many_arguments)]
+fn clip_cell(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &mut FourDeckMixer,
+    clips: &mut ClipBank,
+    context: &ClipGridContext<'_>,
+    actions: &mut Vec<UiAction>,
+    address: ClipAddress,
+    size: egui::Vec2,
+) {
+    let palette = state.theme.palette();
+    let midi_map = context.midi_map;
+    let ClipAddress { deck, slot } = address;
+    let selected = clips.selected(deck) == slot && mixer.selected() == deck;
+    let active = clips.active(deck) == Some(slot);
+    let queued = context.launches.queued(address);
+    let slot_state = clips
+        .slot(address)
+        .cloned()
+        .expect("valid clip-grid address");
+    let first_frame_ready = state
+        .preloaded_frame(address, clips.path(address))
+        .is_some();
+    let automation_playing = clips
+        .active_automation(deck)
+        .is_some_and(|(active_slot, _)| active_slot == slot);
+    let (name, tile_state) = if let Some(movie) = &slot_state.movie {
+        let name = movie
+            .display_name
+            .rsplit_once('.')
+            .map_or(movie.display_name.as_str(), |(stem, _)| stem)
+            .to_owned();
+        let tile_state = if queued {
+            TileState::Queued
+        } else if active {
+            TileState::Playing
+        } else if first_frame_ready {
+            TileState::Ready
+        } else {
+            TileState::Idle
+        };
+        (name, tile_state)
+    } else if slot_state.error.is_some() {
+        (
+            format!("{}{} missing", deck.label(), slot + 1),
+            TileState::Missing,
+        )
+    } else if let Some(path) = &slot_state.pending_path {
+        (
+            path.file_stem()
+                .and_then(|name| name.to_str())
+                .unwrap_or("loading")
+                .to_owned(),
+            TileState::Loading,
+        )
+    } else if automation_playing {
+        (
+            format!("{}{} automation", deck.label(), slot + 1),
+            TileState::Playing,
+        )
+    } else {
+        (format!("{}{}", deck.label(), slot + 1), TileState::Empty)
+    };
+    let tile = Tile {
+        thumbnail: state.thumbnail(address, clips.path(address)),
+        thumbnail_failed: state
+            .thumbnail_failure(address, clips.path(address))
+            .is_some(),
+        name,
+        state: tile_state,
+        selected,
+        deck_color: palette.deck_color(deck),
+    };
+    let draggable = !state.show_mode
+        && !midi_map.active
+        && (slot_state.movie.is_some()
+            || slot_state.pending_path.is_some()
+            || slot_state.error.is_some());
+    let (response, play) = fixed_cell(ui, size, |ui| {
+        let response = if midi_map.active {
+            mappable(
+                ui,
+                midi_map,
+                ControlTarget::ClipLaunch {
+                    deck: deck.index() as u8,
+                    slot: slot as u8,
+                },
+                actions,
+                |ui| tile_widget(ui, size, &tile, palette),
+            )
+        } else if draggable {
+            // Drag moves the clip to another slot; a plain click still
+            // selects and launches because the drag only starts past egui's
+            // drag threshold.
+            ui.dnd_drag_source(
+                egui::Id::new(("clip-slot-drag", deck.index(), slot)),
+                address,
+                |ui| tile_widget(ui, size, &tile, palette),
+            )
+            .inner
+        } else {
+            tile_widget(ui, size, &tile, palette)
+        };
+        let play_rect = egui::Rect::from_min_size(
+            response.rect.left_top() + egui::vec2(4.0, 6.0),
+            egui::vec2(16.0, 16.0),
+        );
+        let play = ui.put(
+            play_rect,
+            egui::Button::new(
+                egui::RichText::new(if automation_playing && clips.movie(address).is_none() {
+                    "■"
+                } else {
+                    "▶"
+                })
+                .small(),
+            )
+            .fill(
+                palette
+                    .control_tint(
+                        if automation_playing {
+                            palette.success
+                        } else {
+                            palette.secondary
+                        },
+                        0.72,
+                    )
+                    .gamma_multiply(0.85),
+            ),
+        );
+        (response, play)
+    });
+    if play
+        .on_hover_text(if automation_playing && clips.movie(address).is_none() {
+            "Stop this automation clip"
+        } else if clips.movie(address).is_some() {
+            "Play this clip independently of scene launching"
+        } else {
+            "Open this clip slot"
+        })
+        .clicked()
+    {
+        clips.select(address);
+        mixer.select(deck);
+        if clips.movie(address).is_some() {
+            actions.push(UiAction::Launch(address));
+        } else if matches!(
+            mixer.deck(deck).state,
+            DeckState::Ready(_) | DeckState::Live(_) | DeckState::Generator(_)
+        ) {
+            actions.push(UiAction::LaunchAutomation(address));
+        } else {
+            state.clip_editor = Some(address);
+        }
+    }
+    drop_targets::register(ui, response.rect, drop_targets::DropTarget::Clip(address));
+    let response = if draggable {
+        response.on_hover_cursor(egui::CursorIcon::Grab)
+    } else {
+        response
+    };
+    if let Some(source) = response.dnd_hover_payload::<ClipAddress>()
+        && *source != address
+    {
+        ui.painter().rect_stroke(
+            response.rect.expand(2.0),
+            4.0,
+            egui::Stroke::new(2.0, palette.accent),
+            egui::StrokeKind::Outside,
+        );
+    }
+    if let Some(source) = response.dnd_release_payload::<ClipAddress>()
+        && *source != address
+    {
+        actions.push(UiAction::MoveClip {
+            from: *source,
+            to: address,
+        });
+    }
+    if response.clicked() {
+        clips.select(address);
+        mixer.select(deck);
+        if clips.movie(address).is_some() {
+            actions.push(UiAction::Launch(address));
+        }
+    }
+    if response.double_clicked() {
+        clips.select(address);
+        mixer.select(deck);
+        state.clip_editor = Some(address);
+    }
+    response
+        .on_hover_text(if let Some(movie) = clips.movie(address) {
+            let mut details = format!(
+                "{}\n{}×{} · {}",
+                movie.display_name, movie.visible_extent[0], movie.visible_extent[1], movie.codec
+            );
+            if movie.decode_path == virtual_media::DecodePath::FfmpegVideo {
+                details.push_str(&format!(
+                    "\n{} keyframe(s) indexed{}",
+                    movie.keyframes.len(),
+                    if movie.keyframes.is_complete() {
+                        ""
+                    } else {
+                        " · capped"
+                    }
+                ));
+            }
+            if let Some(error) = state.thumbnail_failure(address, clips.path(address)) {
+                details.push_str(&format!("\nThumbnail unavailable: {error}"));
+            } else if first_frame_ready {
+                details.push_str("\nFirst frame ready for immediate launch");
+            } else {
+                details.push_str("\nFirst frame is still preloading");
+            }
+            if !state.show_mode {
+                details.push_str("\nDrag onto another slot to move; occupied slots swap");
+            }
+            details
+        } else if let Some(error) = &slot_state.error {
+            format!(
+                "{}\n{error}",
+                slot_state.pending_path.as_deref().map_or_else(
+                    || "Missing media".to_owned(),
+                    |path| path.display().to_string()
+                )
+            )
+        } else if let Some(path) = &slot_state.pending_path {
+            format!("Restoring {}", path.display())
+        } else {
+            "Empty slot · drop a movie or folder here".to_owned()
+        })
+        .context_menu(|ui| {
+            if state.show_mode {
+                ui.weak("Show Mode locks media management");
+                return;
+            }
+            if clips.path(address).is_some() && ui.button("Relink media…").clicked() {
+                actions.push(UiAction::BrowseRelink(address));
+                ui.close();
+            }
+            if clips.path(address).is_some() && ui.button("Delete clip").clicked() {
+                actions.push(UiAction::ClearSlot(address));
+                ui.close();
+            }
+        });
 }
 
 fn draw_clip_editor(

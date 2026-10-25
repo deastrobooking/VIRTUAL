@@ -17,10 +17,18 @@ pub(super) fn draw_setup(
     let palette = midi_map.palette;
     if !state.show_mode {
         let setup_height = (ui.available_height() * 0.45).clamp(160.0, 420.0);
-        egui::CollapsingHeader::new("Setup & diagnostics · output, project, devices")
-        .default_open(false)
-        .show(ui, |ui| {
-            egui::ScrollArea::vertical()
+        super::panel::section(
+            ui,
+            "setup",
+            "⚙",
+            "SETUP & DIAGNOSTICS",
+            palette,
+            false,
+            |ui| {
+                ui.weak("output · project · devices · sync");
+            },
+            |ui| {
+                egui::ScrollArea::vertical()
                 .id_salt("setup-region")
                 .max_height(setup_height)
                 .auto_shrink([false, true])
@@ -483,7 +491,8 @@ pub(super) fn draw_setup(
                 draw_pipeline_health(ui, metrics);
             });
                 });
-        });
+            },
+        );
     }
 }
 

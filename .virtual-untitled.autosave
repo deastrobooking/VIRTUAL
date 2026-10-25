@@ -1,13 +1,13 @@
 {
   "format": "virtual-project",
-  "version": 6,
-  "project_id": "00000000000086d218dbe000e09a1bd1",
+  "version": 10,
+  "project_id": "0000000000002fbc18e19e148a5a8a21",
   "takes": [
     {
-      "take_id": "00000000000086d218dbe000e09b9aa2",
+      "take_id": "0000000000002fbc18e19e148a5c2832",
       "name": "Live",
-      "journal_file": "session-34514-1791271571182847000.jsonl",
-      "created_unix_ms": 1791271571182
+      "journal_file": "session-12220-1792887937728004000.jsonl",
+      "created_unix_ms": 1792887937727
     }
   ],
   "graph": {
@@ -15,7 +15,7 @@
     "nodes": [
       {
         "id": 1,
-        "kind": "oneiroi.deck_source",
+        "kind": "virtual.deck_source",
         "contract_version": 1,
         "label": "Deck A source",
         "parameters": {
@@ -27,14 +27,14 @@
       },
       {
         "id": 2,
-        "kind": "oneiroi.deck_effects",
+        "kind": "virtual.deck_effects",
         "contract_version": 1,
         "label": "Deck A effects",
         "parameters": {}
       },
       {
         "id": 3,
-        "kind": "oneiroi.deck_source",
+        "kind": "virtual.deck_source",
         "contract_version": 1,
         "label": "Deck B source",
         "parameters": {
@@ -46,14 +46,14 @@
       },
       {
         "id": 4,
-        "kind": "oneiroi.deck_effects",
+        "kind": "virtual.deck_effects",
         "contract_version": 1,
         "label": "Deck B effects",
         "parameters": {}
       },
       {
         "id": 5,
-        "kind": "oneiroi.deck_source",
+        "kind": "virtual.deck_source",
         "contract_version": 1,
         "label": "Deck C source",
         "parameters": {
@@ -65,14 +65,14 @@
       },
       {
         "id": 6,
-        "kind": "oneiroi.deck_effects",
+        "kind": "virtual.deck_effects",
         "contract_version": 1,
         "label": "Deck C effects",
         "parameters": {}
       },
       {
         "id": 7,
-        "kind": "oneiroi.deck_source",
+        "kind": "virtual.deck_source",
         "contract_version": 1,
         "label": "Deck D source",
         "parameters": {
@@ -84,28 +84,28 @@
       },
       {
         "id": 8,
-        "kind": "oneiroi.deck_effects",
+        "kind": "virtual.deck_effects",
         "contract_version": 1,
         "label": "Deck D effects",
         "parameters": {}
       },
       {
         "id": 20,
-        "kind": "oneiroi.four_deck_mixer",
+        "kind": "virtual.four_deck_mixer",
         "contract_version": 1,
         "label": "",
         "parameters": {}
       },
       {
         "id": 21,
-        "kind": "oneiroi.master_effects",
+        "kind": "virtual.master_effects",
         "contract_version": 1,
         "label": "",
         "parameters": {}
       },
       {
         "id": 22,
-        "kind": "oneiroi.program_output",
+        "kind": "virtual.program_output",
         "contract_version": 1,
         "label": "",
         "parameters": {}
@@ -214,6 +214,7 @@
       }
     ]
   },
+  "geometry_library": [],
   "random_seeds": {},
   "settings": {
     "bpm": 120.0,
@@ -230,7 +231,72 @@
       "composition_extent": [
         1920,
         1080
-      ]
+      ],
+      "projection": {
+        "enabled": false,
+        "corners": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            1.0,
+            0.0
+          ],
+          [
+            1.0,
+            1.0
+          ],
+          [
+            0.0,
+            1.0
+          ]
+        ],
+        "source": [
+          0.0,
+          0.0,
+          1.0,
+          1.0
+        ],
+        "masks": [
+          [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          [
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ]
+        ],
+        "edge_blend": [
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "gamma": 1.0,
+        "black_level": 0.0
+      },
+      "ndi": {
+        "enabled": false,
+        "name": "VIRTUAL Program"
+      }
     },
     "audio_analysis": {
       "gain": 1.0,
@@ -379,17 +445,125 @@
       ]
     },
     "theme": {
-      "preset": "cathode",
+      "preset": "nocturne",
       "accent": null,
       "density": "roomy",
       "deck_layout": "auto",
       "appearance": {
-        "colors": {},
+        "colors": {
+          "accent": [
+            198,
+            71,
+            255
+          ],
+          "background": [
+            255,
+            255,
+            255
+          ],
+          "code": [
+            240,
+            0,
+            0
+          ],
+          "control": [
+            223,
+            174,
+            165
+          ],
+          "deck_a": [
+            226,
+            242,
+            250
+          ],
+          "deck_c": [
+            217,
+            247,
+            218
+          ],
+          "deck_d": [
+            185,
+            187,
+            187
+          ],
+          "extreme": [
+            0,
+            0,
+            0
+          ],
+          "faint": [
+            190,
+            189,
+            176
+          ],
+          "grid_text": [
+            0,
+            0,
+            0
+          ],
+          "idle": [
+            0,
+            0,
+            0
+          ],
+          "muted_text": [
+            0,
+            0,
+            0
+          ],
+          "secondary": [
+            240,
+            255,
+            163
+          ],
+          "selected_text": [
+            118,
+            20,
+            20
+          ],
+          "stroke": [
+            110,
+            112,
+            112
+          ],
+          "strong_text": [
+            0,
+            0,
+            0
+          ],
+          "success": [
+            0,
+            251,
+            144
+          ],
+          "surface": [
+            188,
+            188,
+            188
+          ],
+          "text": [
+            0,
+            0,
+            0
+          ],
+          "text_outline": [
+            0,
+            0,
+            0
+          ],
+          "warning": [
+            159,
+            0,
+            241
+          ]
+        },
         "element_outline": 3.0,
         "text_outline": 0.22,
         "text_scale": 1.03,
         "corner_radius": 16
-      }
+      },
+      "clip_view": "session",
+      "clip_size": "medium"
     },
     "midi_devices": [],
     "midi_clock": {
@@ -397,6 +571,482 @@
       "input_device": "",
       "output_device": "",
       "send": false
+    },
+    "layer_order": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "pinned_deck": null,
+    "scenes": [
+      {
+        "clip_slots": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          2,
+          2,
+          2,
+          2
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          3,
+          3,
+          3,
+          3
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          4,
+          4,
+          4,
+          4
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          5,
+          5,
+          5,
+          5
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          6,
+          6,
+          6,
+          6
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          7,
+          7,
+          7,
+          7
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      },
+      {
+        "clip_slots": [
+          null,
+          null,
+          null,
+          null
+        ],
+        "stop_decks": [
+          false,
+          false,
+          false,
+          false
+        ]
+      }
+    ],
+    "sync": {
+      "role": "off",
+      "name": "VIRTUAL",
+      "passphrase": "",
+      "port": 41641,
+      "broadcast": true,
+      "targets": [],
+      "send_clock": true,
+      "send_controls": true,
+      "send_audio": true,
+      "send_zones": true,
+      "zones": 8,
+      "leader": "",
+      "follow_tempo": true,
+      "follow_mixer": true,
+      "follow_transport": true,
+      "follow_effects": true,
+      "follow_buttons": false
     }
   },
   "decks": [
@@ -461,6 +1111,40 @@
           "beat_duration": null
         }
       ],
+      "clip_automation": [
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        }
+      ],
       "selected_slot": 0,
       "active_slot": null,
       "level": 1.0,
@@ -470,9 +1154,9 @@
       "transport": {
         "playing": true,
         "frozen": false,
-        "end_mode": "one_shot",
+        "end_mode": "loop",
         "speed": 1.0,
-        "position": 250.04084583400027
+        "position": 70.04850004100003
       },
       "transform": {
         "position": [
@@ -512,16 +1196,25 @@
         ],
         "contrast": 1.0,
         "saturation": 1.0,
-        "hue": 0.4,
+        "hue": 0.0,
         "black_level": 0.0,
         "white_level": 1.0,
         "gamma": 1.0,
         "pixelate": 0.0,
         "luma_key": 0.0,
         "neon": 0.0,
-        "fractal": 0.45,
+        "fractal": 0.0,
+        "spiral_fold": 0.0,
+        "kali_fold": 0.0,
+        "koch_fold": 0.0,
         "jitter": 0.0,
-        "find_edges": 0.425,
+        "wave_distort": 0.0,
+        "vortex_distort": 0.0,
+        "block_jitter": 0.0,
+        "rgb_jitter": 0.0,
+        "julia_fold": 0.0,
+        "polynomial_fold": 0.0,
+        "find_edges": 0.0,
         "bit_reduction": 0.0,
         "blacklight": 0.0,
         "bloom": 0.0,
@@ -533,37 +1226,8 @@
       "package": {
         "bypassed": false,
         "mix": 1.0,
-        "package_id": "mirror-symmetry",
-        "parameters": [
-          {
-            "id": "mode",
-            "value": 2.0
-          },
-          {
-            "id": "rotation",
-            "value": 0.0
-          },
-          {
-            "id": "zoom",
-            "value": 1.0
-          },
-          {
-            "id": "side",
-            "value": 0.0
-          },
-          {
-            "id": "center-x",
-            "value": 0.5
-          },
-          {
-            "id": "center-y",
-            "value": 0.5
-          },
-          {
-            "id": "spin",
-            "value": 0.0
-          }
-        ],
+        "package_id": "",
+        "parameters": [],
         "modulation": [
           {
             "enabled": false,
@@ -710,39 +1374,7 @@
         }
       ],
       "camera": null,
-      "generator": {
-        "pattern": "fractal_tree",
-        "seed": 1,
-        "depth": 0.6,
-        "scale": 0.5,
-        "spread": 0.45,
-        "twist": 0.35,
-        "randomness": 0.0,
-        "flatten": false,
-        "rotate_speed": 0.15,
-        "tilt": 0.0,
-        "spin_speed": 0.0,
-        "zoom": 1.0,
-        "perspective": 0.5,
-        "reveal": 1.0,
-        "grow_speed": 0.0,
-        "hue": 0.55,
-        "hue_range": 0.45,
-        "color_speed": 0.5,
-        "saturation": 0.65,
-        "lightness": 0.45,
-        "brightness": 1.6,
-        "line_width": 1.25,
-        "depth_fade": 0.35,
-        "trails": 0.0,
-        "transparent": true,
-        "audio_amount": 0.0,
-        "resolution": [
-          1280,
-          720
-        ],
-        "fps": 60
-      }
+      "automation_enabled": true
     },
     {
       "clips": [
@@ -805,6 +1437,40 @@
           "beat_duration": null
         }
       ],
+      "clip_automation": [
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        }
+      ],
       "selected_slot": 0,
       "active_slot": null,
       "level": 1.0,
@@ -816,7 +1482,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 508.5713669999985
+        "position": 70.04850004100003
       },
       "transform": {
         "position": [
@@ -864,7 +1530,16 @@
         "luma_key": 0.0,
         "neon": 0.0,
         "fractal": 0.0,
+        "spiral_fold": 0.0,
+        "kali_fold": 0.0,
+        "koch_fold": 0.0,
         "jitter": 0.0,
+        "wave_distort": 0.0,
+        "vortex_distort": 0.0,
+        "block_jitter": 0.0,
+        "rgb_jitter": 0.0,
+        "julia_fold": 0.0,
+        "polynomial_fold": 0.0,
         "find_edges": 0.0,
         "bit_reduction": 0.0,
         "blacklight": 0.0,
@@ -1024,7 +1699,8 @@
           "amount": 0.5
         }
       ],
-      "camera": null
+      "camera": null,
+      "automation_enabled": true
     },
     {
       "clips": [
@@ -1085,6 +1761,40 @@
           "out_point": null,
           "launch_mode": "restart",
           "beat_duration": null
+        }
+      ],
+      "clip_automation": [
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
         }
       ],
       "selected_slot": 0,
@@ -1098,7 +1808,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 508.5713669999985
+        "position": 70.04850004100003
       },
       "transform": {
         "position": [
@@ -1146,7 +1856,16 @@
         "luma_key": 0.0,
         "neon": 0.0,
         "fractal": 0.0,
+        "spiral_fold": 0.0,
+        "kali_fold": 0.0,
+        "koch_fold": 0.0,
         "jitter": 0.0,
+        "wave_distort": 0.0,
+        "vortex_distort": 0.0,
+        "block_jitter": 0.0,
+        "rgb_jitter": 0.0,
+        "julia_fold": 0.0,
+        "polynomial_fold": 0.0,
         "find_edges": 0.0,
         "bit_reduction": 0.0,
         "blacklight": 0.0,
@@ -1306,7 +2025,8 @@
           "amount": 0.5
         }
       ],
-      "camera": null
+      "camera": null,
+      "automation_enabled": true
     },
     {
       "clips": [
@@ -1369,6 +2089,40 @@
           "beat_duration": null
         }
       ],
+      "clip_automation": [
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        },
+        {
+          "loop_beats": 16.0,
+          "lanes": []
+        }
+      ],
       "selected_slot": 0,
       "active_slot": null,
       "level": 1.0,
@@ -1380,7 +2134,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 508.5713669999985
+        "position": 70.04850004100003
       },
       "transform": {
         "position": [
@@ -1428,7 +2182,16 @@
         "luma_key": 0.0,
         "neon": 0.0,
         "fractal": 0.0,
+        "spiral_fold": 0.0,
+        "kali_fold": 0.0,
+        "koch_fold": 0.0,
         "jitter": 0.0,
+        "wave_distort": 0.0,
+        "vortex_distort": 0.0,
+        "block_jitter": 0.0,
+        "rgb_jitter": 0.0,
+        "julia_fold": 0.0,
+        "polynomial_fold": 0.0,
         "find_edges": 0.0,
         "bit_reduction": 0.0,
         "blacklight": 0.0,
@@ -1588,7 +2351,8 @@
           "amount": 0.5
         }
       ],
-      "camera": null
+      "camera": null,
+      "automation_enabled": true
     }
   ],
   "midi_mappings": [],

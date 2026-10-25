@@ -854,6 +854,13 @@ pub struct ThemeProject {
     pub deck_layout: String,
     #[serde(default)]
     pub appearance: ThemeAppearanceProject,
+    /// Clip grid arrangement: "layers" (decks as rows) or "session"
+    /// (decks as columns, scenes as rows).
+    #[serde(default)]
+    pub clip_view: String,
+    /// Clip tile size: "small", "medium" or "large".
+    #[serde(default)]
+    pub clip_size: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -906,11 +913,20 @@ impl ThemeAppearanceProject {
 impl Default for ThemeProject {
     fn default() -> Self {
         Self {
-            preset: "nocturne".to_owned(),
+            // Mirrors the app's Arena template, the default starting point.
+            preset: "arena".to_owned(),
             accent: None,
-            density: "cozy".to_owned(),
+            density: "compact".to_owned(),
             deck_layout: "auto".to_owned(),
-            appearance: ThemeAppearanceProject::default(),
+            appearance: ThemeAppearanceProject {
+                element_outline: 0.75,
+                text_outline: 0.0,
+                text_scale: 0.95,
+                corner_radius: 2,
+                ..ThemeAppearanceProject::default()
+            },
+            clip_view: "layers".to_owned(),
+            clip_size: "medium".to_owned(),
         }
     }
 }

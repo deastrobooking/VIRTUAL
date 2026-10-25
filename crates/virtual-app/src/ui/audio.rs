@@ -22,28 +22,28 @@ pub(super) fn draw_audio_panel(
     actions: &mut Vec<UiAction>,
 ) {
     decay_peaks(ui, state, &context.snapshot.analysis.bands);
-    let id = ui.make_persistent_id("audio-spectrum-panel");
-    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, false)
-        .show_header(ui, |ui| {
-            ui.label(
-                egui::RichText::new("AUDIO SPECTRUM")
-                    .strong()
-                    .color(context.palette.accent),
-            );
+    let mapped = state
+        .audio_map
+        .bindings
+        .iter()
+        .filter(|binding| binding.enabled)
+        .count();
+    super::panel::section(
+        ui,
+        "audio-spectrum",
+        "♫",
+        "AUDIO SPECTRUM",
+        context.palette,
+        false,
+        |ui| {
             mini_spectrum(ui, &context.snapshot.analysis.bands, context.connected);
-            let mapped = state
-                .audio_map
-                .bindings
-                .iter()
-                .filter(|binding| binding.enabled)
-                .count();
             if context.connected {
                 ui.weak(format!("{mapped} mapping(s) live"));
             } else {
                 ui.colored_label(context.palette.warning, "input not connected");
             }
-        })
-        .body(|ui| {
+        },
+        |ui| {
             ui.add_enabled_ui(!state.show_mode, |ui| {
                 draw_input_row(ui, state, &context, actions);
             });
@@ -60,7 +60,8 @@ pub(super) fn draw_audio_panel(
             if state.show_mode {
                 ui.weak("Audio device and mapping edits are locked in Show Mode.");
             }
-        });
+        },
+    );
     if let Some(learn) = state.audio_learn {
         ui.horizontal(|ui| {
             ui.colored_label(
