@@ -1,12 +1,13 @@
 //! Clip grid: slots, health, launch and thumbnail rendering, in two
-//! arrangements: Layers (decks as rows, after Resolume) and Session (decks as
-//! columns with scene launchers and stop buttons, after Ableton Live).
+//! arrangements: Session (decks as condensed horizontal lanes of filmstrip
+//! clips, like a video editor's tracks) and Launcher (decks as columns with
+//! scene launchers and stop buttons, after Ableton Live).
 
 use super::theme::{ClipSize, ClipView};
 use super::*;
 
-/// Width of the per-deck controls at the left of each row in Layers view.
-const LAYER_HEADER_WIDTH: f32 = 150.0;
+/// Width of the per-deck controls at the left of each Session lane.
+const LANE_HEADER_WIDTH: f32 = 176.0;
 /// Width of the scene launch column in Session view.
 const SCENE_LAUNCH_WIDTH: f32 = 64.0;
 const HEADER_HEIGHT: f32 = 22.0;
@@ -74,6 +75,216 @@ struct Tile<'a> {
     state: TileState,
     selected: bool,
     deck_color: egui::Color32,
+    /// Playback position through the clip, while it plays.
+    progress: Option<f32>,
+    /// Media length in seconds.
+    duration: Option<f64>,
+}
+
+/// How a clip slot is drawn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TileStyle {
+    /// Launcher: thumbnail over a name strip.
+    Card,
+    /// Session lanes: the thumbnail repeated as a filmstrip with overlaid
+    /// labels and a playhead.
+    Filmstrip,
+}
+
+/// `m:ss` (or `h:mm:ss`) for clip lengths.
+fn format_duration(seconds: f64) -> String {
+    let total = seconds.max(0.0).round() as u64;
+    let (hours, minutes, seconds) = (total / 3600, total / 60 % 60, total % 60);
+    if hours > 0 {
+        format!("{hours}:{minutes:02}:{seconds:02}")
+    } else {
+        format!("{minutes}:{seconds:02}")
+    }
+}
+
+/// The border every clip style uses for its state.
+fn tile_stroke(
+    ui: &egui::Ui,
+    tile: &Tile<'_>,
+    hovered: bool,
+    palette: ThemePalette,
+) -> egui::Stroke {
+    match tile.state {
+        TileState::Playing => egui::Stroke::new(2.0, palette.success),
+        TileState::Queued => {
+            let pulse = (ui.input(|input| input.time) * 6.0).sin() as f32 * 0.5 + 0.5;
+            ui.ctx().request_repaint();
+            egui::Stroke::new(2.0, palette.warning.gamma_multiply(0.35 + 0.65 * pulse))
+        }
+        _ if tile.selected => egui::Stroke::new(1.5, palette.accent),
+        _ if hovered => egui::Stroke::new(1.0, palette.text.gamma_multiply(0.6)),
+        _ => egui::Stroke::new(palette.outline_width.min(1.0), palette.stroke),
+    }
+}
+
+/// UV rectangle that crops a texture to `aspect` (width / height), centred.
+fn cover_uv(texture: &egui::TextureHandle, aspect: f32) -> egui::Rect {
+    let [width, height] = texture.size().map(|v| v.max(1) as f32);
+    let texture_aspect = width / height;
+    if texture_aspect > aspect {
+        let u = aspect / texture_aspect;
+        egui::Rect::from_min_max(
+            egui::pos2(0.5 - u / 2.0, 0.0),
+            egui::pos2(0.5 + u / 2.0, 1.0),
+        )
+    } else {
+        let v = texture_aspect / aspect;
+        egui::Rect::from_min_max(
+            egui::pos2(0.0, 0.5 - v / 2.0),
+            egui::pos2(1.0, 0.5 + v / 2.0),
+        )
+    }
+}
+
+/// A Session-lane clip: the thumbnail tiled as a filmstrip, the name and
+/// length in small dark labels, a deck-colour bar along the bottom and a
+/// playhead across the playing clip, as in a video editor's timeline.
+fn filmstrip_widget(
+    ui: &mut egui::Ui,
+    size: egui::Vec2,
+    tile: &Tile<'_>,
+    palette: ThemePalette,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    if !ui.is_rect_visible(rect) {
+        return response;
+    }
+    let hovered = response.hovered();
+    let radius = egui::CornerRadius::same(ui.visuals().widgets.inactive.corner_radius.nw.min(4));
+    let painter = ui.painter();
+    if tile.state == TileState::Empty {
+        painter.rect_filled(rect, radius, palette.faint);
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "+",
+            egui::FontId::proportional((rect.height() * 0.4).clamp(10.0, 20.0)),
+            palette.idle.gamma_multiply(if hovered { 1.0 } else { 0.6 }),
+        );
+        painter.rect_stroke(
+            rect,
+            radius,
+            tile_stroke(ui, tile, hovered, palette),
+            egui::StrokeKind::Inside,
+        );
+        return response;
+    }
+    painter.rect_filled(rect, radius, palette.extreme);
+    let inner = rect.shrink(1.0);
+    if let Some(texture) = tile.thumbnail {
+        let frame_width = inner.height() * 16.0 / 9.0;
+        let uv = cover_uv(texture, 16.0 / 9.0);
+        let tint = if tile.state == TileState::Playing || hovered {
+            egui::Color32::WHITE
+        } else {
+            egui::Color32::from_gray(190)
+        };
+        let clipped = painter.with_clip_rect(inner);
+        let frames = (inner.width() / frame_width).ceil() as usize;
+        for index in 0..frames {
+            let left = inner.min.x + index as f32 * frame_width;
+            let frame = egui::Rect::from_min_size(
+                egui::pos2(left, inner.min.y),
+                egui::vec2(frame_width, inner.height()),
+            );
+            clipped.image(texture.id(), frame, uv, tint);
+            if index > 0 {
+                clipped.line_segment(
+                    [frame.left_top(), frame.left_bottom()],
+                    egui::Stroke::new(1.0, egui::Color32::from_black_alpha(140)),
+                );
+            }
+        }
+    } else {
+        let (glyph, color) = match tile.state {
+            TileState::Loading => ("…", palette.muted_text),
+            TileState::Missing => ("⚠", palette.danger),
+            _ if tile.thumbnail_failed => ("▢", palette.muted_text),
+            _ => ("▶", palette.idle),
+        };
+        painter.text(
+            inner.center(),
+            egui::Align2::CENTER_CENTER,
+            glyph,
+            egui::FontId::proportional((inner.height() * 0.45).clamp(10.0, 24.0)),
+            color,
+        );
+    }
+    let bar = egui::Rect::from_min_max(egui::pos2(inner.min.x, inner.max.y - 3.0), inner.max);
+    painter.rect_filled(bar, 0.0, tile.deck_color);
+    if let Some(progress) = tile.progress {
+        let x = inner.min.x + inner.width() * progress.clamp(0.0, 1.0);
+        painter.rect_filled(
+            egui::Rect::from_min_max(inner.min, egui::pos2(x, inner.max.y)),
+            0.0,
+            palette.success.gamma_multiply(0.18),
+        );
+        painter.line_segment(
+            [egui::pos2(x, inner.min.y), egui::pos2(x, inner.max.y)],
+            egui::Stroke::new(2.0, palette.strong_text),
+        );
+        ui.ctx().request_repaint();
+    }
+    let font = egui::FontId::proportional((rect.height() * 0.24).clamp(9.0, 12.0));
+    let label = |text: &str, anchor: egui::Pos2, align: egui::Align2, color: egui::Color32| {
+        let galley = painter.layout_no_wrap(text.to_owned(), font.clone(), color);
+        let size = galley.size() + egui::vec2(6.0, 2.0);
+        let pill = align.anchor_size(anchor, size).intersect(inner);
+        painter.rect_filled(pill, 2.0, egui::Color32::from_black_alpha(165));
+        painter
+            .with_clip_rect(pill)
+            .galley(pill.min + egui::vec2(3.0, 1.0), galley, color);
+    };
+    let name_color = match tile.state {
+        TileState::Missing => palette.danger,
+        TileState::Queued => palette.warning,
+        _ => egui::Color32::WHITE,
+    };
+    // Leave room for the play button in the top-left corner.
+    label(
+        &tile.name,
+        inner.left_top() + egui::vec2(22.0, 2.0),
+        egui::Align2::LEFT_TOP,
+        name_color,
+    );
+    let mut info = String::new();
+    match tile.state {
+        TileState::Ready => info.push('●'),
+        TileState::Idle => info.push('○'),
+        TileState::Queued => info.push('◷'),
+        _ => {}
+    }
+    if let Some(duration) = tile.duration {
+        if !info.is_empty() {
+            info.push(' ');
+        }
+        info.push_str(&format_duration(duration));
+    }
+    if !info.is_empty() && rect.height() >= 30.0 {
+        let color = if tile.state == TileState::Ready {
+            palette.success
+        } else {
+            egui::Color32::from_gray(220)
+        };
+        label(
+            &info,
+            inner.right_bottom() - egui::vec2(2.0, 5.0),
+            egui::Align2::RIGHT_BOTTOM,
+            color,
+        );
+    }
+    painter.rect_stroke(
+        rect,
+        radius,
+        tile_stroke(ui, tile, hovered, palette),
+        egui::StrokeKind::Inside,
+    );
+    response
 }
 
 /// A clip tile: the thumbnail fills the tile above a name strip, a thin
@@ -108,21 +319,7 @@ fn tile_widget(
     );
     if let Some(texture) = tile.thumbnail {
         // Cover-fit: crop the thumbnail to the tile's aspect.
-        let [width, height] = texture.size().map(|v| v.max(1) as f32);
-        let (texture_aspect, box_aspect) = (width / height, image.width() / image.height());
-        let uv = if texture_aspect > box_aspect {
-            let u = box_aspect / texture_aspect;
-            egui::Rect::from_min_max(
-                egui::pos2(0.5 - u / 2.0, 0.0),
-                egui::pos2(0.5 + u / 2.0, 1.0),
-            )
-        } else {
-            let v = texture_aspect / box_aspect;
-            egui::Rect::from_min_max(
-                egui::pos2(0.0, 0.5 - v / 2.0),
-                egui::pos2(1.0, 0.5 + v / 2.0),
-            )
-        };
+        let uv = cover_uv(texture, image.width() / image.height());
         let tint = if tile.state == TileState::Playing || hovered {
             egui::Color32::WHITE
         } else {
@@ -213,17 +410,7 @@ fn tile_widget(
             marker_color,
         );
     }
-    let stroke = match tile.state {
-        TileState::Playing => egui::Stroke::new(2.0, palette.success),
-        TileState::Queued => {
-            let pulse = (ui.input(|input| input.time) * 6.0).sin() as f32 * 0.5 + 0.5;
-            ui.ctx().request_repaint();
-            egui::Stroke::new(2.0, palette.warning.gamma_multiply(0.35 + 0.65 * pulse))
-        }
-        _ if tile.selected => egui::Stroke::new(1.5, palette.accent),
-        _ if hovered => egui::Stroke::new(1.0, palette.text.gamma_multiply(0.6)),
-        _ => egui::Stroke::new(palette.outline_width.min(1.0), palette.stroke),
-    };
+    let stroke = tile_stroke(ui, tile, hovered, palette);
     painter.rect_stroke(rect, radius, stroke, egui::StrokeKind::Inside);
     response
 }
@@ -245,8 +432,10 @@ pub(super) fn draw_clip_grid(
         for view in ClipView::ALL {
             ui.selectable_value(&mut state.theme.clip_view, view, view.label())
                 .on_hover_text(match view {
-                    ClipView::Layers => "Decks as rows of clips; columns launch from the top",
                     ClipView::Session => {
+                        "Decks as condensed lanes of filmstrip clips, like editing tracks"
+                    }
+                    ClipView::Launcher => {
                         "Decks as columns; scenes launch from the right, stop buttons below"
                     }
                 });
@@ -254,7 +443,7 @@ pub(super) fn draw_clip_grid(
         ui.separator();
         for size in ClipSize::ALL {
             ui.selectable_value(&mut state.theme.clip_size, size, size.label())
-                .on_hover_text("Clip tile size");
+                .on_hover_text("Clip size");
         }
         ui.separator();
         for (bank, label, range) in [
@@ -275,10 +464,12 @@ pub(super) fn draw_clip_grid(
             state.scene_bank * 8 + 8
         ));
     });
-    let tile = state.theme.clip_size.tile();
+    let size = state.theme.clip_size;
     match state.theme.clip_view {
-        ClipView::Layers => layers_grid(ui, state, mixer, clips, &context, actions, tile),
-        ClipView::Session => session_grid(ui, state, mixer, clips, &context, actions, tile),
+        ClipView::Session => lanes_view(ui, state, mixer, clips, &context, actions, size),
+        ClipView::Launcher => {
+            launcher_grid(ui, state, mixer, clips, &context, actions, size.tile());
+        }
     }
 
     let deck = mixer.selected();
@@ -531,25 +722,27 @@ pub(super) fn draw_clip_grid(
     }
 }
 
-/// Resolume-style: one row per deck with its controls on the left, column
-/// triggers (scenes) across the top.
-fn layers_grid(
+/// Video-editor style: one condensed lane per deck with its controls in the
+/// lane header, clips as filmstrips, and scene triggers along the top.
+fn lanes_view(
     ui: &mut egui::Ui,
     state: &mut UiState,
     mixer: &mut FourDeckMixer,
     clips: &mut ClipBank,
     context: &ClipGridContext<'_>,
     actions: &mut Vec<UiAction>,
-    tile: egui::Vec2,
+    size: ClipSize,
 ) {
     let palette = state.theme.palette();
-    egui::Grid::new("clip-grid-layers")
+    let height = size.lane_height();
+    let block = egui::vec2((height * 16.0 / 9.0 * 1.6).round(), height);
+    egui::Grid::new("clip-lanes")
         .num_columns(CLIPS_PER_DECK + 1)
-        .spacing([4.0, 4.0])
+        .spacing([2.0, 3.0])
         .show(ui, |ui| {
-            fixed_cell(ui, egui::vec2(LAYER_HEADER_WIDTH, HEADER_HEIGHT), |ui| {
+            fixed_cell(ui, egui::vec2(LANE_HEADER_WIDTH, 18.0), |ui| {
                 ui.label(
-                    egui::RichText::new("COLUMNS")
+                    egui::RichText::new("SCENES")
                         .small()
                         .strong()
                         .color(palette.muted_text),
@@ -564,14 +757,23 @@ fn layers_grid(
                     context.midi_map,
                     actions,
                     scene_index,
-                    egui::vec2(tile.x, HEADER_HEIGHT),
+                    egui::vec2(block.x, 18.0),
                     &format!("▼ {}", scene_index + 1),
                 );
             }
             ui.end_row();
             for deck in DeckId::ALL {
-                fixed_column(ui, egui::vec2(LAYER_HEADER_WIDTH, tile.y), |ui| {
-                    layer_header(ui, state, mixer, context.midi_map, actions, deck, tile.y);
+                fixed_column(ui, egui::vec2(LANE_HEADER_WIDTH, height), |ui| {
+                    lane_header(
+                        ui,
+                        state,
+                        mixer,
+                        clips,
+                        context.midi_map,
+                        actions,
+                        deck,
+                        height,
+                    );
                 });
                 for slot in 0..CLIPS_PER_DECK {
                     clip_cell(
@@ -582,7 +784,8 @@ fn layers_grid(
                         context,
                         actions,
                         ClipAddress { deck, slot },
-                        tile,
+                        block,
+                        TileStyle::Filmstrip,
                     );
                 }
                 ui.end_row();
@@ -592,7 +795,7 @@ fn layers_grid(
 
 /// Ableton-style: one column per deck under its title bar, one row per
 /// scene with its launcher on the right, stop buttons along the bottom.
-fn session_grid(
+fn launcher_grid(
     ui: &mut egui::Ui,
     state: &mut UiState,
     mixer: &mut FourDeckMixer,
@@ -632,6 +835,7 @@ fn session_grid(
                         actions,
                         ClipAddress { deck, slot },
                         tile,
+                        TileStyle::Card,
                     );
                 }
                 let scene_index = state.scene_bank * CLIPS_PER_DECK + slot;
@@ -689,36 +893,6 @@ fn session_grid(
             }
             ui.end_row();
         });
-}
-
-/// The deck name as a selectable label, mappable to deck select.
-fn deck_select(
-    ui: &mut egui::Ui,
-    mixer: &mut FourDeckMixer,
-    midi_map: &MidiMapUi,
-    actions: &mut Vec<UiAction>,
-    deck: DeckId,
-    palette: ThemePalette,
-) {
-    if mappable(
-        ui,
-        midi_map,
-        ControlTarget::DeckSelect(deck.index() as u8),
-        actions,
-        |ui| {
-            ui.selectable_label(
-                mixer.selected() == deck,
-                egui::RichText::new(format!("DECK {}", deck.label()))
-                    .strong()
-                    .color(palette.grid_text),
-            )
-            .on_hover_text("Select this deck's performance controls")
-        },
-    )
-    .clicked()
-    {
-        mixer.select(deck);
-    }
 }
 
 /// X (eject), B (bypass) and S (solo), as on a Resolume layer.
@@ -821,12 +995,59 @@ fn deck_level(
     );
 }
 
-/// The controls at the left of a Layers row: a deck-coloured edge, the
-/// deck name, X/B/S and (when the row is tall enough) the level.
-fn layer_header(
+/// A square badge with the deck letter in its colour, like a video
+/// editor's track label; click to select the deck.
+fn deck_badge(
+    ui: &mut egui::Ui,
+    mixer: &mut FourDeckMixer,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    deck: DeckId,
+    palette: ThemePalette,
+) {
+    let selected = mixer.selected() == deck;
+    let color = palette.deck_color(deck);
+    let badge = mappable(
+        ui,
+        midi_map,
+        ControlTarget::DeckSelect(deck.index() as u8),
+        actions,
+        |ui| {
+            let (rect, response) =
+                ui.allocate_exact_size(egui::vec2(22.0, 18.0), egui::Sense::click());
+            let fill = if selected {
+                color
+            } else {
+                palette.surface_tint(color, if response.hovered() { 0.55 } else { 0.32 })
+            };
+            ui.painter().rect_filled(rect, 3.0, fill);
+            ui.painter().text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                deck.label(),
+                egui::FontId::proportional(12.0),
+                if selected {
+                    egui::Color32::BLACK
+                } else {
+                    palette.strong_text
+                },
+            );
+            response.on_hover_text(format!("Select deck {}", deck.label()))
+        },
+    );
+    if badge.clicked() {
+        mixer.select(deck);
+    }
+}
+
+/// The header of a Session lane: deck badge, what is playing, X/B/S and the
+/// level. Short lanes put everything on one row.
+#[allow(clippy::too_many_arguments)]
+fn lane_header(
     ui: &mut egui::Ui,
     state: &mut UiState,
     mixer: &mut FourDeckMixer,
+    clips: &ClipBank,
     midi_map: &MidiMapUi,
     actions: &mut Vec<UiAction>,
     deck: DeckId,
@@ -836,31 +1057,59 @@ fn layer_header(
     let color = palette.deck_color(deck);
     let rect = ui.max_rect();
     ui.painter()
-        .rect_filled(rect, 3.0, palette.surface_tint(color, 0.08));
+        .rect_filled(rect, 3.0, palette.surface_tint(color, 0.07));
     ui.painter().rect_filled(
         egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
         1.0,
         color,
     );
-    ui.add_space(2.0);
-    ui.horizontal(|ui| {
-        ui.add_space(6.0);
-        deck_select(ui, mixer, midi_map, actions, deck, palette);
-    });
-    ui.horizontal(|ui| {
-        ui.add_space(6.0);
-        deck_toggles(ui, state, mixer, midi_map, actions, deck);
-    });
-    if height >= 78.0 {
+    let tall = height >= 48.0;
+    let rows = if tall { 2.0 } else { 1.0 };
+    ui.add_space(((height - rows * 20.0 - (rows - 1.0) * 4.0) / 2.0).max(1.0));
+    let toggles_width = 3.0 * 22.0 + 2.0 * ui.spacing().item_spacing.x;
+    if tall {
         ui.horizontal(|ui| {
-            ui.add_space(6.0);
+            ui.add_space(7.0);
+            deck_badge(ui, mixer, midi_map, actions, deck, palette);
+            let playing = clips
+                .active(deck)
+                .and_then(|slot| clips.movie(ClipAddress { deck, slot }))
+                .map(|movie| movie.display_name.clone());
+            let text = playing.unwrap_or_else(|| match mixer.deck(deck).state {
+                DeckState::Empty => "empty".to_owned(),
+                DeckState::Live(_) => "live input".to_owned(),
+                DeckState::Generator(_) => "generator".to_owned(),
+                _ => String::new(),
+            });
+            ui.add(
+                egui::Label::new(egui::RichText::new(text).small().color(palette.muted_text))
+                    .truncate(),
+            );
+        });
+        ui.horizontal(|ui| {
+            ui.add_space(7.0);
+            deck_toggles(ui, state, mixer, midi_map, actions, deck);
             deck_level(
                 ui,
                 mixer,
                 midi_map,
                 actions,
                 deck,
-                LAYER_HEADER_WIDTH - 20.0,
+                (LANE_HEADER_WIDTH - toggles_width - 24.0).max(24.0),
+            );
+        });
+    } else {
+        ui.horizontal(|ui| {
+            ui.add_space(7.0);
+            deck_badge(ui, mixer, midi_map, actions, deck, palette);
+            deck_toggles(ui, state, mixer, midi_map, actions, deck);
+            deck_level(
+                ui,
+                mixer,
+                midi_map,
+                actions,
+                deck,
+                (LANE_HEADER_WIDTH - toggles_width - 52.0).max(20.0),
             );
         });
     }
@@ -1039,6 +1288,7 @@ fn clip_cell(
     actions: &mut Vec<UiAction>,
     address: ClipAddress,
     size: egui::Vec2,
+    style: TileStyle,
 ) {
     let palette = state.theme.palette();
     let midi_map = context.midi_map;
@@ -1102,6 +1352,24 @@ fn clip_cell(
         state: tile_state,
         selected,
         deck_color: palette.deck_color(deck),
+        progress: (tile_state == TileState::Playing && slot_state.movie.is_some())
+            .then(|| {
+                let transport = context.transports[deck.index()];
+                transport
+                    .duration
+                    .filter(|duration| *duration > 0.0)
+                    .map(|duration| (transport.position / duration) as f32)
+            })
+            .flatten(),
+        duration: slot_state
+            .movie
+            .as_ref()
+            .and_then(|movie| movie.duration)
+            .map(virtual_core::MediaTime::as_seconds),
+    };
+    let draw = |ui: &mut egui::Ui| match style {
+        TileStyle::Card => tile_widget(ui, size, &tile, palette),
+        TileStyle::Filmstrip => filmstrip_widget(ui, size, &tile, palette),
     };
     let draggable = !state.show_mode
         && !midi_map.active
@@ -1118,7 +1386,7 @@ fn clip_cell(
                     slot: slot as u8,
                 },
                 actions,
-                |ui| tile_widget(ui, size, &tile, palette),
+                draw,
             )
         } else if draggable {
             // Drag moves the clip to another slot; a plain click still
@@ -1127,14 +1395,19 @@ fn clip_cell(
             ui.dnd_drag_source(
                 egui::Id::new(("clip-slot-drag", deck.index(), slot)),
                 address,
-                |ui| tile_widget(ui, size, &tile, palette),
+                draw,
             )
             .inner
         } else {
-            tile_widget(ui, size, &tile, palette)
+            draw(ui)
         };
         let play_rect = egui::Rect::from_min_size(
-            response.rect.left_top() + egui::vec2(4.0, 6.0),
+            response.rect.left_top()
+                + if style == TileStyle::Card {
+                    egui::vec2(4.0, 6.0)
+                } else {
+                    egui::vec2(3.0, 3.0)
+                },
             egui::vec2(16.0, 16.0),
         );
         let play = ui.put(
@@ -1221,46 +1494,53 @@ fn clip_cell(
         mixer.select(deck);
         state.clip_editor = Some(address);
     }
-    response
-        .on_hover_text(if let Some(movie) = clips.movie(address) {
-            let mut details = format!(
-                "{}\n{}×{} · {}",
-                movie.display_name, movie.visible_extent[0], movie.visible_extent[1], movie.codec
-            );
-            if movie.decode_path == virtual_media::DecodePath::FfmpegVideo {
-                details.push_str(&format!(
-                    "\n{} keyframe(s) indexed{}",
-                    movie.keyframes.len(),
-                    if movie.keyframes.is_complete() {
-                        ""
-                    } else {
-                        " · capped"
-                    }
-                ));
-            }
-            if let Some(error) = state.thumbnail_failure(address, clips.path(address)) {
-                details.push_str(&format!("\nThumbnail unavailable: {error}"));
-            } else if first_frame_ready {
-                details.push_str("\nFirst frame ready for immediate launch");
-            } else {
-                details.push_str("\nFirst frame is still preloading");
-            }
-            if !state.show_mode {
-                details.push_str("\nDrag onto another slot to move; occupied slots swap");
-            }
-            details
-        } else if let Some(error) = &slot_state.error {
-            format!(
-                "{}\n{error}",
-                slot_state.pending_path.as_deref().map_or_else(
-                    || "Missing media".to_owned(),
-                    |path| path.display().to_string()
-                )
-            )
-        } else if let Some(path) = &slot_state.pending_path {
-            format!("Restoring {}", path.display())
+    let preview = state.thumbnail(address, clips.path(address)).cloned();
+    let details = if let Some(movie) = clips.movie(address) {
+        let mut details = format!(
+            "{}\n{}×{} · {}",
+            movie.display_name, movie.visible_extent[0], movie.visible_extent[1], movie.codec
+        );
+        if movie.decode_path == virtual_media::DecodePath::FfmpegVideo {
+            details.push_str(&format!(
+                "\n{} keyframe(s) indexed{}",
+                movie.keyframes.len(),
+                if movie.keyframes.is_complete() {
+                    ""
+                } else {
+                    " · capped"
+                }
+            ));
+        }
+        if let Some(error) = state.thumbnail_failure(address, clips.path(address)) {
+            details.push_str(&format!("\nThumbnail unavailable: {error}"));
+        } else if first_frame_ready {
+            details.push_str("\nFirst frame ready for immediate launch");
         } else {
-            "Empty slot · drop a movie or folder here".to_owned()
+            details.push_str("\nFirst frame is still preloading");
+        }
+        if !state.show_mode {
+            details.push_str("\nDrag onto another slot to move; occupied slots swap");
+        }
+        details
+    } else if let Some(error) = &slot_state.error {
+        format!(
+            "{}\n{error}",
+            slot_state.pending_path.as_deref().map_or_else(
+                || "Missing media".to_owned(),
+                |path| path.display().to_string()
+            )
+        )
+    } else if let Some(path) = &slot_state.pending_path {
+        format!("Restoring {}", path.display())
+    } else {
+        "Empty slot · drop a movie or folder here".to_owned()
+    };
+    response
+        .on_hover_ui(|ui| {
+            if let Some(texture) = &preview {
+                ui.add(egui::Image::new(texture).fit_to_exact_size(egui::vec2(256.0, 144.0)));
+            }
+            ui.label(details);
         })
         .context_menu(|ui| {
             if state.show_mode {

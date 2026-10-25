@@ -36,15 +36,17 @@ operators most often know, and what VIRTUAL takes from each.
 
 ## What VIRTUAL adopts
 
-Built in this pass:
+Built so far:
 
-- **Two clip views** over the same slots: Layers (Resolume rows with
-  X/B/S/level) and Session (Ableton columns with scene launchers on the
-  right, per-deck stop and Stop All). There are S/M/L tile sizes, and both
-  choices are saved with the project's appearance.
-- **Thumbnail-first tiles**: the image fills the tile above a name strip,
-  with a deck-colour bar on top. State is shown by border and strip colour:
-  playing, a pulsing queued state, selected, missing.
+- **Two clip views** over the same slots:
+  - **Session** has condensed horizontal lanes in the style of
+    Premiere/Final Cut tracks. Lane headers carry Resolume's layer controls
+    (badge, X/B/S, level, what is playing). Clips are filmstrips with name
+    and length labels, a deck-colour bar and a live playhead.
+  - **Launcher** is Ableton's clip launcher: deck columns, scene launchers
+    on the right, per-deck stop and Stop All.
+  - Both have S/M/L sizes, saved with the project's appearance.
+- **Clip preview on hover**: a 256×144 frame above the clip details.
 - **Templates** as starting points for colour, outlines, rounding, text
   size and spacing:
   - **Arena** is the new default: charcoal, a teal accent, thin lines and
@@ -53,9 +55,12 @@ Built in this pass:
   - **Graphite** is monochrome, with colour only marking state.
   - The earlier themes remain.
   - Templates show colour chips in the Appearance window.
-- **Foldable section bars** for Setup, Clips, Audio and the selected deck:
-  a slim tinted bar with a chevron, an icon and a small upper-case title,
-  so the surface condenses to what is in use.
+- **Foldable section bars** for Setup, Clips, Audio, the selected deck,
+  Mix & Master and Master Effects: a slim tinted bar with a chevron, an icon
+  and a small upper-case title, plus a status line where useful (decks
+  playing, master level, blackout).
+- **Condensed toolbar**: a one-line logo, status dots and compact A–D mute
+  chips.
 
 Next steps, in order of value:
 

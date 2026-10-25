@@ -1132,6 +1132,23 @@ pub fn draw(
             }
 
             ui.separator();
+            let mix_status = format!(
+                "master {:.0}%{}{}",
+                state.master_opacity * 100.0,
+                if state.blackout { " · BLACKOUT" } else { "" },
+                if state.master_freeze { " · FROZEN" } else { "" },
+            );
+            panel::section(
+                ui,
+                "mix-master",
+                "⇄",
+                "MIX & MASTER",
+                palette,
+                true,
+                |ui| {
+                    ui.weak(mix_status);
+                },
+                |ui| {
             ui.horizontal(|ui| {
                 ui.label("A");
                 mappable(ui, &midi_map, ControlTarget::Crossfader, &mut actions, |ui| {
@@ -1184,10 +1201,18 @@ pub fn draw(
                     |ui| ui.checkbox(&mut state.master_freeze, "master freeze"),
                 );
             });
+                },
+            );
             if !state.show_mode {
-                egui::CollapsingHeader::new("Master effects")
-                .default_open(false)
-                .show(ui, |ui| {
+                panel::section(
+                    ui,
+                    "master-effects",
+                    "✦",
+                    "MASTER EFFECTS",
+                    palette,
+                    false,
+                    |_| {},
+                    |ui| {
                     let effect_packages = &state.effect_packages;
                     let master_effects = &mut state.master_effects;
                     let slot_count = master_effects.slots.len();

@@ -571,29 +571,29 @@ impl DeckLayout {
 /// How the clip grid is arranged.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ClipView {
-    /// Decks as horizontal rows of clips, columns triggered from the top,
-    /// as in Resolume.
+    /// Decks as condensed horizontal lanes of filmstrip clips, like the
+    /// tracks of a video editor, with layer controls in the lane header.
     #[default]
-    Layers,
-    /// Decks as vertical columns, scenes as rows launched from the right
-    /// and stop buttons underneath, as in Ableton Live's session view.
     Session,
+    /// Decks as vertical columns of clip tiles, scenes launched from the
+    /// right and stop buttons underneath, as in Ableton Live's launcher.
+    Launcher,
 }
 
 impl ClipView {
-    pub const ALL: [Self; 2] = [Self::Layers, Self::Session];
+    pub const ALL: [Self; 2] = [Self::Session, Self::Launcher];
 
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Layers => "▤ Layers",
-            Self::Session => "▥ Session",
+            Self::Session => "▤ Session",
+            Self::Launcher => "▥ Launcher",
         }
     }
 
     pub const fn name(self) -> &'static str {
         match self {
-            Self::Layers => "layers",
             Self::Session => "session",
+            Self::Launcher => "launcher",
         }
     }
 
@@ -634,7 +634,16 @@ impl ClipSize {
         Self::ALL.into_iter().find(|size| size.name() == name)
     }
 
-    /// The whole tile: a 16:9 thumbnail over a name strip.
+    /// Height of one Session lane.
+    pub fn lane_height(self) -> f32 {
+        match self {
+            Self::Small => 36.0,
+            Self::Medium => 52.0,
+            Self::Large => 72.0,
+        }
+    }
+
+    /// The whole Launcher tile: a 16:9 thumbnail over a name strip.
     pub fn tile(self) -> egui::Vec2 {
         match self {
             Self::Small => egui::vec2(88.0, 49.5 + 14.0),

@@ -1,13 +1,13 @@
 {
   "format": "virtual-project",
   "version": 10,
-  "project_id": "0000000000002fbc18e19e148a5a8a21",
+  "project_id": "000000000000399518e19f304c0a5829",
   "takes": [
     {
-      "take_id": "0000000000002fbc18e19e148a5c2832",
+      "take_id": "000000000000399518e19f304c0b9492",
       "name": "Live",
-      "journal_file": "session-12220-1792887937728004000.jsonl",
-      "created_unix_ms": 1792887937727
+      "journal_file": "session-14741-1792889156453245000.jsonl",
+      "created_unix_ms": 1792889156453
     }
   ],
   "graph": {
@@ -223,7 +223,7 @@
     "equal_power": true,
     "master_opacity": 1.0,
     "output": {
-      "enabled": false,
+      "enabled": true,
       "fullscreen": false,
       "display_id": "Monitor #41049|3024x1964|0,0",
       "test_card": false,
@@ -1156,7 +1156,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 70.04850004100003
+        "position": 4.982975292000001
       },
       "transform": {
         "position": [
@@ -1482,7 +1482,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 70.04850004100003
+        "position": 4.982975292000001
       },
       "transform": {
         "position": [
@@ -1808,7 +1808,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 70.04850004100003
+        "position": 4.982975292000001
       },
       "transform": {
         "position": [
@@ -2134,7 +2134,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 70.04850004100003
+        "position": 4.982975292000001
       },
       "transform": {
         "position": [

@@ -146,27 +146,36 @@ GPU-compressed path; other supported movies and stills use FFmpeg.
    readiness marker in its name strip.
 3. Click the slot to launch it.
 
-### Layers and Session views
+### Session and Launcher views
 
 The **CLIPS** bar switches between two arrangements of the same 32 slots,
 saved with the project's appearance:
 
-- **▤ Layers** (as in Resolume): one row per deck. On the left of each row
-  are the deck name (click to select), **X** eject, **B** bypass, **S** solo
-  and, at medium and large tile sizes, the deck level. The **▼** buttons
-  along the top launch scenes, like Resolume's column triggers.
-- **▥ Session** (as in Ableton Live): one column per deck under a title bar
-  in the deck colour, with B/S and level below it. Scenes launch from the
-  **▶** buttons on the right, each column has a **■** stop button (eject)
-  underneath, and **■ All** stops every deck.
+- **▤ Session** (the default) lays decks out as condensed horizontal lanes,
+  like the tracks of Premiere or Final Cut.
+  - Each lane header has the deck badge (click to select) and what the deck
+    is playing.
+  - It also has **X** eject, **B** bypass, **S** solo and the deck level.
+  - Clips are filmstrips: the thumbnail repeats across the clip with its
+    name, length and preload marker in small labels, and a deck-colour bar
+    along the bottom.
+  - The playing clip shows a moving playhead.
+  - **▼** buttons above the lanes launch scenes.
+- **▥ Launcher** is Ableton Live's clip launcher: one column per deck under
+  a title bar in the deck colour, with B/S and level below it.
+  - Scenes launch from the **▶** buttons on the right.
+  - Each column has a **■** stop button (eject) underneath, and **■ All**
+    stops every deck.
 
-**S / M / L** sets the tile size. Each tile shows the clip's thumbnail above
-its name, with a thin bar in the deck colour. A playing clip gets a
-play-coloured border and name strip, a queued clip pulses, and the selected
-clip has an accent border. The strip marks a preloaded first frame with **●**
-and a clip still preloading with **○**. Every control keeps its MIDI and OSC
-mapping in both views; X, S, the stop buttons and ■ All can be mapped like
-any other button.
+**S / M / L** sets the lane height or tile size. A playing clip gets a
+play-coloured border, a queued clip pulses, and the selected clip has an
+accent border. **●** marks a preloaded first frame and **○** a clip still
+preloading. Hover a clip for a large preview frame with its details.
+
+Every control keeps its MIDI and OSC mapping in both views; X, S, the stop
+buttons and ■ All can be mapped like any other button. The main window's
+sections (Setup, Clips, Audio, Deck, Mix & Master, Master Effects) fold
+under slim section bars, so the surface shows only what is in use.
 
 To reorganize a bank, drag any populated or missing-media slot onto another
 slot. An empty destination receives the clip; an occupied destination swaps

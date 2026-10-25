@@ -56,16 +56,14 @@ pub(super) fn draw_toolbar(
     ]);
 
     ui.horizontal_wrapped(|ui| {
-        ui.vertical(|ui| {
-            ui.label(
-                egui::RichText::new("VIRTUAL")
-                    .size(22.0)
-                    .strong()
-                    .color(palette.accent),
-            );
-            ui.weak("LIVE VISUAL PERFORMANCE SYSTEM");
-        });
-        ui.add_space(12.0);
+        ui.label(
+            egui::RichText::new("VIRTUAL")
+                .size(17.0)
+                .strong()
+                .color(palette.accent),
+        )
+        .on_hover_text("Live visual performance system");
+        ui.add_space(8.0);
         status_dot(
             ui,
             &palette,
@@ -105,9 +103,9 @@ pub(super) fn draw_toolbar(
                 let name = ["A", "B", "C", "D"][deck.index()];
                 let color = palette.deck_color(deck);
                 let label = if *muted {
-                    format!("{name} · MUTED")
+                    format!("{name} ✕")
                 } else {
-                    format!("{name} · MUTE")
+                    name.to_owned()
                 };
                 let target = ControlTarget::DeckMute(deck.index() as u8);
                 if mappable(ui, midi_map, target, actions, |ui| {
@@ -116,7 +114,7 @@ pub(super) fn draw_toolbar(
                             .selected(*muted)
                             .fill(palette.control_tint(color, if *muted { 0.55 } else { 0.12 }))
                             .stroke(egui::Stroke::new(1.0, color))
-                            .min_size(egui::vec2(94.0, 34.0)),
+                            .min_size(egui::vec2(44.0, 24.0)),
                     )
                     .on_hover_text(format!(
                         "{} deck {name} in the program mix. Playback and channel settings are preserved.",
@@ -128,7 +126,12 @@ pub(super) fn draw_toolbar(
                     *muted = !*muted;
                 }
             }
-            ui.weak("CHANNEL MUTES");
+            ui.label(
+                egui::RichText::new("MUTE")
+                    .small()
+                    .strong()
+                    .color(palette.muted_text),
+            );
         });
     });
     ui.horizontal_wrapped(|ui| {

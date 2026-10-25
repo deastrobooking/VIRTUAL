@@ -854,8 +854,8 @@ pub struct ThemeProject {
     pub deck_layout: String,
     #[serde(default)]
     pub appearance: ThemeAppearanceProject,
-    /// Clip grid arrangement: "layers" (decks as rows) or "session"
-    /// (decks as columns, scenes as rows).
+    /// Clip grid arrangement: "session" (decks as horizontal lanes) or
+    /// "launcher" (decks as columns, scenes as rows).
     #[serde(default)]
     pub clip_view: String,
     /// Clip tile size: "small", "medium" or "large".
@@ -925,7 +925,7 @@ impl Default for ThemeProject {
                 corner_radius: 2,
                 ..ThemeAppearanceProject::default()
             },
-            clip_view: "layers".to_owned(),
+            clip_view: "session".to_owned(),
             clip_size: "medium".to_owned(),
         }
     }
