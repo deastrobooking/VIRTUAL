@@ -19,14 +19,20 @@ The selected deck remains the target for generator and effect controls.
 
 The rail's **Expand UNIT** control opens the selected deck's existing transport,
 transform, effect, package and modulation controls in a movable window. Close
-that window to return them to the properties panel. Generator windows retain
-their independent editors.
+that window to return them to the properties panel. **Pin target** holds the
+window on its current deck while you select other clips/decks. Unpin to follow
+selection. Generator windows retain their independent editors. Saved
+Perform/Edit/Build workspaces are available under **Layout**; see
+[workspace and recording](WORKSPACE_RECORDING.md).
 
 ## Clips and scenes
 
 Session, Launcher and Layers are arrangements of the same 32 slots. New layouts
 start with small clips. Session cells shrink to the available width while
 retaining a minimum clickable size; XS/S/M/L remain available.
+
+Clicking a clip body selects and cues it. The triangle launches it to PROGRAM;
+double-clicking the body opens the editor without launching.
 
 Select a clip and use **Copy**, switch views or decks, select a free destination,
 and use **Paste**. Cmd/Ctrl+C and Cmd/Ctrl+V work in the foreground workspace
@@ -41,7 +47,11 @@ Double-click a clip, press Enter, or use the pencil button to open its popup
 editor. **Source / Trim** and **Automation** share the window. **Copy clip**
 copies its current settings; **Paste settings** applies the clipboard's trim,
 launch policy, color and automation to the current clip while keeping its media.
-Trim values are clamped to the destination source. Show Mode locks these edits.
+Trim values are clamped to the destination source. The popup editor supports
+undo/redo for trim, settings and automation. Each pointer gesture is one edit;
+Cmd/Ctrl+Z and Cmd/Ctrl+Shift+Z apply in the foreground editor when a text field
+does not own the keyboard. History is scoped to the currently opened clip/source.
+Show Mode locks these edits.
 
 A scene's context menu supports copying, pasting and clearing scene assignments,
 as well as capturing the selected clips and assigning each deck individually.
@@ -55,7 +65,7 @@ The **Video cuts** track supports:
 
 - In/Out trimming, a cursor, and splitting the selected cut at the cursor.
 - Dragging cuts into a new order, or moving them with the arrow buttons.
-- Copy/paste, duplicate, remove, and 64 levels of undo/redo.
+- Copy/paste, duplicate, remove, and 64 levels of gesture-based undo/redo.
 - Project save, autosave and reopen, including portable paths inside the show folder.
 
 The track is a sequential source edit with up to 128 cuts. It does not yet have
@@ -68,7 +78,10 @@ Each cut is normalized in sequence to bound decoder count, then joined. The
 export runs on a worker and supports cancellation. An existing destination is
 never overwritten. Failed or canceled jobs remove their temporary files.
 
-This render exports source cuts and their In/Out trims. It does **not** bake the
+For a movie containing the finished live FX mix, use **REC PROGRAM**; that
+recording path is documented in [workspace and recording](WORKSPACE_RECORDING.md).
+
+This timeline render exports source cuts and their In/Out trims. It does **not** bake the
 live deck transforms, FX, generator state, playback speed or recorded mixer
 performance into the movie. Rendering the complete modular composition is the
 next renderer integration, separate from source-cut export.

@@ -1,6 +1,7 @@
 //! Application windowing, command routing and frame orchestration.
 
 mod actions;
+mod cue_preview;
 mod devices;
 mod effects;
 mod link;
@@ -10,6 +11,7 @@ mod osc;
 mod output;
 mod paths;
 mod playback;
+mod program_recording;
 mod project;
 mod project_io;
 mod project_save;
@@ -92,6 +94,10 @@ struct State {
     output: OutputLifecycle,
     gpu: Gpu,
     program: ProgramTarget,
+    program_recording: Option<program_recording::ProgramRecording>,
+    recording_status: String,
+    recording_summary: program_recording::RecordingStatus,
+    recorded_program: Option<PathBuf>,
     ndi: ndi::NdiOutput,
     network_sync: sync::NetworkSync,
     master_effect_processor: MasterEffectProcessor,
@@ -109,6 +115,7 @@ struct State {
     gpu_info: String,
     mixer: FourDeckMixer,
     clips: ClipBank,
+    cue: cue_preview::CuePreview,
     launches: LaunchQueue,
     tempo: TempoClock,
     link: link::LinkClock,
@@ -298,6 +305,7 @@ impl ApplicationHandler for App {
                     state.project_status = "Output locked · Unlock output before quitting.".into();
                     return;
                 }
+                state.finish_program_recording();
                 state.finish_project_saves();
                 event_loop.exit();
             }
@@ -335,6 +343,12 @@ impl ApplicationHandler for App {
 
         if response.repaint {
             state.window.request_redraw();
+        }
+    }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(state) = &mut self.state {
+            state.finish_program_recording();
         }
     }
 }
@@ -686,6 +700,10 @@ impl State {
             output,
             gpu,
             program,
+            program_recording: None,
+            recording_status: String::new(),
+            recording_summary: Default::default(),
+            recorded_program: None,
             ndi: ndi::NdiOutput::default(),
             network_sync: sync::NetworkSync::default(),
             master_effect_processor,
@@ -701,6 +719,7 @@ impl State {
             gpu_info,
             mixer: FourDeckMixer::default(),
             clips: ClipBank::default(),
+            cue: cue_preview::CuePreview::new(),
             launches: LaunchQueue::default(),
             tempo: TempoClock::default(),
             link: link::LinkClock::new(),
@@ -812,6 +831,7 @@ impl State {
         self.poll_restores();
         self.poll_thumbnails();
         let now = Instant::now();
+        self.poll_program_recording(now);
         self.poll_midi(now);
         self.poll_osc(now);
         self.poll_link();
@@ -823,6 +843,7 @@ impl State {
         self.maybe_autosave(now);
         self.process_launches(now);
         self.update_playback(now);
+        self.update_cue_preview();
         if let Some(input) = &self.audio_input {
             input.set_settings(self.ui.audio_analysis);
             self.audio_snapshot = input.snapshot();
@@ -1205,6 +1226,15 @@ impl State {
             }
         }
 
+        if let Some(recording) = &mut self.program_recording {
+            recording.capture(
+                &self.gpu.device,
+                &self.gpu.queue,
+                &mut encoder,
+                &self.program,
+                now,
+            );
+        }
         let (width, height) = self.gpu.size();
         let screen = egui_wgpu::ScreenDescriptor {
             size_in_pixels: [width, height],
@@ -1302,6 +1332,9 @@ impl State {
             .queue
             .submit(upload_cmds.into_iter().chain([encoder.finish()]));
         self.ndi.after_submit(&self.gpu.device);
+        if let Some(recording) = &mut self.program_recording {
+            recording.after_submit(&self.gpu.device);
+        }
         self.network_sync.after_submit(&self.gpu.device);
         if let Some(frame) = operator_frame {
             frame.present();

@@ -49,6 +49,7 @@ pub fn snapshot(
 ) -> ProjectFile {
     ProjectFile {
         video_timeline: ui.timeline.project.clone(),
+        workspaces: ui.workspaces.clone(),
         project_id: session.project_id.to_owned(),
         takes: session.takes,
         graph: Some(session.graph),

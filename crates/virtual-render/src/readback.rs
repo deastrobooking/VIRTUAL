@@ -40,6 +40,7 @@ pub struct ProgramReadback {
     stride: u32,
     next_sequence: u64,
     skipped: u64,
+    failed: u64,
 }
 
 impl ProgramReadback {
@@ -66,6 +67,7 @@ impl ProgramReadback {
             stride,
             next_sequence: 0,
             skipped: 0,
+            failed: 0,
         }
     }
 
@@ -76,6 +78,25 @@ impl ProgramReadback {
     /// Captures skipped because every staging buffer was still in flight.
     pub fn skipped(&self) -> u64 {
         self.skipped
+    }
+
+    pub fn in_flight(&self) -> usize {
+        self.slots
+            .iter()
+            .filter(|slot| slot.state.load(Ordering::Acquire) != FREE)
+            .count()
+    }
+
+    pub fn oldest_sequence(&self) -> Option<u64> {
+        self.slots
+            .iter()
+            .filter(|slot| slot.state.load(Ordering::Acquire) != FREE)
+            .map(|slot| slot.sequence)
+            .min()
+    }
+
+    pub fn failed(&self) -> u64 {
+        self.failed
     }
 
     /// Records a copy of `texture` (the program target) into a free slot.
@@ -141,17 +162,19 @@ impl ProgramReadback {
         }
         let _ = device.poll(wgpu::PollType::Poll);
         let mut ready: Vec<usize> = (0..self.slots.len())
-            .filter(|&index| {
-                matches!(
-                    self.slots[index].state.load(Ordering::Acquire),
-                    MAPPED | FAILED
-                )
-            })
+            .filter(|&index| self.slots[index].state.load(Ordering::Acquire) != FREE)
             .collect();
         ready.sort_by_key(|&index| self.slots[index].sequence);
         for index in ready {
             let slot = &self.slots[index];
-            if slot.state.load(Ordering::Acquire) == MAPPED {
+            let state = slot.state.load(Ordering::Acquire);
+            if !matches!(state, MAPPED | FAILED) {
+                break;
+            }
+            if state == FAILED {
+                self.failed += 1;
+            }
+            if state == MAPPED {
                 {
                     let view = slot.buffer.slice(..).get_mapped_range();
                     deliver(ReadbackFrame {

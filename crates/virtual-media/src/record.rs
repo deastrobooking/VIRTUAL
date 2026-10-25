@@ -113,6 +113,25 @@ impl CameraRecorder {
         }
     }
 
+    /// Preserve elapsed capture time when the last GPU/encoder frames dropped.
+    pub fn note_end(&mut self, end: MediaTime) {
+        if let Some(origin) = self.origin
+            && let Ok(relative) = end.checked_sub(origin)
+            && let Ok(ticks) = recording_ticks(relative)
+        {
+            self.capture_end.fetch_max(ticks, Ordering::Release);
+        }
+    }
+
+    /// Called only after live presentation has ended, for clean shutdown.
+    pub fn finish(mut self) -> Option<CameraRecordingResult> {
+        self.stop();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+        self.completion.recv().ok()
+    }
+
     pub fn stop(&mut self) {
         self.sender.take();
     }

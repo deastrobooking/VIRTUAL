@@ -2,6 +2,7 @@
 //! each draggable onto a clip slot (or clicked to use the selected one),
 //! like a media server's Files / Sources / Effects tabs.
 
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use virtual_generate::{Dimension, GeneratorSettings, RecursivePattern};
@@ -45,7 +46,78 @@ struct Entry {
     kind: EntryKind,
 }
 
+#[derive(Default)]
+struct BrowserThumbnails {
+    worker: Option<virtual_media::ThumbnailWorker>,
+    request_id: u64,
+    pending: HashMap<PathBuf, u64>,
+    cache: VecDeque<(PathBuf, Option<egui::TextureHandle>)>,
+}
+impl BrowserThumbnails {
+    fn reset(&mut self) {
+        self.pending.clear();
+        self.cache.clear();
+    }
+    fn texture(&self, path: &Path) -> Option<&egui::TextureHandle> {
+        self.cache
+            .iter()
+            .find(|(cached, _)| cached == path)
+            .and_then(|(_, texture)| texture.as_ref())
+    }
+    fn request(&mut self, path: &Path) {
+        if self.pending.len() >= 4
+            || self.pending.contains_key(path)
+            || self.cache.iter().any(|(cached, _)| cached == path)
+        {
+            return;
+        }
+        let worker = self
+            .worker
+            .get_or_insert_with(|| virtual_media::ThumbnailWorker::new(4));
+        self.request_id = self.request_id.wrapping_add(1);
+        if worker
+            .submit(virtual_media::ThumbnailRequest {
+                address: ClipAddress {
+                    deck: virtual_media::DeckId::A,
+                    slot: 0,
+                },
+                path: path.to_owned(),
+                request_id: self.request_id,
+            })
+            .is_ok()
+        {
+            self.pending.insert(path.to_owned(), self.request_id);
+        }
+    }
+    fn poll(&mut self, ctx: &egui::Context) {
+        let Some(worker) = &self.worker else {
+            return;
+        };
+        while let Ok(result) = worker.try_recv() {
+            if self.pending.get(&result.path) != Some(&result.request_id) {
+                continue;
+            }
+            self.pending.remove(&result.path);
+            let texture = result.thumbnail.ok().map(|thumbnail| {
+                ctx.load_texture(
+                    "browser-poster",
+                    egui::ColorImage::from_rgba_unmultiplied(
+                        thumbnail.extent.map(|size| size as usize),
+                        &thumbnail.rgba,
+                    ),
+                    egui::TextureOptions::LINEAR,
+                )
+            });
+            if self.cache.len() == 64 {
+                self.cache.pop_front();
+            }
+            self.cache.push_back((result.path, texture));
+        }
+    }
+}
+
 pub(crate) struct BrowserState {
+    thumbnails: BrowserThumbnails,
     pub open: bool,
     pub tab: BrowserTab,
     pub folder: PathBuf,
@@ -61,6 +133,7 @@ impl Default for BrowserState {
             .unwrap_or_default();
         let movies = home.join("Movies");
         Self {
+            thumbnails: BrowserThumbnails::default(),
             open: true,
             tab: BrowserTab::Files,
             folder: if movies.is_dir() { movies } else { home },
@@ -74,6 +147,7 @@ impl BrowserState {
     pub fn set_folder(&mut self, folder: PathBuf) {
         self.folder = folder;
         self.listing = None;
+        self.thumbnails.reset();
         self.filter.clear();
     }
 }
@@ -326,7 +400,8 @@ pub(crate) fn draw_browser(
     browser: &mut BrowserState,
     context: BrowserContext<'_>,
     actions: &mut Vec<UiAction>,
-) {
+) -> Option<BrowserTab> {
+    let previous = browser.tab;
     let palette = context.palette;
     ui.horizontal(|ui| {
         for (tab, label) in [
@@ -343,6 +418,7 @@ pub(crate) fn draw_browser(
         BrowserTab::Sources => sources_tab(ui, &context, actions),
         BrowserTab::Effects => effects_tab(ui, context, palette),
     }
+    (browser.tab != previous).then_some(browser.tab)
 }
 
 fn files_tab(
@@ -352,6 +428,7 @@ fn files_tab(
     actions: &mut Vec<UiAction>,
 ) {
     let palette = context.palette;
+    browser.thumbnails.poll(ui.ctx());
     ui.horizontal(|ui| {
         let parent = browser.folder.parent().map(Path::to_path_buf);
         if ui
@@ -364,6 +441,7 @@ fn files_tab(
         }
         if ui.small_button("⟳").on_hover_text("Refresh").clicked() {
             browser.listing = None;
+            browser.thumbnails.reset();
         }
         if ui
             .small_button("…")
@@ -393,6 +471,7 @@ fn files_tab(
     }
     let filter = browser.filter.to_lowercase();
     let mut open = None;
+    let thumbnails = &mut browser.thumbnails;
     match &browser.listing.as_ref().expect("listed above").1 {
         Err(error) => {
             ui.colored_label(palette.danger, error);
@@ -412,15 +491,62 @@ fn files_tab(
                             EntryKind::Video => "🎞",
                             EntryKind::Image => "🖼",
                         };
-                        let id = egui::Id::new(("browser-entry", &entry.path));
-                        let response = if context.show_mode {
-                            row(ui, icon, &entry.name, palette)
-                        } else {
-                            ui.dnd_drag_source(id, BrowserMedia(entry.path.clone()), |ui| {
-                                row(ui, icon, &entry.name, palette)
-                            })
-                            .response
+                        let texture = thumbnails.texture(&entry.path).cloned();
+                        let draw_row = |ui: &mut egui::Ui| {
+                            if entry.kind == EntryKind::Folder {
+                                return row(ui, icon, &entry.name, palette);
+                            }
+                            let (rect, response) = ui.allocate_exact_size(
+                                egui::vec2(ui.available_width(), 32.0),
+                                egui::Sense::click_and_drag(),
+                            );
+                            if response.hovered() {
+                                ui.painter().rect_filled(
+                                    rect,
+                                    2.0,
+                                    palette.control_tint(palette.accent, 0.18),
+                                );
+                            }
+                            let poster = egui::Rect::from_min_size(
+                                rect.min + egui::vec2(2.0, 2.0),
+                                egui::vec2(48.0, 28.0),
+                            );
+                            if let Some(texture) = &texture {
+                                ui.painter().image(
+                                    texture.id(),
+                                    poster,
+                                    egui::Rect::from_min_max(
+                                        egui::Pos2::ZERO,
+                                        egui::pos2(1.0, 1.0),
+                                    ),
+                                    egui::Color32::WHITE,
+                                );
+                            } else {
+                                ui.painter().text(
+                                    poster.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    icon,
+                                    egui::FontId::proportional(13.0),
+                                    palette.accent,
+                                );
+                            }
+                            let text = rect.with_min_x(rect.left() + 56.0);
+                            ui.painter().with_clip_rect(text).text(
+                                text.left_center(),
+                                egui::Align2::LEFT_CENTER,
+                                &entry.name,
+                                egui::FontId::proportional(12.5),
+                                palette.text,
+                            );
+                            response
                         };
+                        let response = draw_row(ui);
+                        if !context.show_mode {
+                            response.dnd_set_drag_payload(BrowserMedia(entry.path.clone()));
+                        }
+                        if entry.kind != EntryKind::Folder && ui.is_rect_visible(response.rect) {
+                            thumbnails.request(&entry.path);
+                        }
                         let response = response.on_hover_text(match entry.kind {
                             EntryKind::Folder => {
                                 "Click to open · drag onto a clip slot to fill the deck from it"
@@ -476,14 +602,9 @@ fn sources_tab(ui: &mut egui::Ui, context: &BrowserContext<'_>, actions: &mut Ve
                             .is_none_or(|dimension| pattern.dimension() == dimension)
                 }) {
                     let icon = if pattern.is_source() { "▣" } else { "◆" };
-                    let response = ui
-                        .dnd_drag_source(
-                            egui::Id::new(("browser-pattern", pattern.id())),
-                            BrowserGenerator(pattern),
-                            |ui| row(ui, icon, pattern.label(), palette),
-                        )
-                        .response
-                        .on_hover_text(pattern.hint());
+                    let response =
+                        row(ui, icon, pattern.label(), palette).on_hover_text(pattern.hint());
+                    response.dnd_set_drag_payload(BrowserGenerator(pattern));
                     if response.clicked() {
                         actions.push(UiAction::ConnectGenerator {
                             deck,
@@ -522,13 +643,8 @@ fn effects_tab(ui: &mut egui::Ui, context: BrowserContext<'_>, palette: ThemePal
                     );
                 }
                 let on = effect_is_on(&mut effects[deck.index()], index);
-                let response = ui
-                    .dnd_drag_source(
-                        egui::Id::new(("browser-effect", index)),
-                        BrowserEffect(index),
-                        |ui| row(ui, if on { "●" } else { "○" }, effect.label, palette),
-                    )
-                    .response;
+                let response = row(ui, if on { "●" } else { "○" }, effect.label, palette);
+                response.dnd_set_drag_payload(BrowserEffect(index));
                 if response.clicked() {
                     toggle_effect(&mut effects[deck.index()], index);
                 }

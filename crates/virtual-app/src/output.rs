@@ -190,6 +190,9 @@ impl State {
             }
             self.program = ProgramTarget::new(&self.gpu.device, self.ui.composition_extent);
             self.program_monitor_stale = true;
+            if let Some(recording) = &mut self.program_recording {
+                recording.source_changed(&self.gpu.device, &self.program);
+            }
             self.compositor
                 .set_output_extent(&self.gpu.device, self.ui.composition_extent);
             self.master_effect_processor =

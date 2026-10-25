@@ -130,6 +130,7 @@ pub struct FfmpegVideoDecoder {
     fallback_fps_denominator: u32,
     live: bool,
     frame_pool: FrameBufferPool,
+    maximum_extent: Option<[u32; 2]>,
 }
 
 impl FfmpegVideoDecoder {
@@ -178,6 +179,21 @@ impl FfmpegVideoDecoder {
     /// off the playback path and produces only one small cached image.
     pub fn open_for_thumbnail(path: impl AsRef<Path>) -> Result<Self, FfmpegDecodeError> {
         Self::open_internal(path.as_ref(), true, FrameBufferPool::new(2))
+    }
+
+    /// Software-decoded, bounded source cue. HAP is permitted only for this
+    /// isolated preview path; performance playback keeps its GPU-native path.
+    pub fn open_for_preview(
+        path: impl AsRef<Path>,
+        maximum: [u32; 2],
+        at: MediaTime,
+    ) -> Result<Self, FfmpegDecodeError> {
+        let mut decoder = Self::open_internal(path.as_ref(), true, FrameBufferPool::new(3))?;
+        decoder.maximum_extent = Some(maximum.map(|size| size.max(1)));
+        if at > MediaTime::ZERO {
+            decoder.seek(at)?;
+        }
+        Ok(decoder)
     }
 
     fn open_internal(
@@ -340,7 +356,11 @@ impl FfmpegVideoDecoder {
             };
             context.set_threading(ffmpeg::codec::threading::Config {
                 kind,
-                count: std::thread::available_parallelism().map_or(1, |n| n.get().min(4)),
+                count: if allow_hap {
+                    1
+                } else {
+                    std::thread::available_parallelism().map_or(1, |n| n.get().min(4))
+                },
             });
             let decoder = context
                 .decoder()
@@ -408,6 +428,7 @@ impl FfmpegVideoDecoder {
             fallback_fps_denominator: 1,
             live,
             frame_pool,
+            maximum_extent: None,
         })
     }
 
@@ -510,19 +531,31 @@ impl FfmpegVideoDecoder {
     }
 
     fn copy_decoded(&mut self) -> Result<DecodedRgbaFrame, FfmpegDecodeError> {
-        let width = self.decoded.width();
-        let height = self.decoded.height();
-        if width == 0 || height == 0 {
-            return Err(FfmpegDecodeError::InvalidDimensions { width, height });
+        let source_width = self.decoded.width();
+        let source_height = self.decoded.height();
+        if source_width == 0 || source_height == 0 {
+            return Err(FfmpegDecodeError::InvalidDimensions {
+                width: source_width,
+                height: source_height,
+            });
         }
+        let scale = self.maximum_extent.map_or(1.0, |[width, height]| {
+            (f64::from(width) / f64::from(source_width))
+                .min(f64::from(height) / f64::from(source_height))
+                .min(1.0)
+        });
+        let width = (f64::from(source_width) * scale).round().max(1.0) as u32;
+        let height = (f64::from(source_height) * scale).round().max(1.0) as u32;
         if self.scaler.input().format != self.decoded.format()
-            || self.scaler.input().width != width
-            || self.scaler.input().height != height
+            || self.scaler.input().width != source_width
+            || self.scaler.input().height != source_height
+            || self.scaler.output().width != width
+            || self.scaler.output().height != height
         {
             self.scaler.cached(
                 self.decoded.format(),
-                width,
-                height,
+                source_width,
+                source_height,
                 ffmpeg::format::Pixel::RGBA,
                 width,
                 height,

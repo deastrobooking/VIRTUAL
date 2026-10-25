@@ -43,8 +43,8 @@ The current source tree includes:
 - wgpu + winit + egui render loop with explicit linear/sRGB handling.
 - Vidvox's reference HAP decoder behind a bounded safe Rust API.
 - BC1, BC3, BC4, BC6H and BC7 plane models, including HAP Q and HAP Q Alpha.
-- Direct block-compressed upload and sampling; HAP is never expanded to CPU
-  RGBA.
+- Direct block-compressed upload and sampling for performance HAP playback.
+  Poster frames and the isolated source cue use a separate software decoder.
 - MOV probing and raw HAP packet reads through libavformat, with exact rational
   timestamps.
 - A bounded generation-safe frame scheduler with hold, drop, late, repeat and
@@ -111,6 +111,17 @@ The current source tree includes:
   setup, media management and structural editors while keeping performance
   controls, compact master-effect identity/bypass/wet cards and deck effects
   live.
+- Selection-safe clip grids: clip bodies cue, launch triangles perform, and
+  double-click opens the editor; dragging starts after the pointer threshold.
+- Muted moving source cue with independent play/pause and seek, bounded
+  480×270 output, and generation-safe decoding outside live deck transports.
+- Cached background browser posters, shared gesture undo for timeline and popup
+  clip/automation edits, pinned deck UNIT windows, and saved Perform/Edit/Build
+  workspaces with section visibility, density and panel widths.
+- Finished-program recording after native FX and before presentation/projection:
+  silent RGBA MOV at 720p/1080p and 24/30/60 fps, bounded asynchronous readback
+  and writing, elapsed/drop/storage feedback, and an option to add the result
+  to free clip slots. See [workspace and recording](docs/WORKSPACE_RECORDING.md).
 - Two reorderable master-effect slots with persisted bypass/dry-wet controls
   plus separable Gaussian blur and persistent feedback/trails backed by fixed
   ping-pong and history textures.

@@ -4,6 +4,16 @@ This plan was revised after reviewing the application against the original MVP
 notes. The ordering is based on stage usability and dependency risk, not on
 which feature is most visually interesting.
 
+## October 2026 editing and effects-suite direction
+
+The [effects-suite feature plan](FX_SUITE_PLAN.md) reviews the current compact
+workspace and initial timeline implementation, then defines the next product
+milestones: predictable selection and undo, finished-program recording,
+isolated sequence playback, native-FX export, reusable UNIT racks, and deeper
+editing/cross-session assembly. It is a proposed sequence with acceptance checks;
+its remaining milestones are not implemented. The release reliability gates below
+continue to apply to each milestone.
+
 ## September 2026 reliability follow-up
 
 Implemented: background project saves/autosaves, camera read cancellation and
@@ -16,7 +26,9 @@ Camera recording still uses uncompressed RGBA; compressed recording and disk
 capacity feedback remain open. Clip automation now has application wiring,
 persistence, automation-only slots, tempo-grid editing and scene launches.
 Thirty-two independently assignable scenes are persisted in A–D banks.
-Reverse playback and program-output recording remain open. See
+Program-output recording now has an initial silent RGBA MOV implementation;
+compressed formats, audio and hardware certification remain open. Reverse
+playback remains open. See
 [feature designs](FEATURE_DESIGNS.md).
 
 ## Current execution sequence

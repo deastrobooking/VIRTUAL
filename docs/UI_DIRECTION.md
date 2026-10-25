@@ -55,8 +55,9 @@ Built so far:
 - **Compact X/S/B buttons** in deck strips, matching the grid.
 - **Browser panel** on the left (Files, Sources, Effects), with every item
   draggable onto clip slots.
-- **PREVIEW monitor** beside PROGRAM: the selected clip's first frame, ready
-  to launch.
+- **PREVIEW monitor** beside PROGRAM: an isolated, muted moving source cue
+  with play/pause and scrubbing. Clip selection and editor opening do not launch.
+- **Browser posters**: bounded background decoding and a 64-poster cache.
 - **XS size**: name-only clips, Ableton-style narrow tracks.
 - **Layouts**: Perform, Prepare, Minimal and Full fold the window in one
   click.
@@ -83,14 +84,17 @@ segments. Source cuts render to MP4; trimmed takes assemble into a new recovery
 journal. See [timeline editing](TIMELINE_EDITING.md) for the workflow and current
 rendering boundaries.
 
-Next steps, in order of value:
+The next batch implements separate cue/launch interaction, gesture-based
+undo in the timeline and popup clip editor, pinned/following deck UNIT windows,
+saved Perform/Edit/Build layouts, moving cue playback and background browser
+posters. Initial finished-program capture records native FX into a silent raw
+MOV with bounded staging and writing. Native-window layout inspection and
+show-machine load/failure certification remain outstanding.
 
-1. **Browser thumbnails**: decode a poster frame for media files in the
-   Files tab on a background thread.
-2. **Live preview**: play the cued clip in the PREVIEW monitor with a
-   second small decoder, not just its first frame.
-3. **Saved layouts**: let operators save their own layouts (sections, view,
-   panel widths) next to appearance presets.
+Next work is isolated sequence playback and deterministic native-FX offline
+rendering, followed by reusable ordered UNIT racks. See the
+[effects-suite feature plan](FX_SUITE_PLAN.md) for the dependencies and completion
+checks, and [workspace and recording](WORKSPACE_RECORDING.md) for the current UI.
 
 ## Sources
 

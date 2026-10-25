@@ -6,6 +6,7 @@ pub(super) struct DeckControls<'a> {
     pub(super) palette: ThemePalette,
     pub(super) midi_map: &'a MidiMapUi,
     pub(super) show_mode: bool,
+    pub(super) expanded: bool,
     pub(super) transport: &'a mut DeckTransport,
     pub(super) transform: &'a mut DeckTransform,
     pub(super) blend_mode: &'a mut LayerBlendMode,
@@ -32,6 +33,7 @@ pub(super) fn draw_deck(
         palette,
         midi_map,
         show_mode,
+        expanded,
         transport,
         transform,
         blend_mode,
@@ -854,7 +856,7 @@ pub(super) fn draw_deck(
                 ui.weak("Effects run independently on this deck before mixing.");
             });
         };
-        if show_mode || selected {
+        if show_mode || selected || expanded {
             ui.group(effect_controls);
         } else {
             egui::CollapsingHeader::new("GPU effects")

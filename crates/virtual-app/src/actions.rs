@@ -19,6 +19,27 @@ impl State {
                 continue;
             }
             match action {
+                ui::UiAction::StartProgramRecording => self.start_program_recording(now),
+                ui::UiAction::StopProgramRecording => {
+                    if let Some(recording) = &mut self.program_recording {
+                        recording.stop(now);
+                    }
+                }
+                ui::UiAction::BrowseProgramRecording => {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .set_file_name("program.mov")
+                        .add_filter("RGBA movie", &["mov"])
+                        .save_file()
+                    {
+                        self.ui.record_path = path.to_string_lossy().into_owned();
+                    }
+                }
+                ui::UiAction::AddProgramRecordingToClips => self.add_program_recording_to_clips(),
+                ui::UiAction::ToggleCuePreview => {
+                    self.ui.cue_playing = !self.ui.cue_playing;
+                    self.seek_cue_preview(self.ui.cue_position);
+                }
+                ui::UiAction::SeekCuePreview(position) => self.seek_cue_preview(position),
                 ui::UiAction::Restart(deck) => {
                     self.dispatch_control_update(
                         virtual_core::ControlUpdate {
@@ -322,7 +343,7 @@ impl ui::UiAction {
     pub(crate) fn allowed_in_show_mode(&self) -> bool {
         matches!(
             self,
-            Self::Restart(_) | Self::Seek(_) | Self::Launch(_) | Self::LaunchAutomation(_) | Self::LaunchScene(_)
+            Self::StartProgramRecording | Self::StopProgramRecording | Self::ToggleCuePreview | Self::SeekCuePreview(_) | Self::Restart(_) | Self::Seek(_) | Self::Launch(_) | Self::LaunchAutomation(_) | Self::LaunchScene(_)
             | Self::SaveProject | Self::TapTempo | Self::HalfTempo | Self::DoubleTempo
             | Self::MidiCancelLearn | Self::MidiClockContinue
             | Self::SetOutputEnabled(true)

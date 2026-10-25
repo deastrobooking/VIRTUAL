@@ -5,7 +5,9 @@ mod midi;
 mod midi_out;
 mod project;
 mod timeline;
+mod workspace;
 pub use timeline::{EditSegmentProject, MAX_TIMELINE_SEGMENTS, VideoTimelineProject};
+pub use workspace::{WorkspaceLayoutProject, WorkspacesProject};
 
 pub use audio::{
     AudioInput, AudioInputDevice, AudioInputError, AudioInputSnapshot, discover_audio_inputs,

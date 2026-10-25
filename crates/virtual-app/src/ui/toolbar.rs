@@ -66,6 +66,19 @@ pub(super) fn draw_toolbar(
         ui.toggle_value(&mut state.browser.open, "☰ Browser")
             .on_hover_text("Show the media, sources and effects browser");
         ui.menu_button("▣ Layout", |ui| {
+            ui.weak("WORKSPACES");
+            for name in super::workspaces::NAMES {
+                if ui.selectable_label(state.workspaces.active == name, name).clicked() {
+                    super::workspaces::activate(ui.ctx(), state, name); ui.close();
+                }
+            }
+            ui.menu_button("Save current workspace as…", |ui| {
+                for name in super::workspaces::NAMES {
+                    if ui.button(name).clicked() { super::workspaces::save(ui.ctx(), state, name); ui.close(); }
+                }
+            });
+            ui.separator();
+            ui.weak("QUICK LAYOUTS");
             for layout in Layout::ALL {
                 if ui
                     .button(layout.label())
@@ -79,6 +92,34 @@ pub(super) fn draw_toolbar(
         })
         .response
         .on_hover_text("Fold the window to a working layout");
+        let recording = &state.recording;
+        if ui.add_enabled(!recording.finalizing, egui::Button::new(if recording.finalizing {
+            "Finalizing…".to_owned()
+        } else if recording.active {
+            format!("■ PROGRAM {:.1}s", recording.elapsed)
+        } else { "● REC PROGRAM".to_owned() }).fill(palette.control_tint(palette.danger, if recording.active { 0.5 } else { 0.12 })))
+            .on_hover_text(format!("Capture the finished composition after FX · {} drops\n{}", recording.dropped, recording.message)).clicked() {
+            actions.push(if recording.active { UiAction::StopProgramRecording } else { UiAction::StartProgramRecording });
+        }
+        ui.menu_button("Recording…", |ui| {
+            ui.add_enabled_ui(!state.show_mode && !state.recording.active, |ui| {
+                ui.label("Silent RGBA MOV · finished program with native FX");
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut state.record_extent, [1280, 720], "720p");
+                    ui.selectable_value(&mut state.record_extent, [1920, 1080], "1080p");
+                    for fps in [24, 30, 60] { ui.selectable_value(&mut state.record_fps, fps, format!("{fps} fps")); }
+                });
+                ui.text_edit_singleline(&mut state.record_path).on_hover_text("Empty: create a unique movie in the workspace recordings folder");
+                if ui.button("Choose destination…").clicked() { actions.push(UiAction::BrowseProgramRecording); }
+            });
+            let rate = f64::from(state.record_extent[0]) * f64::from(state.record_extent[1]) * 4.0 * f64::from(state.record_fps) / 1e6;
+            ui.weak(format!("Raw storage ≈ {rate:.0} MB/s · {:.1} GB/min", rate * 60.0 / 1000.0));
+            ui.label(&state.recording.message);
+            ui.weak(format!("{} dropped frames", state.recording.dropped));
+            if ui.add_enabled(state.recording.completed && !state.show_mode, egui::Button::new("Add last recording to clips")).clicked() {
+                actions.push(UiAction::AddProgramRecordingToClips);
+            }
+        });
         ui.add_space(8.0);
         status_dot(
             ui,
@@ -454,6 +495,7 @@ impl Layout {
     }
 
     fn apply(self, ctx: &egui::Context, state: &mut UiState) {
+        state.workspaces.active.clear();
         for (id, open) in super::panel::SECTIONS.into_iter().zip(self.sections()) {
             super::panel::set_open(ctx, id, open);
         }

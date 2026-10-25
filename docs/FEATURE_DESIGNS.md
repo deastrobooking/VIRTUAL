@@ -307,15 +307,18 @@ compute nodes and multi-output routing are not part of the first editor.
 
 ## Separate design: final-program recording
 
-The feature notes list a Movie File Out operator. VIRTUAL currently records
-camera capture to a clip, while final-program recording is a different path.
-Design it separately around a bounded asynchronous encoder queue, explicit
-recording resolution/codec, disk-space estimate, drop/failure status, clean
-finalization and a choice to add the result to the clip library. Capture the
-clean composition before window presentation and projection warp so the file
-does not include operator UI or depend on a physical display's geometry. Audio
-capture/muxing, compressed formats and cross-platform codec availability need
-decisions before implementation.
+The first final-program capture slice is implemented: **REC PROGRAM** captures
+the finished composition after deck/master processing and before operator UI,
+calibration overlays and projection mapping. It uses bounded asynchronous GPU
+readback and the native MOV writer at 720p/1080p and 24/30/60 fps. The UI reports
+elapsed time, dropped frames and raw storage estimates, and can import the last
+recording into a free slot. Output gaps preserve capture time. Normal shutdown
+flushes and finalizes the movie. See [workspace and recording](WORKSPACE_RECORDING.md).
+
+This initial format is silent uncompressed RGBA MOV. Compressed codecs,
+synchronized audio, available-disk monitoring and physical show-machine soak
+certification remain open. Offline rendering of an edited composition is a
+separate milestone from real-time program recording.
 
 ## 6. Low-light crowd and party FX
 

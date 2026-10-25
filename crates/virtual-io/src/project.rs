@@ -28,6 +28,8 @@ pub const SCENE_COUNT: usize = 32;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectFile {
     #[serde(default)]
+    pub workspaces: crate::WorkspacesProject,
+    #[serde(default)]
     pub video_timeline: crate::VideoTimelineProject,
     pub format: String,
     pub version: u32,
@@ -54,6 +56,7 @@ impl Default for ProjectFile {
     fn default() -> Self {
         Self {
             video_timeline: crate::VideoTimelineProject::default(),
+            workspaces: Default::default(),
             format: PROJECT_FORMAT.to_owned(),
             version: PROJECT_VERSION,
             project_id: new_project_id(),
@@ -80,6 +83,11 @@ impl Default for ProjectFile {
 
 impl ProjectFile {
     pub fn validate(&self) -> Result<(), ProjectError> {
+        if !self.workspaces.valid() {
+            return Err(ProjectError::InvalidValue(
+                "invalid saved workspaces".into(),
+            ));
+        }
         if !self.video_timeline.valid() {
             return Err(ProjectError::InvalidValue(
                 "invalid video timeline segments".to_owned(),

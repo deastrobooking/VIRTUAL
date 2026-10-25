@@ -172,7 +172,7 @@ fn filmstrip_widget(
     tile: &Tile<'_>,
     palette: ThemePalette,
 ) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -318,7 +318,7 @@ fn tile_widget(
     tile: &Tile<'_>,
     palette: ThemePalette,
 ) -> egui::Response {
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
+    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click_and_drag());
     if !ui.is_rect_visible(rect) {
         return response;
     }
@@ -1688,19 +1688,12 @@ fn clip_cell(
                 actions,
                 draw,
             )
-        } else if draggable {
-            // Drag moves the clip to another slot; a plain click still
-            // selects and launches because the drag only starts past egui's
-            // drag threshold.
-            ui.dnd_drag_source(
-                egui::Id::new(("clip-slot-drag", deck.index(), slot)),
-                address,
-                draw,
-            )
-            .inner
         } else {
             draw(ui)
         };
+        if draggable {
+            response.dnd_set_drag_payload(address);
+        }
         let play_rect = egui::Rect::from_min_size(
             response.rect.left_top()
                 + if style == TileStyle::Card && size.y >= 32.0 {
@@ -1739,7 +1732,7 @@ fn clip_cell(
         .on_hover_text(if automation_playing && clips.movie(address).is_none() {
             "Stop this automation clip"
         } else if clips.movie(address).is_some() {
-            "Play this clip independently of scene launching"
+            "Launch this clip to PROGRAM"
         } else {
             "Open this clip slot"
         })
@@ -1819,11 +1812,9 @@ fn clip_cell(
         });
     }
     if response.clicked() {
+        state.navigation = super::navigation::Navigation::Clips;
         clips.select(address);
         mixer.select(deck);
-        if clips.movie(address).is_some() {
-            actions.push(UiAction::Launch(address));
-        }
     }
     if response.double_clicked() && !state.show_mode {
         clips.select(address);
@@ -1855,7 +1846,7 @@ fn clip_cell(
             details.push_str("\nFirst frame is still preloading");
         }
         if !state.show_mode {
-            details.push_str("\nDrag onto another slot to move; occupied slots swap");
+            details.push_str("\nClick to cue · triangle to launch · double-click to edit\nDrag to move; occupied slots swap");
         }
         details
     } else if let Some(error) = &slot_state.error {
@@ -1997,6 +1988,29 @@ fn add_to_timeline(state: &mut UiState, clips: &ClipBank, address: ClipAddress) 
     });
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct ClipEdit {
+    playback: virtual_media::ClipPlayback,
+    automation: virtual_core::ClipAutomation,
+}
+#[derive(Default)]
+pub struct ClipEditHistory {
+    target: Option<(ClipAddress, Option<PathBuf>)>,
+    history: super::history::EditHistory<ClipEdit>,
+}
+impl ClipEdit {
+    fn capture(clips: &ClipBank, address: ClipAddress) -> Self {
+        Self {
+            playback: clips.playback(address).unwrap_or_default(),
+            automation: clips.automation(address).cloned().unwrap_or_default(),
+        }
+    }
+    fn apply(self, clips: &mut ClipBank, address: ClipAddress) {
+        clips.set_playback(address, self.playback);
+        clips.set_automation(address, self.automation);
+    }
+}
+
 fn draw_clip_editor(
     ctx: &egui::Context,
     state: &mut UiState,
@@ -2004,6 +2018,13 @@ fn draw_clip_editor(
     address: ClipAddress,
     playhead_phase: Option<f64>,
 ) {
+    let target = (address, clips.path(address).map(ToOwned::to_owned));
+    if state.clip_edit_history.target.as_ref() != Some(&target) {
+        state.clip_edit_history.target = Some(target);
+        state.clip_edit_history.history.clear();
+    }
+    let mut edit = ClipEdit::capture(clips, address);
+    let mut history_changed = false;
     let movie = clips.movie(address).cloned();
     let title = format!(
         "Clip Editor · {}",
@@ -2030,7 +2051,19 @@ fn draw_clip_editor(
         .vscroll(true)
         .max_height(650.0)
         .show(ctx, |ui| {
+            let history_action = super::history::shortcut(ui);
             ui.horizontal_wrapped(|ui| {
+                if history_action == Some(super::history::HistoryAction::Undo) { state.clip_edit_history.history.undo(&mut edit); history_changed = true; }
+                if history_action == Some(super::history::HistoryAction::Redo) { state.clip_edit_history.history.redo(&mut edit); history_changed = true; }
+                if ui.add_enabled(state.clip_edit_history.history.can_undo(), egui::Button::new("↶ Undo").small()).clicked() {
+                    state.clip_edit_history.history.undo(&mut edit); history_changed = true;
+                }
+                if ui.add_enabled(state.clip_edit_history.history.can_redo(), egui::Button::new("↷ Redo").small()).clicked() {
+                    state.clip_edit_history.history.redo(&mut edit); history_changed = true;
+                }
+                if history_changed {
+                    edit.clone().apply(clips, address); edited = edit.playback;
+                }
                 if movie.is_some() {
                     ui.selectable_value(&mut state.clip_editor_automation, false, "▤ Source / Trim");
                     ui.selectable_value(&mut state.clip_editor_automation, true, "⌁ Automation");
@@ -2135,6 +2168,15 @@ fn draw_clip_editor(
     }
     if copy {
         copy_clip(state, clips, address);
+    }
+    let after = ClipEdit::capture(clips, address);
+    state.clip_edit_history.history.observe(
+        edit,
+        &after,
+        ctx.input(|input| input.pointer.any_down()),
+    );
+    if !open || state.clip_editor.is_none() {
+        state.clip_edit_history.history.commit(&after);
     }
     if !open {
         state.clip_editor = None;
@@ -2868,5 +2910,175 @@ mod automation_draw_tests {
         assert!(lane.keyframes.len() <= virtual_core::MAX_AUTOMATION_KEYFRAMES);
         assert!(lane.keyframes.len() > 100);
         assert_eq!(lane.keyframes.last().unwrap().position, 1.0);
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+    use virtual_media::{AlphaMode, DecodePath, KeyframeIndex, MediaHealth, MovieMetadata};
+
+    #[test]
+    fn selecting_and_double_clicking_a_cell_never_launch_but_its_triangle_does() {
+        let ctx = egui::Context::default();
+        let mut state = UiState::default();
+        let mut mixer = FourDeckMixer::default();
+        let mut clips = ClipBank::default();
+        let address = ClipAddress {
+            deck: DeckId::A,
+            slot: 1,
+        };
+        clips.assign(
+            address,
+            MovieMetadata {
+                path: "cue.mov".into(),
+                display_name: "Cue.mov".into(),
+                container: "mov".into(),
+                stream_index: 0,
+                codec: "h264".into(),
+                codec_tag: *b"avc1",
+                visible_extent: [640, 360],
+                frame_rate: None,
+                duration: None,
+                frame_count: None,
+                alpha: AlphaMode::Absent,
+                decode_path: DecodePath::FfmpegVideo,
+                health: MediaHealth::Usable,
+                health_reason: String::new(),
+                keyframes: KeyframeIndex::default(),
+            },
+        );
+        clips.select(ClipAddress {
+            deck: DeckId::A,
+            slot: 0,
+        });
+        mixer.select(DeckId::D);
+        let launches = LaunchQueue::default();
+        let transports = [DeckTransport::default(); 4];
+        let map = MidiMapUi {
+            active: false,
+            learning: None,
+            mapped: Vec::new(),
+            audio_learning: None,
+            audio_mapped: Vec::new(),
+            palette: state.theme.palette(),
+        };
+        let mut actions = Vec::new();
+        let mut cell = egui::Rect::NOTHING;
+        let mut frame = |time,
+                         events,
+                         state: &mut UiState,
+                         mixer: &mut FourDeckMixer,
+                         clips: &mut ClipBank,
+                         actions: &mut Vec<UiAction>| {
+            let _ = ctx.run_ui(
+                egui::RawInput {
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ui| {
+                    egui::Window::new("clip interaction fixture")
+                        .fixed_pos([0.0, 0.0])
+                        .fixed_size([400.0, 180.0])
+                        .title_bar(false)
+                        .show(ui.ctx(), |ui| {
+                            cell = egui::Rect::from_min_size(
+                                ui.next_widget_position(),
+                                egui::vec2(120.0, 48.0),
+                            );
+                            clip_cell(
+                                ui,
+                                state,
+                                mixer,
+                                clips,
+                                &ClipGridContext {
+                                    launches: &launches,
+                                    midi_map: &map,
+                                    cameras: &[],
+                                    camera_status: "",
+                                    camera_recordings: [Default::default(); 4],
+                                    transports: &transports,
+                                    beat_position: 0.0,
+                                },
+                                actions,
+                                address,
+                                egui::vec2(120.0, 48.0),
+                                TileStyle::Filmstrip,
+                            );
+                        });
+                },
+            );
+            cell
+        };
+        frame(
+            0.0,
+            Vec::new(),
+            &mut state,
+            &mut mixer,
+            &mut clips,
+            &mut actions,
+        );
+        let rect = frame(
+            0.01,
+            Vec::new(),
+            &mut state,
+            &mut mixer,
+            &mut clips,
+            &mut actions,
+        );
+        let body = rect.center();
+        let event = |pos, pressed| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: Default::default(),
+                },
+            ]
+        };
+        for (time, pressed) in [(0.1, true), (0.12, false), (0.2, true), (0.22, false)] {
+            frame(
+                time,
+                event(body, pressed),
+                &mut state,
+                &mut mixer,
+                &mut clips,
+                &mut actions,
+            );
+        }
+        assert_eq!(mixer.selected(), DeckId::A);
+        assert_eq!(clips.selected(DeckId::A), 1);
+        assert_eq!(state.clip_editor, Some(address));
+        assert!(
+            !actions
+                .iter()
+                .any(|action| matches!(action, UiAction::Launch(_)))
+        );
+        assert_eq!(clips.active(DeckId::A), None);
+        let triangle = rect.min + egui::vec2(10.0, 10.0);
+        frame(
+            0.5,
+            event(triangle, true),
+            &mut state,
+            &mut mixer,
+            &mut clips,
+            &mut actions,
+        );
+        frame(
+            0.52,
+            event(triangle, false),
+            &mut state,
+            &mut mixer,
+            &mut clips,
+            &mut actions,
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|action| matches!(action, UiAction::Launch(target) if *target == address))
+        );
     }
 }

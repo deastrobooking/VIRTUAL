@@ -29,6 +29,15 @@ pub(super) fn set_open(ctx: &egui::Context, id_salt: &str, open: bool) {
     state.store(ctx);
 }
 
+pub(super) fn is_open(ctx: &egui::Context, id_salt: &str) -> bool {
+    egui::collapsing_header::CollapsingState::load_with_default_open(
+        ctx,
+        section_id(id_salt),
+        matches!(id_salt, "clips" | "selected-deck" | "mix-master"),
+    )
+    .is_open()
+}
+
 /// Draws a foldable section. `header` adds compact status widgets to the
 /// right of the title; `body` is only built while the section is open.
 #[allow(clippy::too_many_arguments)]
@@ -88,10 +97,20 @@ pub(super) fn section<R>(
         ui.ctx()
             .data_mut(|data| data.remove::<String>(egui::Id::new("navigate-section")));
     }
-    state
-        .show_body_unindented(ui, |ui| {
-            ui.add_space(2.0);
-            body(ui)
-        })
-        .map(|response| response.inner)
+    let response = state.show_body_unindented(ui, |ui| {
+        ui.add_space(2.0);
+        body(ui)
+    });
+    if ui.input(|input| input.pointer.any_pressed())
+        && let Some(pointer) = ui.ctx().pointer_latest_pos()
+        && ui.ctx().layer_id_at(pointer) == Some(ui.layer_id())
+        && (header_response.response.rect.contains(pointer)
+            || response
+                .as_ref()
+                .is_some_and(|body| body.response.rect.contains(pointer)))
+    {
+        ui.ctx()
+            .data_mut(|data| data.insert_temp(egui::Id::new("active-section"), id_salt.to_owned()));
+    }
+    response.map(|response| response.inner)
 }

@@ -191,7 +191,7 @@ impl State {
     /// Work that would land results at a now-wrong address if the slot moved
     /// under it: folder import, relink probe, or a deck import targeting the
     /// slot.
-    fn clip_move_blocked(&self, address: ClipAddress) -> bool {
+    pub(crate) fn clip_move_blocked(&self, address: ClipAddress) -> bool {
         self.folder_pending.contains(&address)
             || self.relink_pending.contains(&address)
             || self.recording_pending.contains(&address)

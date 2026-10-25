@@ -13,6 +13,7 @@ mod deck;
 mod diagnostics;
 pub(crate) mod drop_targets;
 mod generator;
+mod history;
 mod master_fx;
 mod midi;
 mod midi_manager;
@@ -23,6 +24,7 @@ pub mod theme;
 mod timeline;
 mod toolbar;
 mod video_input;
+mod workspaces;
 
 use clips::{ClipGridContext, draw_clip_grid};
 use deck::{DeckControls, draw_deck};
@@ -62,8 +64,20 @@ use virtual_render::{
 
 /// Overlay state, editor selections and session-only background export handles.
 pub struct UiState {
+    pub recording: crate::program_recording::RecordingStatus,
+    pub workspaces: virtual_io::WorkspacesProject,
+    pub workspace_restore_pending: bool,
+    pub record_path: String,
+    pub record_extent: [u32; 2],
+    pub record_fps: u32,
+    pub cue_playing: bool,
+    pub cue_position: f64,
+    pub cue_range: [f64; 2],
+    pub cue_status: String,
     pub navigation: navigation::Navigation,
     pub deck_window: bool,
+    pub unit_pinned: Option<DeckId>,
+    pub clip_edit_history: clips::ClipEditHistory,
     pub timeline: timeline::TimelineUi,
     pub clip_clipboard: Option<(DeckId, virtual_media::ClipSlot)>,
     pub scene_clipboard: Option<virtual_io::SceneProject>,
@@ -207,7 +221,7 @@ pub struct UiState {
     thumbnails: HashMap<ClipAddress, CachedThumbnail>,
     pub browser: browser::BrowserState,
     /// The selected clip's first frame for the preview monitor.
-    cue_preview: Option<(ClipAddress, PathBuf, egui::TextureHandle)>,
+    pub(crate) cue_preview: Option<(ClipAddress, PathBuf, egui::TextureHandle)>,
     thumbnail_failures: HashMap<ClipAddress, (PathBuf, String)>,
     fps: FpsMeter,
 }
@@ -215,8 +229,20 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            recording: Default::default(),
+            workspaces: Default::default(),
+            workspace_restore_pending: false,
+            record_path: String::new(),
+            record_extent: [1280, 720],
+            record_fps: 30,
+            cue_playing: true,
+            cue_position: 0.0,
+            cue_range: [0.0; 2],
+            cue_status: String::new(),
             navigation: navigation::Navigation::default(),
             deck_window: false,
+            unit_pinned: None,
+            clip_edit_history: clips::ClipEditHistory::default(),
             timeline: timeline::TimelineUi::default(),
             clip_clipboard: None,
             scene_clipboard: None,
@@ -472,6 +498,8 @@ pub enum UiAction {
     Restart(DeckId),
     Seek(DeckId),
     Launch(ClipAddress),
+    ToggleCuePreview,
+    SeekCuePreview(f64),
     LaunchAutomation(ClipAddress),
     LaunchScene(usize),
     ClearSlot(ClipAddress),
@@ -480,6 +508,10 @@ pub enum UiAction {
         source_deck: DeckId,
         clip: Box<virtual_media::ClipSlot>,
     },
+    StartProgramRecording,
+    StopProgramRecording,
+    BrowseProgramRecording,
+    AddProgramRecordingToClips,
     ExportTimelineVideo,
     ExportTimelineTake,
     MoveClip {
@@ -952,6 +984,7 @@ pub fn draw(
     transports: &mut [DeckTransport; 4],
     mut metrics: PerformanceMetrics<'_>,
 ) -> Vec<UiAction> {
+    workspaces::restore(ctx, state);
     state.theme.ensure_applied(ctx);
     navigation::shortcuts(ctx, state);
     let palette = state.theme.palette();
@@ -1003,7 +1036,7 @@ pub fn draw(
                     .default_size(250.0)
                     .min_size(180.0)
                     .show(ui, |ui| {
-                        browser::draw_browser(
+                        if let Some(tab) = browser::draw_browser(
                             ui,
                             &mut state.browser,
                             browser::BrowserContext {
@@ -1013,7 +1046,9 @@ pub fn draw(
                                 effects: &mut state.effects,
                             },
                             &mut actions,
-                        );
+                        ) {
+                            state.navigation = navigation::Navigation::from_browser(tab);
+                        }
                     });
             }
             let docked = ui.available_width() >= 1000.0;
@@ -1456,7 +1491,7 @@ pub fn draw(
                     deck: mixer.selected(),
                     slot: clips.selected(mixer.selected()),
                 };
-                browser::draw_browser(
+                if let Some(tab) = browser::draw_browser(
                     ui,
                     &mut state.browser,
                     browser::BrowserContext {
@@ -1466,7 +1501,9 @@ pub fn draw(
                         effects: &mut state.effects,
                     },
                     &mut actions,
-                );
+                ) {
+                    state.navigation = navigation::Navigation::from_browser(tab);
+                }
             });
         state.browser.open = open;
     }
@@ -1478,6 +1515,21 @@ pub fn draw(
             .default_width(440.0)
             .vscroll(true)
             .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    let mut pinned = state.unit_pinned.is_some();
+                    if ui.checkbox(&mut pinned, "Pin target").changed() {
+                        state.unit_pinned = pinned.then_some(mixer.selected());
+                    }
+                    ui.strong(format!(
+                        "Deck {}",
+                        state.unit_pinned.unwrap_or(mixer.selected()).label()
+                    ));
+                    ui.weak(if pinned {
+                        "stays on this deck"
+                    } else {
+                        "follows selection"
+                    });
+                });
                 let map = buttons::current_map().expect("button frame active");
                 draw_deck_section(
                     ui,
@@ -1491,6 +1543,9 @@ pub fn draw(
                 );
             });
         state.deck_window = open;
+        if !open {
+            state.unit_pinned = None;
+        }
     }
     timeline::draw(ctx, state, &metrics, &mut actions);
     if !state.show_mode {
@@ -1507,6 +1562,12 @@ pub fn draw(
         &generator_map,
         &mut actions,
     );
+    if let Some(section) =
+        ctx.data_mut(|data| data.remove_temp::<String>(egui::Id::new("active-section")))
+        && let Some(navigation) = navigation::Navigation::from_section(&section)
+    {
+        state.navigation = navigation;
+    }
     actions.extend(buttons::end_frame());
     actions
 }
@@ -1599,8 +1660,15 @@ fn draw_deck_section(
     midi_map: &MidiMapUi,
     actions: &mut Vec<UiAction>,
 ) {
+    if ui.ui_contains_pointer() && ui.input(|input| input.pointer.any_pressed()) {
+        state.navigation = navigation::Navigation::Deck;
+    }
     let layout = state.theme.deck_layout.resolve(ui.available_width());
-    let selected_deck = mixer.selected();
+    let selected_deck = if state.deck_window {
+        state.unit_pinned.unwrap_or(mixer.selected())
+    } else {
+        mixer.selected()
+    };
     let transforms_ref = &mut state.transforms;
     let blend_modes_ref = &mut state.blend_modes;
     let solo_ref = &mut state.solo;
@@ -1620,6 +1688,7 @@ fn draw_deck_section(
             DeckControls {
                 palette,
                 midi_map,
+                expanded: deck_id == selected_deck,
                 show_mode: state.show_mode,
                 transport: &mut transports[deck_id.index()],
                 transform: &mut transforms_ref[deck_id.index()],
@@ -1835,7 +1904,10 @@ fn draw_monitors(
     let name = clips
         .movie(address)
         .map_or_else(String::new, |movie| movie.display_name.clone());
-    let preview = |ui: &mut egui::Ui, state: &UiState, actions: &mut Vec<UiAction>, height: f32| {
+    let preview = |ui: &mut egui::Ui,
+                   state: &mut UiState,
+                   actions: &mut Vec<UiAction>,
+                   height: f32| {
         monitor_title(
             ui,
             palette.warning,
@@ -1857,6 +1929,27 @@ fn draw_monitors(
                 })
             });
         monitor_image(ui, texture, height, palette);
+        ui.horizontal(|ui| {
+            if ui
+                .small_button(if state.cue_playing {
+                    "Ⅱ Cue"
+                } else {
+                    "▶ Cue"
+                })
+                .clicked()
+            {
+                actions.push(UiAction::ToggleCuePreview);
+            }
+            let [start, end] = state.cue_range;
+            if end > start
+                && ui
+                    .add(egui::Slider::new(&mut state.cue_position, start..=end).show_value(false))
+                    .changed()
+            {
+                actions.push(UiAction::SeekCuePreview(state.cue_position));
+            }
+        });
+        ui.add(egui::Label::new(egui::RichText::new(&state.cue_status).small()).truncate());
         if ui
             .add_enabled(
                 clips.movie(address).is_some(),

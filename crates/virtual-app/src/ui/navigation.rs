@@ -18,6 +18,26 @@ pub enum Navigation {
 }
 
 impl Navigation {
+    pub(super) fn from_browser(tab: BrowserTab) -> Self {
+        match tab {
+            BrowserTab::Files => Self::Files,
+            BrowserTab::Sources => Self::Sources,
+            BrowserTab::Effects => Self::Effects,
+        }
+    }
+
+    pub(super) fn from_section(section: &str) -> Option<Self> {
+        Some(match section {
+            "setup" => Self::Setup,
+            "clips" => Self::Clips,
+            "audio-spectrum" => Self::Audio,
+            "selected-deck" => Self::Deck,
+            "mix-master" => Self::Mixer,
+            "master-effects" => Self::Master,
+            _ => return None,
+        })
+    }
+
     const ALL: [(Self, egui::Key, &str); 10] = [
         (Self::Files, egui::Key::F1, "F1  Files"),
         (Self::Sources, egui::Key::F2, "F2  Generators"),

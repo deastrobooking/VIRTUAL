@@ -12,8 +12,7 @@ pub struct TimelineUi {
     cursor: f64,
     zoom: f32,
     clipboard: Option<(bool, EditSegmentProject)>,
-    undo: Vec<VideoTimelineProject>,
-    redo: Vec<VideoTimelineProject>,
+    history: super::history::EditHistory<VideoTimelineProject>,
 }
 impl Default for TimelineUi {
     fn default() -> Self {
@@ -27,28 +26,16 @@ impl Default for TimelineUi {
             cursor: 0.0,
             zoom: 16.0,
             clipboard: None,
-            undo: Vec::new(),
-            redo: Vec::new(),
+            history: Default::default(),
         }
     }
 }
 impl TimelineUi {
     pub fn reset_history(&mut self) {
-        self.undo.clear();
-        self.redo.clear();
+        self.history.clear();
         self.clipboard = None;
         self.selected = 0;
         self.cursor = 0.0;
-    }
-    fn remember(&mut self, previous: VideoTimelineProject) {
-        if previous == self.project {
-            return;
-        }
-        if self.undo.len() == 64 {
-            self.undo.remove(0);
-        }
-        self.undo.push(previous);
-        self.redo.clear();
     }
     pub fn add_video(&mut self, segment: EditSegmentProject) {
         if !segment.valid() || self.project.videos.len() >= MAX_TIMELINE_SEGMENTS {
@@ -61,7 +48,7 @@ impl TimelineUi {
         self.selected = self.project.videos.len() - 1;
         self.takes = false;
         self.open = true;
-        self.remember(previous);
+        self.history.observe(previous, &self.project, false);
     }
 }
 
@@ -85,18 +72,22 @@ pub(super) fn draw(
     egui::Window::new("Timeline · Video & Takes").id(egui::Id::new("video-timeline"))
         .open(&mut open).default_size([820.0, 420.0]).min_width(480.0).vscroll(true)
         .show(ctx, |ui| {
+            if ui.ui_contains_pointer() && ui.input(|input| input.pointer.any_pressed()) { state.navigation = super::navigation::Navigation::Timeline; }
+            match super::history::shortcut(ui) {
+                Some(super::history::HistoryAction::Undo) => timeline.history.undo(&mut timeline.project),
+                Some(super::history::HistoryAction::Redo) => timeline.history.redo(&mut timeline.project),
+                None => {}
+            }
             ui.horizontal_wrapped(|ui| {
                 if ui.selectable_value(&mut timeline.takes, false, "▤ Video cuts").changed() { timeline.selected = 0; }
                 if ui.selectable_value(&mut timeline.takes, true, "◷ Performance takes").changed() { timeline.selected = 0; }
                 ui.separator();
                 ui.add_enabled_ui(!state.show_mode, |ui| {
-                    if ui.add_enabled(!timeline.undo.is_empty(), egui::Button::new("↶ Undo")).clicked()
-                        && let Some(previous) = timeline.undo.pop() {
-                        timeline.redo.push(std::mem::replace(&mut timeline.project, previous));
+                    if ui.add_enabled(timeline.history.can_undo(), egui::Button::new("↶ Undo")).clicked() {
+                        timeline.history.undo(&mut timeline.project);
                     }
-                    if ui.add_enabled(!timeline.redo.is_empty(), egui::Button::new("↷ Redo")).clicked()
-                        && let Some(next) = timeline.redo.pop() {
-                        timeline.undo.push(std::mem::replace(&mut timeline.project, next));
+                    if ui.add_enabled(timeline.history.can_redo(), egui::Button::new("↷ Redo")).clicked() {
+                        timeline.history.redo(&mut timeline.project);
                     }
                 });
                 ui.add(egui::Slider::new(&mut timeline.zoom, 4.0..=80.0).text("Zoom").show_value(false));
@@ -162,10 +153,9 @@ pub(super) fn draw(
                         let width = (segment.duration() as f32 * timeline.zoom).clamp(48.0, 20_000.0);
                         let text = format!("{}  {}\n{}\n{:.2}–{:.2} s", index + 1,
                             if takes { "TAKE" } else { "VIDEO" }, segment.name, offset, offset + segment.duration());
-                        let draw = |ui: &mut egui::Ui| ui.add_sized([width, 72.0], egui::Button::new(&text).selected(timeline.selected == index));
-                        let response = if state.show_mode { draw(ui) } else {
-                            ui.dnd_drag_source(egui::Id::new(("edit-segment", takes, index)), (takes, index), draw).inner
-                        };
+                        let draw = |ui: &mut egui::Ui| ui.add_sized([width, 72.0], egui::Button::new(&text).selected(timeline.selected == index).sense(egui::Sense::click_and_drag()));
+                        let response = draw(ui);
+                        if !state.show_mode { response.dnd_set_drag_payload((takes, index)); }
                         if response.clicked() { timeline.selected = index; timeline.cursor = offset; }
                         if let Some(source) = response.dnd_release_payload::<(bool, usize)>()
                             && source.0 == takes && source.1 != index && !state.show_mode { reorder = Some((source.1, index)); }
@@ -228,7 +218,7 @@ pub(super) fn draw(
                 }
             }
             let empty = track.is_empty();
-            timeline.remember(previous);
+            timeline.history.observe(previous, &timeline.project, ctx.input(|input| input.pointer.any_down()));
             ui.separator();
             ui.horizontal_wrapped(|ui| {
                 if ui.add_enabled(!state.show_mode && !empty && timeline.job.is_none(),
@@ -242,6 +232,9 @@ pub(super) fn draw(
             });
             if !timeline.status.is_empty() { ui.label(&timeline.status); }
         });
+    if !open {
+        timeline.history.commit(&timeline.project);
+    }
     timeline.open = open;
 }
 
