@@ -578,15 +578,19 @@ pub enum ClipView {
     /// Decks as vertical columns of clip tiles, scenes launched from the
     /// right and stop buttons underneath, as in Ableton Live's launcher.
     Launcher,
+    /// Decks as rows of clip tiles with X/B/S and level on the left and
+    /// column triggers on top, as in Resolume.
+    Layers,
 }
 
 impl ClipView {
-    pub const ALL: [Self; 2] = [Self::Session, Self::Launcher];
+    pub const ALL: [Self; 3] = [Self::Session, Self::Launcher, Self::Layers];
 
     pub const fn label(self) -> &'static str {
         match self {
             Self::Session => "▤ Session",
             Self::Launcher => "▥ Launcher",
+            Self::Layers => "▦ Layers",
         }
     }
 
@@ -594,6 +598,7 @@ impl ClipView {
         match self {
             Self::Session => "session",
             Self::Launcher => "launcher",
+            Self::Layers => "layers",
         }
     }
 

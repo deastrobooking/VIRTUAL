@@ -146,9 +146,9 @@ GPU-compressed path; other supported movies and stills use FFmpeg.
    readiness marker in its name strip.
 3. Click the slot to launch it.
 
-### Session and Launcher views
+### Session, Launcher and Layers views
 
-The **CLIPS** bar switches between two arrangements of the same 32 slots,
+The **CLIPS** bar switches between three arrangements of the same 32 slots,
 saved with the project's appearance:
 
 - **▤ Session** (the default) lays decks out as condensed horizontal lanes,
@@ -166,16 +166,36 @@ saved with the project's appearance:
   - Scenes launch from the **▶** buttons on the right.
   - Each column has a **■** stop button (eject) underneath, and **■ All**
     stops every deck.
+- **▦ Layers** is Resolume's grid: one row of clip tiles per deck, with
+  the deck name, **X**/**B**/**S** and the level on the left, and **▼** column
+  triggers along the top.
+
+Right-click a clip and pick one of 16 **colours** to colour-code it. The
+colour replaces the deck colour on the clip's bar, follows the clip when it is
+dragged to another slot, and is saved with the project. **Use deck colour**
+removes it.
 
 **S / M / L** sets the lane height or tile size. A playing clip gets a
 play-coloured border, a queued clip pulses, and the selected clip has an
 accent border. **●** marks a preloaded first frame and **○** a clip still
 preloading. Hover a clip for a large preview frame with its details.
 
-Every control keeps its MIDI and OSC mapping in both views; X, S, the stop
+Every control keeps its MIDI and OSC mapping in every view; X, S, the stop
 buttons and ■ All can be mapped like any other button. The main window's
 sections (Setup, Clips, Audio, Deck, Mix & Master, Master Effects) fold
 under slim section bars, so the surface shows only what is in use.
+
+### Program monitor and properties panel
+
+When the main window is at least about 1100 points wide, a **properties
+panel** docks on the right. At the top is the live **PROGRAM** monitor: the
+finished composition, the same picture NDI and recording use, with its size
+and any BLACKOUT or FROZEN state. Below it are the selected deck's
+performance controls and FX, scrolling on their own, so the clip grid stays
+in view while you edit a deck. Drag the panel's edge to resize it. In a
+narrower window the monitor and deck controls return to the main column.
+Deck strips use the same compact **X** (eject), **S** (solo) and **B**
+(bypass) buttons as the clip grid, with the full names in their tooltips.
 
 To reorganize a bank, drag any populated or missing-media slot onto another
 slot. An empty destination receives the clip; an occupied destination swaps

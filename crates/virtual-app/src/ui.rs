@@ -579,6 +579,8 @@ pub struct PerformanceMetrics<'a> {
     pub osc: OscMetrics<'a>,
     pub output_displays: &'a [OutputDisplay],
     pub output_health: OutputHealthMetrics<'a>,
+    /// The program texture registered with egui, and its size.
+    pub program_monitor: (egui::TextureId, [u32; 2]),
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -946,454 +948,414 @@ pub fn draw(
 
     egui::Window::new("VIRTUAL")
         .default_pos([16.0, 16.0])
-        .default_size([1180.0, 760.0])
+        .default_size([1440.0, 880.0])
         .min_size([560.0, 420.0])
         .resizable(true)
         .scroll([false, false])
         .show(ctx, |ui| {
-    let midi_map = buttons::current_map().expect("buttons::begin_frame runs first");
+            let midi_map = buttons::current_map().expect("buttons::begin_frame runs first");
             draw_toolbar(ui, state, clips, &metrics, palette, &midi_map, &mut actions);
+            let docked = ui.available_width() >= 1100.0;
+            if docked {
+                egui::Panel::right("properties-panel")
+                    .resizable(true)
+                    .default_size(460.0)
+                    .min_size(340.0)
+                    .show(ui, |ui| {
+                        program_monitor(ui, metrics.program_monitor, state, palette);
+                        ui.add_space(4.0);
+                        egui::ScrollArea::vertical()
+                            .id_salt("properties-scroll")
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                draw_deck_section(
+                                    ui,
+                                    state,
+                                    mixer,
+                                    transports,
+                                    metrics.generator_stats,
+                                    palette,
+                                    &midi_map,
+                                    &mut actions,
+                                );
+                            });
+                    });
+            }
             egui::ScrollArea::both()
                 .id_salt("performance-editor")
                 .auto_shrink([false, false])
                 .max_height(ui.available_height())
                 .show(ui, |ui| {
-            ui.separator();
-            // Everything an operator sets up before the show - output,
-            // project, devices, diagnostics - lives in one collapsible
-            // region with its own scrollbar, so on a small screen it can
-            // be scrolled through or folded away entirely while the
-            // performance surface below keeps the space.
-            draw_setup(ui, state, mixer, &midi_map, &mut actions, &mut metrics);
-            let beat_position = metrics.tempo.beat_at(metrics.now_seconds);
-            let playing = DeckId::ALL
-                .iter()
-                .filter(|deck| clips.active(**deck).is_some())
-                .count();
-            panel::section(
-                ui,
-                "clips",
-                "▦",
-                "CLIPS",
-                palette,
-                true,
-                |ui| {
-                    ui.weak(format!("{playing} of 4 decks playing"));
-                },
-                |ui| {
-                    draw_clip_grid(
+                    ui.separator();
+                    // Everything an operator sets up before the show - output,
+                    // project, devices, diagnostics - lives in one collapsible
+                    // region with its own scrollbar, so on a small screen it can
+                    // be scrolled through or folded away entirely while the
+                    // performance surface below keeps the space.
+                    draw_setup(ui, state, mixer, &midi_map, &mut actions, &mut metrics);
+                    let beat_position = metrics.tempo.beat_at(metrics.now_seconds);
+                    let playing = DeckId::ALL
+                        .iter()
+                        .filter(|deck| clips.active(**deck).is_some())
+                        .count();
+                    panel::section(
+                        ui,
+                        "clips",
+                        "▦",
+                        "CLIPS",
+                        palette,
+                        true,
+                        |ui| {
+                            ui.weak(format!("{playing} of 4 decks playing"));
+                        },
+                        |ui| {
+                            draw_clip_grid(
+                                ui,
+                                state,
+                                mixer,
+                                clips,
+                                ClipGridContext {
+                                    launches,
+                                    midi_map: &midi_map,
+                                    cameras: metrics.cameras,
+                                    camera_status: metrics.camera_status,
+                                    camera_recordings: metrics.camera_recordings,
+                                    transports,
+                                    beat_position,
+                                },
+                                &mut actions,
+                            );
+                        },
+                    );
+
+                    ui.separator();
+                    audio::draw_audio_panel(
                         ui,
                         state,
-                        mixer,
-                        clips,
-                        ClipGridContext {
-                            launches,
-                            midi_map: &midi_map,
-                            cameras: metrics.cameras,
-                            camera_status: metrics.camera_status,
-                            camera_recordings: metrics.camera_recordings,
-                            transports,
-                            beat_position,
+                        audio::AudioPanelContext {
+                            inputs: metrics.audio_inputs,
+                            status: metrics.audio_status,
+                            connected: metrics.audio_connected,
+                            snapshot: metrics.audio_snapshot,
+                            visual: metrics.audio_visual,
+                            palette,
                         },
                         &mut actions,
                     );
-                },
-            );
 
-            ui.separator();
-            audio::draw_audio_panel(
-                ui,
-                state,
-                audio::AudioPanelContext {
-                    inputs: metrics.audio_inputs,
-                    status: metrics.audio_status,
-                    connected: metrics.audio_connected,
-                    snapshot: metrics.audio_snapshot,
-                    visual: metrics.audio_visual,
-                    palette,
-                },
-                &mut actions,
-            );
-
-            ui.separator();
-            {
-                let layout = state.theme.deck_layout.resolve(ui.available_width());
-                let selected_deck = mixer.selected();
-                let transforms_ref = &mut state.transforms;
-                let blend_modes_ref = &mut state.blend_modes;
-                let solo_ref = &mut state.solo;
-                let bypassed_ref = &mut state.bypassed;
-                let effects_ref = &mut state.effects;
-                let lfos_ref = &mut state.lfos;
-                let mod_sources = state.mod_sources;
-                let deck_packages_ref = &mut state.deck_packages;
-                let deck_effect_packages = &state.deck_effect_packages;
-                let generator_stats = metrics.generator_stats;
-                let generator_windows_ref = &mut state.generator_windows;
-                let actions_ref = &mut actions;
-                let mut deck_strip = |ui: &mut egui::Ui, deck_id: DeckId| {
-                    draw_deck(
-                        ui,
-                        mixer,
-                        deck_id,
-                        DeckControls {
+                    ui.separator();
+                    if !docked {
+                        program_monitor(ui, metrics.program_monitor, state, palette);
+                        draw_deck_section(
+                            ui,
+                            state,
+                            mixer,
+                            transports,
+                            metrics.generator_stats,
                             palette,
-                            midi_map: &midi_map,
-                            show_mode: state.show_mode,
-                            transport: &mut transports[deck_id.index()],
-                            transform: &mut transforms_ref[deck_id.index()],
-                            blend_mode: &mut blend_modes_ref[deck_id.index()],
-                            solo: &mut solo_ref[deck_id.index()],
-                            bypassed: &mut bypassed_ref[deck_id.index()],
-                            effects: &mut effects_ref[deck_id.index()],
-                            lfos: &mut lfos_ref[deck_id.index()],
-                            mod_sources: mod_sources[deck_id.index()],
-                            package: &mut deck_packages_ref[deck_id.index()],
-                            packages: deck_effect_packages,
-                            generator: generator_stats[deck_id.index()],
-                            generator_window: &mut generator_windows_ref[deck_id.index()],
-                        },
-                        actions_ref,
-                    );
-                };
-                let master_freeze = state.master_freeze;
-                let show_mode = state.show_mode;
-                panel::section(
-                    ui,
-                    "selected-deck",
-                    "◧",
-                    &format!("DECK {} · PERFORMANCE & FX", selected_deck.label()),
-                    palette,
-                    true,
-                    |_| {},
-                    |ui| {
-                if master_freeze {
-                    ui.colored_label(
-                        palette.warning,
-                        "PROGRAM FROZEN · Deck FX and source changes are staged until master freeze is released.",
-                    );
-                }
-                deck_strip(ui, selected_deck);
+                            &midi_map,
+                            &mut actions,
+                        );
+                    }
 
-                if !show_mode {
-                    egui::CollapsingHeader::new("Other deck editors")
-                        .default_open(false)
-                        .show(ui, |ui| match layout {
-                            ResolvedDeckLayout::Cascade => {
-                                egui::ScrollArea::horizontal()
-                                    .id_salt("other-deck-cascade")
-                                    .show(ui, |ui| {
-                                        ui.horizontal_top(|ui| {
-                                            for deck_id in DeckId::ALL
-                                                .into_iter()
-                                                .filter(|id| *id != selected_deck)
+                    ui.separator();
+                    let mix_status = format!(
+                        "master {:.0}%{}{}",
+                        state.master_opacity * 100.0,
+                        if state.blackout { " · BLACKOUT" } else { "" },
+                        if state.master_freeze {
+                            " · FROZEN"
+                        } else {
+                            ""
+                        },
+                    );
+                    panel::section(
+                        ui,
+                        "mix-master",
+                        "⇄",
+                        "MIX & MASTER",
+                        palette,
+                        true,
+                        |ui| {
+                            ui.weak(mix_status);
+                        },
+                        |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("A");
+                                mappable(
+                                    ui,
+                                    &midi_map,
+                                    ControlTarget::Crossfader,
+                                    &mut actions,
+                                    |ui| {
+                                        ui.add(
+                                            egui::Slider::new(&mut state.crossfader, 0.0..=1.0)
+                                                .text("crossfader")
+                                                .clamping(egui::SliderClamping::Always),
+                                        )
+                                    },
+                                );
+                                ui.label("B");
+                                buttons::midi_toggle(
+                                    ui,
+                                    "mixer.equal_power",
+                                    "Mixer · Equal power",
+                                    &mut state.equal_power,
+                                    |ui, value| ui.checkbox(value, "equal power"),
+                                );
+                                if buttons::midi_button(
+                                    ui,
+                                    "mixer.center",
+                                    "Mixer · Center crossfader",
+                                    |ui| ui.button("Center"),
+                                )
+                                .clicked()
+                                {
+                                    state.crossfader = 0.5;
+                                }
+                            });
+                            draw_layer_order(ui, state, &palette, &midi_map, &mut actions, false);
+                            ui.horizontal(|ui| {
+                                mappable(
+                                    ui,
+                                    &midi_map,
+                                    ControlTarget::MasterOpacity,
+                                    &mut actions,
+                                    |ui| {
+                                        ui.add(
+                                            egui::Slider::new(&mut state.master_opacity, 0.0..=1.0)
+                                                .text("master")
+                                                .clamping(egui::SliderClamping::Always),
+                                        )
+                                    },
+                                );
+                                let blackout = mappable(
+                                    ui,
+                                    &midi_map,
+                                    ControlTarget::MasterBlackout,
+                                    &mut actions,
+                                    |ui| ui.selectable_label(state.blackout, "BLACKOUT"),
+                                );
+                                if blackout.clicked() {
+                                    state.blackout = !state.blackout;
+                                }
+                                mappable(
+                                    ui,
+                                    &midi_map,
+                                    ControlTarget::MasterFreeze,
+                                    &mut actions,
+                                    |ui| ui.checkbox(&mut state.master_freeze, "master freeze"),
+                                );
+                            });
+                        },
+                    );
+                    if !state.show_mode {
+                        panel::section(
+                            ui,
+                            "master-effects",
+                            "✦",
+                            "MASTER EFFECTS",
+                            palette,
+                            false,
+                            |_| {},
+                            |ui| {
+                                let effect_packages = &state.effect_packages;
+                                let master_effects = &mut state.master_effects;
+                                let slot_count = master_effects.slots.len();
+                                let mut reorder = None;
+                                for index in 0..slot_count {
+                                    ui.group(|ui| {
+                                        let slot = &mut master_effects.slots[index];
+                                        ui.horizontal(|ui| {
+                                            ui.monospace(format!("{}", index + 1));
+                                            egui::ComboBox::from_id_salt(format!(
+                                                "master-fx-kind-{index}"
+                                            ))
+                                            .selected_text(slot.kind.label())
+                                            .show_ui(
+                                                ui,
+                                                |ui| {
+                                                    for kind in MasterEffectKind::ALL {
+                                                        ui.selectable_value(
+                                                            &mut slot.kind,
+                                                            kind,
+                                                            kind.label(),
+                                                        );
+                                                    }
+                                                },
+                                            );
+                                            buttons::midi_toggle(
+                                                ui,
+                                                &format!("master.slot.{index}.bypass"),
+                                                &format!("Master slot {} · Bypass", index + 1),
+                                                &mut slot.bypassed,
+                                                |ui, value| ui.checkbox(value, "Bypass"),
+                                            );
+                                            ui.add(
+                                                egui::Slider::new(&mut slot.mix, 0.0..=1.0)
+                                                    .text("wet"),
+                                            );
+                                            if buttons::midi_button(
+                                                ui,
+                                                &format!("master.slot.{index}.up"),
+                                                &format!("Master slot {} · Move up", index + 1),
+                                                |ui| {
+                                                    ui.add_enabled(
+                                                        index > 0,
+                                                        egui::Button::new("↑"),
+                                                    )
+                                                },
+                                            )
+                                            .clicked()
                                             {
-                                                ui.allocate_ui_with_layout(
-                                                    egui::vec2(CASCADE_STRIP_WIDTH, 10.0),
-                                                    egui::Layout::top_down(egui::Align::Min),
-                                                    |ui| {
-                                                        ui.set_width(CASCADE_STRIP_WIDTH);
-                                                        deck_strip(ui, deck_id);
-                                                    },
-                                                );
+                                                reorder = Some((index, index - 1));
+                                            }
+                                            if buttons::midi_button(
+                                                ui,
+                                                &format!("master.slot.{index}.down"),
+                                                &format!("Master slot {} · Move down", index + 1),
+                                                |ui| {
+                                                    ui.add_enabled(
+                                                        index + 1 < slot_count,
+                                                        egui::Button::new("↓"),
+                                                    )
+                                                },
+                                            )
+                                            .clicked()
+                                            {
+                                                reorder = Some((index, index + 1));
                                             }
                                         });
-                                    });
-                            }
-                            ResolvedDeckLayout::Grid => {
-                                egui::Grid::new("other-decks")
-                                    .num_columns(2)
-                                    .spacing([12.0, 12.0])
-                                    .show(ui, |ui| {
-                                        for (index, deck_id) in DeckId::ALL
-                                            .into_iter()
-                                            .filter(|id| *id != selected_deck)
-                                            .enumerate()
-                                        {
-                                            deck_strip(ui, deck_id);
-                                            if index % 2 == 1 {
-                                                ui.end_row();
-                                            }
-                                        }
-                                    });
-                            }
-                            ResolvedDeckLayout::Stack => {
-                                for deck_id in DeckId::ALL
-                                    .into_iter()
-                                    .filter(|id| *id != selected_deck)
-                                {
-                                    deck_strip(ui, deck_id);
-                                }
-                            }
-                        });
-                }
-                    },
-                );
-            }
-
-            ui.separator();
-            let mix_status = format!(
-                "master {:.0}%{}{}",
-                state.master_opacity * 100.0,
-                if state.blackout { " · BLACKOUT" } else { "" },
-                if state.master_freeze { " · FROZEN" } else { "" },
-            );
-            panel::section(
-                ui,
-                "mix-master",
-                "⇄",
-                "MIX & MASTER",
-                palette,
-                true,
-                |ui| {
-                    ui.weak(mix_status);
-                },
-                |ui| {
-            ui.horizontal(|ui| {
-                ui.label("A");
-                mappable(ui, &midi_map, ControlTarget::Crossfader, &mut actions, |ui| {
-                    ui.add(
-                        egui::Slider::new(&mut state.crossfader, 0.0..=1.0)
-                            .text("crossfader")
-                            .clamping(egui::SliderClamping::Always),
-                    )
-                });
-                ui.label("B");
-                buttons::midi_toggle(
-                    ui,
-                    "mixer.equal_power",
-                    "Mixer · Equal power",
-                    &mut state.equal_power,
-                    |ui, value| ui.checkbox(value, "equal power"),
-                );
-                if buttons::midi_button(ui, "mixer.center", "Mixer · Center crossfader", |ui| {
-                    ui.button("Center")
-                })
-                .clicked()
-                {
-                    state.crossfader = 0.5;
-                }
-            });
-            draw_layer_order(ui, state, &palette, &midi_map, &mut actions, false);
-            ui.horizontal(|ui| {
-                mappable(ui, &midi_map, ControlTarget::MasterOpacity, &mut actions, |ui| {
-                    ui.add(
-                        egui::Slider::new(&mut state.master_opacity, 0.0..=1.0)
-                            .text("master")
-                            .clamping(egui::SliderClamping::Always),
-                    )
-                });
-                let blackout = mappable(
-                    ui,
-                    &midi_map,
-                    ControlTarget::MasterBlackout,
-                    &mut actions,
-                    |ui| ui.selectable_label(state.blackout, "BLACKOUT"),
-                );
-                if blackout.clicked() {
-                    state.blackout = !state.blackout;
-                }
-                mappable(
-                    ui,
-                    &midi_map,
-                    ControlTarget::MasterFreeze,
-                    &mut actions,
-                    |ui| ui.checkbox(&mut state.master_freeze, "master freeze"),
-                );
-            });
-                },
-            );
-            if !state.show_mode {
-                panel::section(
-                    ui,
-                    "master-effects",
-                    "✦",
-                    "MASTER EFFECTS",
-                    palette,
-                    false,
-                    |_| {},
-                    |ui| {
-                    let effect_packages = &state.effect_packages;
-                    let master_effects = &mut state.master_effects;
-                    let slot_count = master_effects.slots.len();
-                    let mut reorder = None;
-                    for index in 0..slot_count {
-                        ui.group(|ui| {
-                            let slot = &mut master_effects.slots[index];
-                            ui.horizontal(|ui| {
-                                ui.monospace(format!("{}", index + 1));
-                                egui::ComboBox::from_id_salt(format!("master-fx-kind-{index}"))
-                                    .selected_text(slot.kind.label())
-                                    .show_ui(ui, |ui| {
-                                        for kind in MasterEffectKind::ALL {
-                                            ui.selectable_value(
-                                                &mut slot.kind,
-                                                kind,
-                                                kind.label(),
+                                        if slot.kind == MasterEffectKind::Blur {
+                                            ui.add(
+                                                egui::Slider::new(&mut slot.amount, 0.0..=32.0)
+                                                    .text("radius px"),
+                                            );
+                                        } else if slot.kind == MasterEffectKind::Feedback {
+                                            ui.add(
+                                                egui::Slider::new(&mut slot.feedback, 0.0..=0.99)
+                                                    .text("persistence"),
+                                            );
+                                        } else if slot.kind == MasterEffectKind::Custom {
+                                            draw_custom_effect(
+                                                ui,
+                                                index,
+                                                slot,
+                                                effect_packages,
+                                                palette,
+                                                &mut actions,
                                             );
                                         }
                                     });
-                                buttons::midi_toggle(
-                                    ui,
-                                    &format!("master.slot.{index}.bypass"),
-                                    &format!("Master slot {} · Bypass", index + 1),
-                                    &mut slot.bypassed,
-                                    |ui, value| ui.checkbox(value, "Bypass"),
-                                );
-                                ui.add(
-                                    egui::Slider::new(&mut slot.mix, 0.0..=1.0).text("wet"),
-                                );
-                                if buttons::midi_button(
-                                    ui,
-                                    &format!("master.slot.{index}.up"),
-                                    &format!("Master slot {} · Move up", index + 1),
-                                    |ui| ui.add_enabled(index > 0, egui::Button::new("↑")),
-                                )
-                                .clicked()
-                                {
-                                    reorder = Some((index, index - 1));
+                                }
+                                if let Some((from, to)) = reorder {
+                                    master_effects.slots.swap(from, to);
                                 }
                                 if buttons::midi_button(
                                     ui,
-                                    &format!("master.slot.{index}.down"),
-                                    &format!("Master slot {} · Move down", index + 1),
-                                    |ui| {
-                                        ui.add_enabled(
-                                            index + 1 < slot_count,
-                                            egui::Button::new("↓"),
-                                        )
-                                    },
+                                    "master.reset_effects",
+                                    "Master · Reset effects",
+                                    |ui| ui.button("Reset master effects"),
                                 )
                                 .clicked()
                                 {
-                                    reorder = Some((index, index + 1));
+                                    *master_effects = MasterEffectChain::default();
                                 }
-                            });
-                            if slot.kind == MasterEffectKind::Blur {
-                                ui.add(
-                                    egui::Slider::new(&mut slot.amount, 0.0..=32.0)
-                                        .text("radius px"),
-                                );
-                            } else if slot.kind == MasterEffectKind::Feedback {
-                                ui.add(
-                                    egui::Slider::new(&mut slot.feedback, 0.0..=0.99)
-                                        .text("persistence"),
-                                );
-                            } else if slot.kind == MasterEffectKind::Custom {
-                                draw_custom_effect(
-                                    ui,
-                                    index,
-                                    slot,
-                                    effect_packages,
-                                    palette,
-                                    &mut actions,
-                                );
-                            }
-                        });
-                    }
-                    if let Some((from, to)) = reorder {
-                        master_effects.slots.swap(from, to);
-                    }
-                    if buttons::midi_button(
-                        ui,
-                        "master.reset_effects",
-                        "Master · Reset effects",
-                        |ui| ui.button("Reset master effects"),
-                    )
-                    .clicked()
-                    {
-                        *master_effects = MasterEffectChain::default();
-                    }
-                    master_effects.sanitize();
-                    ui.weak(
+                                master_effects.sanitize();
+                                ui.weak(
                         "Blur uses fixed ping-pong textures allocated with the composition target.",
                     );
-                    draw_master_modulation(
-                        ui,
-                        &mut state.master_modulation,
-                        master_effects,
-                        effect_packages,
-                        palette,
-                        state.master_mod_sources,
-                    );
-                    ui.separator();
-                    ui.label("Effect package");
-                    ui.text_edit_singleline(&mut state.effect_manifest_path);
-                    ui.horizontal(|ui| {
-                        if buttons::midi_button(
-                            ui,
-                            "master.refresh_registry",
-                            "Master · Refresh effect registry",
-                            |ui| ui.button("Refresh registry"),
-                        )
-                        .clicked()
-                        {
-                            actions.push(UiAction::RefreshEffectRegistry);
-                        }
-                        if buttons::midi_button(
-                            ui,
-                            "master.watch_manifest",
-                            "Master · Watch effect package",
-                            |ui| ui.button("Watch"),
-                        )
-                        .clicked()
-                        {
-                            actions.push(UiAction::WatchEffectManifest);
-                        }
-                        if buttons::midi_button(
-                            ui,
-                            "master.reload_manifest",
-                            "Master · Reload effect package",
-                            |ui| ui.button("Reload now"),
-                        )
-                        .clicked()
-                        {
-                            actions.push(UiAction::ReloadEffectManifest);
-                        }
-                    });
-                    ui.weak(&state.effect_registry_status);
-                    if state.effect_reload_status.contains("rejected") {
-                        ui.colored_label(palette.warning, &state.effect_reload_status);
-                    } else {
-                        ui.weak(&state.effect_reload_status);
-                    }
-                });
-            } else {
-                egui::CollapsingHeader::new("LIVE MASTER EFFECTS")
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        for (index, slot) in state.master_effects.slots.iter_mut().enumerate() {
-                            let label = if slot.kind == MasterEffectKind::Custom {
-                                state
-                                    .effect_packages
-                                    .iter()
-                                    .find(|package| package.id == slot.package_id)
-                                    .map_or("Missing custom package", |package| {
-                                        package.name.as_str()
-                                    })
-                            } else {
-                                slot.kind.label()
-                            };
-                            ui.horizontal(|ui| {
-                                ui.monospace(format!("{}", index + 1));
-                                ui.strong(label);
-                                buttons::midi_toggle(
+                                draw_master_modulation(
                                     ui,
-                                    &format!("master.slot.{index}.bypass"),
-                                    &format!("Master slot {} · Bypass", index + 1),
-                                    &mut slot.bypassed,
-                                    |ui, value| ui.checkbox(value, "Bypass"),
+                                    &mut state.master_modulation,
+                                    master_effects,
+                                    effect_packages,
+                                    palette,
+                                    state.master_mod_sources,
                                 );
-                                ui.add(egui::Slider::new(&mut slot.mix, 0.0..=1.0).text("wet"));
-                            });
-                        }
-                        state.master_effects.sanitize();
-                        ui.weak(
+                                ui.separator();
+                                ui.label("Effect package");
+                                ui.text_edit_singleline(&mut state.effect_manifest_path);
+                                ui.horizontal(|ui| {
+                                    if buttons::midi_button(
+                                        ui,
+                                        "master.refresh_registry",
+                                        "Master · Refresh effect registry",
+                                        |ui| ui.button("Refresh registry"),
+                                    )
+                                    .clicked()
+                                    {
+                                        actions.push(UiAction::RefreshEffectRegistry);
+                                    }
+                                    if buttons::midi_button(
+                                        ui,
+                                        "master.watch_manifest",
+                                        "Master · Watch effect package",
+                                        |ui| ui.button("Watch"),
+                                    )
+                                    .clicked()
+                                    {
+                                        actions.push(UiAction::WatchEffectManifest);
+                                    }
+                                    if buttons::midi_button(
+                                        ui,
+                                        "master.reload_manifest",
+                                        "Master · Reload effect package",
+                                        |ui| ui.button("Reload now"),
+                                    )
+                                    .clicked()
+                                    {
+                                        actions.push(UiAction::ReloadEffectManifest);
+                                    }
+                                });
+                                ui.weak(&state.effect_registry_status);
+                                if state.effect_reload_status.contains("rejected") {
+                                    ui.colored_label(palette.warning, &state.effect_reload_status);
+                                } else {
+                                    ui.weak(&state.effect_reload_status);
+                                }
+                            },
+                        );
+                    } else {
+                        egui::CollapsingHeader::new("LIVE MASTER EFFECTS")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                for (index, slot) in
+                                    state.master_effects.slots.iter_mut().enumerate()
+                                {
+                                    let label = if slot.kind == MasterEffectKind::Custom {
+                                        state
+                                            .effect_packages
+                                            .iter()
+                                            .find(|package| package.id == slot.package_id)
+                                            .map_or("Missing custom package", |package| {
+                                                package.name.as_str()
+                                            })
+                                    } else {
+                                        slot.kind.label()
+                                    };
+                                    ui.horizontal(|ui| {
+                                        ui.monospace(format!("{}", index + 1));
+                                        ui.strong(label);
+                                        buttons::midi_toggle(
+                                            ui,
+                                            &format!("master.slot.{index}.bypass"),
+                                            &format!("Master slot {} · Bypass", index + 1),
+                                            &mut slot.bypassed,
+                                            |ui, value| ui.checkbox(value, "Bypass"),
+                                        );
+                                        ui.add(
+                                            egui::Slider::new(&mut slot.mix, 0.0..=1.0).text("wet"),
+                                        );
+                                    });
+                                }
+                                state.master_effects.sanitize();
+                                ui.weak(
                             "Effect choice, order and advanced parameters are locked in Show Mode.",
                         );
-                    });
-            }
-            });
+                            });
+                    }
+                });
         });
     if !state.show_mode {
         state.theme.editor_ui(ctx);
@@ -1487,6 +1449,174 @@ fn mapping_mode_label(mode: MappingMode) -> &'static str {
 /// Every control target the MIDI manager lists, for mapping network ids.
 pub(crate) fn known_control_targets() -> Vec<ControlTarget> {
     midi::midi_targets()
+}
+
+/// The selected deck's performance controls and the other deck editors.
+#[allow(clippy::too_many_arguments)]
+fn draw_deck_section(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &mut FourDeckMixer,
+    transports: &mut [DeckTransport; 4],
+    generator_stats: [virtual_generate::GeneratorStats; 4],
+    palette: ThemePalette,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+) {
+    let layout = state.theme.deck_layout.resolve(ui.available_width());
+    let selected_deck = mixer.selected();
+    let transforms_ref = &mut state.transforms;
+    let blend_modes_ref = &mut state.blend_modes;
+    let solo_ref = &mut state.solo;
+    let bypassed_ref = &mut state.bypassed;
+    let effects_ref = &mut state.effects;
+    let lfos_ref = &mut state.lfos;
+    let mod_sources = state.mod_sources;
+    let deck_packages_ref = &mut state.deck_packages;
+    let deck_effect_packages = &state.deck_effect_packages;
+    let generator_windows_ref = &mut state.generator_windows;
+    let actions_ref = actions;
+    let mut deck_strip = |ui: &mut egui::Ui, deck_id: DeckId| {
+        draw_deck(
+            ui,
+            mixer,
+            deck_id,
+            DeckControls {
+                palette,
+                midi_map,
+                show_mode: state.show_mode,
+                transport: &mut transports[deck_id.index()],
+                transform: &mut transforms_ref[deck_id.index()],
+                blend_mode: &mut blend_modes_ref[deck_id.index()],
+                solo: &mut solo_ref[deck_id.index()],
+                bypassed: &mut bypassed_ref[deck_id.index()],
+                effects: &mut effects_ref[deck_id.index()],
+                lfos: &mut lfos_ref[deck_id.index()],
+                mod_sources: mod_sources[deck_id.index()],
+                package: &mut deck_packages_ref[deck_id.index()],
+                packages: deck_effect_packages,
+                generator: generator_stats[deck_id.index()],
+                generator_window: &mut generator_windows_ref[deck_id.index()],
+            },
+            actions_ref,
+        );
+    };
+    let master_freeze = state.master_freeze;
+    let show_mode = state.show_mode;
+    panel::section(
+        ui,
+        "selected-deck",
+        "◧",
+        &format!("DECK {} · PERFORMANCE & FX", selected_deck.label()),
+        palette,
+        true,
+        |_| {},
+        |ui| {
+            if master_freeze {
+                ui.colored_label(
+                        palette.warning,
+                        "PROGRAM FROZEN · Deck FX and source changes are staged until master freeze is released.",
+                    );
+            }
+            deck_strip(ui, selected_deck);
+
+            if !show_mode {
+                egui::CollapsingHeader::new("Other deck editors")
+                    .default_open(false)
+                    .show(ui, |ui| match layout {
+                        ResolvedDeckLayout::Cascade => {
+                            egui::ScrollArea::horizontal()
+                                .id_salt("other-deck-cascade")
+                                .show(ui, |ui| {
+                                    ui.horizontal_top(|ui| {
+                                        for deck_id in DeckId::ALL
+                                            .into_iter()
+                                            .filter(|id| *id != selected_deck)
+                                        {
+                                            ui.allocate_ui_with_layout(
+                                                egui::vec2(CASCADE_STRIP_WIDTH, 10.0),
+                                                egui::Layout::top_down(egui::Align::Min),
+                                                |ui| {
+                                                    ui.set_width(CASCADE_STRIP_WIDTH);
+                                                    deck_strip(ui, deck_id);
+                                                },
+                                            );
+                                        }
+                                    });
+                                });
+                        }
+                        ResolvedDeckLayout::Grid => {
+                            egui::Grid::new("other-decks")
+                                .num_columns(2)
+                                .spacing([12.0, 12.0])
+                                .show(ui, |ui| {
+                                    for (index, deck_id) in DeckId::ALL
+                                        .into_iter()
+                                        .filter(|id| *id != selected_deck)
+                                        .enumerate()
+                                    {
+                                        deck_strip(ui, deck_id);
+                                        if index % 2 == 1 {
+                                            ui.end_row();
+                                        }
+                                    }
+                                });
+                        }
+                        ResolvedDeckLayout::Stack => {
+                            for deck_id in DeckId::ALL.into_iter().filter(|id| *id != selected_deck)
+                            {
+                                deck_strip(ui, deck_id);
+                            }
+                        }
+                    });
+            }
+        },
+    );
+}
+
+/// The live program picture, as on a media server's composition monitor.
+fn program_monitor(
+    ui: &mut egui::Ui,
+    monitor: (egui::TextureId, [u32; 2]),
+    state: &UiState,
+    palette: ThemePalette,
+) {
+    let (texture, [width, height]) = monitor;
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("◉").color(palette.danger));
+        ui.label(
+            egui::RichText::new("PROGRAM")
+                .small()
+                .strong()
+                .color(palette.strong_text),
+        );
+        ui.weak(format!("{width}×{height}"));
+        if state.blackout {
+            ui.colored_label(palette.danger, "BLACKOUT");
+        }
+        if state.master_freeze {
+            ui.colored_label(palette.warning, "FROZEN");
+        }
+    });
+    let aspect = width.max(1) as f32 / height.max(1) as f32;
+    let available = ui.available_width();
+    let size = egui::vec2(available, (available / aspect).min(300.0));
+    let size = egui::vec2(size.y * aspect, size.y);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(available, size.y), egui::Sense::hover());
+    let image = egui::Rect::from_center_size(rect.center(), size);
+    ui.painter().rect_filled(rect, 2.0, egui::Color32::BLACK);
+    ui.painter().image(
+        texture,
+        image,
+        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+        egui::Color32::WHITE,
+    );
+    ui.painter().rect_stroke(
+        rect,
+        2.0,
+        egui::Stroke::new(palette.outline_width.min(1.0), palette.stroke),
+        egui::StrokeKind::Inside,
+    );
 }
 
 #[cfg(test)]

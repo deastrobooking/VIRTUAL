@@ -46,6 +46,13 @@ Built so far:
   - **Launcher** is Ableton's clip launcher: deck columns, scene launchers
     on the right, per-deck stop and Stop All.
   - Both have S/M/L sizes, saved with the project's appearance.
+- **Layers** view: Resolume's grid, kept as a third option.
+- **Clip colours**: 16 colours per slot from the context menu, saved in the
+  clip's playback settings so they follow moves.
+- **Docked properties panel** on wide windows, with a live **PROGRAM**
+  monitor (the program texture shown through egui-wgpu) above the selected
+  deck's controls.
+- **Compact X/S/B buttons** in deck strips, matching the grid.
 - **Clip preview on hover**: a 256×144 frame above the clip details.
 - **Templates** as starting points for colour, outlines, rounding, text
   size and spacing:
@@ -64,22 +71,14 @@ Built so far:
 
 Next steps, in order of value:
 
-1. **Docked side panels**: a browser (files, generators, effects) on the
-   left and Deck/Clip properties on the right of the grid, instead of the
-   long vertical scroll. Use egui `SidePanel`s inside the main window, with
-   widths remembered.
-2. **Preview monitor**: clicking a clip's name strip cues it to a preview
-   thumbnail, as in Resolume, while clicking the image launches it.
-3. **Clip colours**: per-slot colour from a 16-colour palette, chosen from
-   the context menu and saved in the project. Tiles use it for the top bar
-   and the empty-slot fill.
-4. **Narrow tracks**: let Session columns collapse to launch buttons only,
-   as Ableton does, for laptop screens.
-5. **Icon set**: replace the remaining text buttons (Eject, Bypass, Solo,
-   Record) in deck strips with the same compact glyph buttons used in the
-   grid, keeping the text in tooltips.
-6. **Layout presets**: save which sections are folded and the clip view as
-   named layouts, alongside appearance presets.
+1. **Browser panel** on the left: media folders with thumbnails, generator
+   sources and effects, dragged onto clips and decks.
+2. **Preview monitor**: decode the selected clip into a second small
+   texture so it can be checked before launch, next to PROGRAM.
+3. **Narrow tracks**: let Launcher columns collapse to launch buttons
+   only, for laptop screens.
+4. **Layout presets**: save which sections are folded, the clip view and
+   the panel width as named layouts alongside appearance presets.
 
 ## Sources
 

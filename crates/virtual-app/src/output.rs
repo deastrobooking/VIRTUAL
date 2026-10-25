@@ -189,6 +189,7 @@ impl State {
                 return false;
             }
             self.program = ProgramTarget::new(&self.gpu.device, self.ui.composition_extent);
+            self.program_monitor_stale = true;
             self.compositor
                 .set_output_extent(&self.gpu.device, self.ui.composition_extent);
             self.master_effect_processor =

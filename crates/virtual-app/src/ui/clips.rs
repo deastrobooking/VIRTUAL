@@ -8,9 +8,31 @@ use super::*;
 
 /// Width of the per-deck controls at the left of each Session lane.
 const LANE_HEADER_WIDTH: f32 = 176.0;
+/// Width of the per-deck controls at the left of each row in Layers view.
+const LAYER_HEADER_WIDTH: f32 = 150.0;
 /// Width of the scene launch column in Session view.
 const SCENE_LAUNCH_WIDTH: f32 = 64.0;
 const HEADER_HEIGHT: f32 = 22.0;
+
+/// The clip colour palette, chosen per slot from the context menu.
+const CLIP_COLORS: [egui::Color32; 16] = [
+    egui::Color32::from_rgb(255, 94, 94),
+    egui::Color32::from_rgb(255, 146, 64),
+    egui::Color32::from_rgb(255, 200, 58),
+    egui::Color32::from_rgb(232, 240, 96),
+    egui::Color32::from_rgb(150, 228, 84),
+    egui::Color32::from_rgb(64, 214, 128),
+    egui::Color32::from_rgb(52, 220, 200),
+    egui::Color32::from_rgb(64, 196, 255),
+    egui::Color32::from_rgb(84, 136, 255),
+    egui::Color32::from_rgb(132, 104, 255),
+    egui::Color32::from_rgb(190, 102, 255),
+    egui::Color32::from_rgb(255, 102, 214),
+    egui::Color32::from_rgb(255, 140, 170),
+    egui::Color32::from_rgb(200, 160, 120),
+    egui::Color32::from_rgb(170, 176, 190),
+    egui::Color32::from_rgb(245, 245, 245),
+];
 
 /// Gives a grid cell an exact rect. A child scope placed straight into the
 /// grid (drag sources, MIDI-map overlays) gets a max rect reaching the bottom
@@ -438,6 +460,9 @@ pub(super) fn draw_clip_grid(
                     ClipView::Launcher => {
                         "Decks as columns; scenes launch from the right, stop buttons below"
                     }
+                    ClipView::Layers => {
+                        "Decks as rows of clip tiles with layer controls; columns launch from the top"
+                    }
                 });
         }
         ui.separator();
@@ -469,6 +494,9 @@ pub(super) fn draw_clip_grid(
         ClipView::Session => lanes_view(ui, state, mixer, clips, &context, actions, size),
         ClipView::Launcher => {
             launcher_grid(ui, state, mixer, clips, &context, actions, size.tile());
+        }
+        ClipView::Layers => {
+            layers_grid(ui, state, mixer, clips, &context, actions, size.tile());
         }
     }
 
@@ -786,6 +814,66 @@ fn lanes_view(
                         ClipAddress { deck, slot },
                         block,
                         TileStyle::Filmstrip,
+                    );
+                }
+                ui.end_row();
+            }
+        });
+}
+
+/// Resolume-style: one row per deck with its controls on the left, column
+/// triggers (scenes) across the top.
+fn layers_grid(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &mut FourDeckMixer,
+    clips: &mut ClipBank,
+    context: &ClipGridContext<'_>,
+    actions: &mut Vec<UiAction>,
+    tile: egui::Vec2,
+) {
+    let palette = state.theme.palette();
+    egui::Grid::new("clip-grid-layers")
+        .num_columns(CLIPS_PER_DECK + 1)
+        .spacing([4.0, 4.0])
+        .show(ui, |ui| {
+            fixed_cell(ui, egui::vec2(LAYER_HEADER_WIDTH, HEADER_HEIGHT), |ui| {
+                ui.label(
+                    egui::RichText::new("COLUMNS")
+                        .small()
+                        .strong()
+                        .color(palette.muted_text),
+                )
+            });
+            for slot in 0..CLIPS_PER_DECK {
+                let scene_index = state.scene_bank * CLIPS_PER_DECK + slot;
+                scene_cell(
+                    ui,
+                    state,
+                    clips,
+                    context.midi_map,
+                    actions,
+                    scene_index,
+                    egui::vec2(tile.x, HEADER_HEIGHT),
+                    &format!("▼ {}", scene_index + 1),
+                );
+            }
+            ui.end_row();
+            for deck in DeckId::ALL {
+                fixed_column(ui, egui::vec2(LAYER_HEADER_WIDTH, tile.y), |ui| {
+                    layer_header(ui, state, mixer, context.midi_map, actions, deck, tile.y);
+                });
+                for slot in 0..CLIPS_PER_DECK {
+                    clip_cell(
+                        ui,
+                        state,
+                        mixer,
+                        clips,
+                        context,
+                        actions,
+                        ClipAddress { deck, slot },
+                        tile,
+                        TileStyle::Card,
                     );
                 }
                 ui.end_row();
@@ -1115,6 +1203,81 @@ fn lane_header(
     }
 }
 
+/// The controls at the left of a Layers row: a deck-coloured edge, the
+/// deck name, X/B/S and (when the row is tall enough) the level.
+fn layer_header(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &mut FourDeckMixer,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    deck: DeckId,
+    height: f32,
+) {
+    let palette = state.theme.palette();
+    let color = palette.deck_color(deck);
+    let rect = ui.max_rect();
+    ui.painter()
+        .rect_filled(rect, 3.0, palette.surface_tint(color, 0.08));
+    ui.painter().rect_filled(
+        egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
+        1.0,
+        color,
+    );
+    ui.add_space(2.0);
+    ui.horizontal(|ui| {
+        ui.add_space(6.0);
+        deck_select(ui, mixer, midi_map, actions, deck, palette);
+    });
+    ui.horizontal(|ui| {
+        ui.add_space(6.0);
+        deck_toggles(ui, state, mixer, midi_map, actions, deck);
+    });
+    if height >= 78.0 {
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
+            deck_level(
+                ui,
+                mixer,
+                midi_map,
+                actions,
+                deck,
+                LAYER_HEADER_WIDTH - 20.0,
+            );
+        });
+    }
+}
+
+/// The deck name as a selectable label, mappable to deck select.
+fn deck_select(
+    ui: &mut egui::Ui,
+    mixer: &mut FourDeckMixer,
+    midi_map: &MidiMapUi,
+    actions: &mut Vec<UiAction>,
+    deck: DeckId,
+    palette: ThemePalette,
+) {
+    if mappable(
+        ui,
+        midi_map,
+        ControlTarget::DeckSelect(deck.index() as u8),
+        actions,
+        |ui| {
+            ui.selectable_label(
+                mixer.selected() == deck,
+                egui::RichText::new(format!("DECK {}", deck.label()))
+                    .strong()
+                    .color(palette.grid_text),
+            )
+            .on_hover_text("Select this deck's performance controls")
+        },
+    )
+    .clicked()
+    {
+        mixer.select(deck);
+    }
+}
+
 /// An Ableton-style track header: a title bar in the deck colour, then
 /// bypass/solo and the level.
 fn track_header(
@@ -1351,7 +1514,12 @@ fn clip_cell(
         name,
         state: tile_state,
         selected,
-        deck_color: palette.deck_color(deck),
+        deck_color: clips
+            .playback(address)
+            .and_then(|playback| playback.color)
+            .map_or(palette.deck_color(deck), |index| {
+                CLIP_COLORS[usize::from(index) % CLIP_COLORS.len()]
+            }),
         progress: (tile_state == TileState::Playing && slot_state.movie.is_some())
             .then(|| {
                 let transport = context.transports[deck.index()];
@@ -1553,6 +1721,47 @@ fn clip_cell(
             }
             if clips.path(address).is_some() && ui.button("Delete clip").clicked() {
                 actions.push(UiAction::ClearSlot(address));
+                ui.close();
+            }
+            ui.separator();
+            ui.label(egui::RichText::new("Colour").small().strong());
+            let mut playback = clips.playback(address).unwrap_or_default();
+            let mut chosen = None;
+            egui::Grid::new(("clip-colours", deck.index(), slot))
+                .spacing([3.0, 3.0])
+                .show(ui, |ui| {
+                    for (index, color) in CLIP_COLORS.iter().enumerate() {
+                        let (rect, swatch) =
+                            ui.allocate_exact_size(egui::vec2(18.0, 18.0), egui::Sense::click());
+                        ui.painter().rect_filled(rect, 3.0, *color);
+                        if playback.color == Some(index as u8) || swatch.hovered() {
+                            ui.painter().rect_stroke(
+                                rect,
+                                3.0,
+                                egui::Stroke::new(2.0, palette.strong_text),
+                                egui::StrokeKind::Outside,
+                            );
+                        }
+                        if swatch.clicked() {
+                            chosen = Some(Some(index as u8));
+                        }
+                        if index % 8 == 7 {
+                            ui.end_row();
+                        }
+                    }
+                });
+            if ui
+                .add_enabled(
+                    playback.color.is_some(),
+                    egui::Button::new("Use deck colour"),
+                )
+                .clicked()
+            {
+                chosen = Some(None);
+            }
+            if let Some(color) = chosen {
+                playback.color = color;
+                clips.set_playback(address, playback);
                 ui.close();
             }
         });

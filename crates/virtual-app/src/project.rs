@@ -193,6 +193,7 @@ pub fn clip_playback_from_project(playback: ClipPlaybackProject) -> ClipPlayback
             ClipLaunchModeProject::Resume => ClipLaunchMode::Resume,
         },
         beat_duration: playback.beat_duration,
+        color: playback.color.filter(|index| usize::from(*index) < 16),
     }
 }
 
@@ -205,6 +206,7 @@ fn clip_playback_to_project(playback: ClipPlayback) -> ClipPlaybackProject {
             ClipLaunchMode::Resume => ClipLaunchModeProject::Resume,
         },
         beat_duration: playback.beat_duration,
+        color: playback.color,
     }
 }
 
@@ -1648,6 +1650,7 @@ mod tests {
             out_point: Some(14.0),
             launch_mode: ClipLaunchMode::Resume,
             beat_duration: Some(16.0),
+            color: Some(5),
         };
         assert_eq!(
             clip_playback_from_project(clip_playback_to_project(playback)),

@@ -1462,6 +1462,9 @@ pub struct ClipPlaybackProject {
     #[serde(default)]
     pub launch_mode: ClipLaunchModeProject,
     pub beat_duration: Option<f64>,
+    /// Clip palette index (0–15); absent uses the deck colour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<u8>,
 }
 
 impl Default for ClipPlaybackProject {
@@ -1471,6 +1474,7 @@ impl Default for ClipPlaybackProject {
             out_point: None,
             launch_mode: ClipLaunchModeProject::Restart,
             beat_duration: None,
+            color: None,
         }
     }
 }
@@ -2480,6 +2484,7 @@ mod tests {
             out_point: Some(9.5),
             launch_mode: ClipLaunchModeProject::Resume,
             beat_duration: Some(8.0),
+            color: None,
         };
         project.midi_mappings.push(MidiMappingProject {
             device: "controller".to_owned(),

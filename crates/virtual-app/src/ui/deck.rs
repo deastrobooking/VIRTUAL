@@ -109,7 +109,11 @@ pub(super) fn draw_deck(
             });
             let eject_enabled = !show_mode && !matches!(mixer.deck(id).state, DeckState::Empty);
             if buttons::midi_button(ui, &format!("deck.{}.eject", id.index()), &format!("Deck {} · Eject", id.label()), |ui| {
-                ui.add_enabled(eject_enabled, egui::Button::new("Eject"))
+                ui.add_enabled(
+                    eject_enabled,
+                    egui::Button::new(egui::RichText::new("X").strong()).min_size(egui::vec2(24.0, 20.0)),
+                )
+                .on_hover_text("Eject this deck's source")
             })
             .clicked()
             {
@@ -238,7 +242,17 @@ pub(super) fn draw_deck(
         });
         ui.horizontal(|ui| {
             if buttons::midi_button(ui, &format!("deck.{}.solo", id.index()), &format!("Deck {} · Solo", id.label()), |ui| {
-                ui.selectable_label(*solo, "Solo")
+                ui.add(
+                    egui::Button::new(egui::RichText::new("S").strong())
+                        .min_size(egui::vec2(24.0, 20.0))
+                        .selected(*solo)
+                        .fill(if *solo {
+                            palette.control_tint(palette.accent, 0.6)
+                        } else {
+                            palette.control
+                        }),
+                )
+                .on_hover_text("Solo: show only soloed decks")
             })
             .clicked()
             {
@@ -249,7 +263,19 @@ pub(super) fn draw_deck(
                 midi_map,
                 ControlTarget::DeckMute(id.index() as u8),
                 actions,
-                |ui| ui.selectable_label(*bypassed, "Bypass"),
+                |ui| {
+                    ui.add(
+                        egui::Button::new(egui::RichText::new("B").strong())
+                            .min_size(egui::vec2(24.0, 20.0))
+                            .selected(*bypassed)
+                            .fill(if *bypassed {
+                                palette.control_tint(palette.warning, 0.6)
+                            } else {
+                                palette.control
+                            }),
+                    )
+                    .on_hover_text("Bypass: hide this deck from the mix")
+                },
             )
             .clicked()
             {

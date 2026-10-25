@@ -99,6 +99,10 @@ struct State {
     compositor: FourDeckCompositor,
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
+    /// The program texture registered with egui for the monitor, and
+    /// whether the program target was rebuilt since.
+    program_monitor: Option<egui::TextureId>,
+    program_monitor_stale: bool,
     clock: Clock,
     ui: ui::UiState,
     gpu_info: String,
@@ -689,6 +693,8 @@ impl State {
             compositor,
             egui_state,
             egui_renderer,
+            program_monitor: None,
+            program_monitor_stale: false,
             clock: Clock::new(Instant::now()),
             ui,
             gpu_info,
@@ -839,6 +845,30 @@ impl State {
         let runtime_status = self.performance_runtime.status();
         let project_dirty = self.project_dirty_throttled(now);
 
+        let program_monitor = match self.program_monitor {
+            Some(id) => {
+                if self.program_monitor_stale {
+                    self.egui_renderer.update_egui_texture_from_wgpu_texture(
+                        &self.gpu.device,
+                        &self.program.view,
+                        wgpu::FilterMode::Linear,
+                        id,
+                    );
+                }
+                id
+            }
+            None => {
+                let id = self.egui_renderer.register_native_texture(
+                    &self.gpu.device,
+                    &self.program.view,
+                    wgpu::FilterMode::Linear,
+                );
+                self.program_monitor = Some(id);
+                id
+            }
+        };
+        self.program_monitor_stale = false;
+
         // --- UI pass: pure CPU, produces geometry for the GPU pass below.
         let ctx = self.egui_state.egui_ctx().clone();
         let raw_input = self.egui_state.take_egui_input(&self.window);
@@ -930,6 +960,7 @@ impl State {
                     },
                     ndi: self.ndi.status(),
                     sync: self.network_sync.status(),
+                    program_monitor: (program_monitor, self.program.extent()),
                     osc: ui::OscMetrics {
                         status: &self.osc_status,
                         connected: self.osc_input.is_some(),

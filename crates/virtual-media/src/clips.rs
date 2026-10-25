@@ -31,6 +31,9 @@ pub struct ClipPlayback {
     pub launch_mode: ClipLaunchMode,
     /// Optional musical length in beats, measured from the in point.
     pub beat_duration: Option<f64>,
+    /// Index into the operator's 16-colour clip palette; `None` uses the
+    /// deck colour.
+    pub color: Option<u8>,
 }
 
 impl Default for ClipPlayback {
@@ -40,6 +43,7 @@ impl Default for ClipPlayback {
             out_point: None,
             launch_mode: ClipLaunchMode::Restart,
             beat_duration: None,
+            color: None,
         }
     }
 }
@@ -74,6 +78,7 @@ impl ClipPlayback {
             out_point,
             launch_mode: self.launch_mode,
             beat_duration,
+            color: self.color.filter(|index| *index < 16),
         }
     }
 
@@ -808,6 +813,7 @@ mod tests {
                 out_point: Some(8.0),
                 launch_mode: ClipLaunchMode::Resume,
                 beat_duration: None,
+                color: None,
             },
         );
         bank.activate(address);
@@ -893,6 +899,7 @@ mod tests {
             out_point: Some(7.0),
             launch_mode: ClipLaunchMode::Resume,
             beat_duration: Some(8.0),
+            color: None,
         };
         bank.set_playback(address, playback);
         bank.begin_relink(address, PathBuf::from("new.mov"));
@@ -925,6 +932,7 @@ mod tests {
                 out_point: Some(9.0),
                 launch_mode: ClipLaunchMode::Resume,
                 beat_duration: None,
+                color: None,
             },
         );
 
