@@ -410,6 +410,11 @@ impl State {
         self.ui
             .geometry_library
             .clone_from(&project_file.geometry_library);
+        self.ui.timeline.project = project_file.video_timeline.clone();
+        self.ui.timeline.reset_history();
+        self.ui.clip_clipboard = None;
+        self.ui.scene_clipboard = None;
+        self.ui.clip_editor = None;
         self.ui.scenes = project_file.settings.scenes;
         self.ui.scene_bank = 0;
         self.project_epoch = self.project_epoch.wrapping_add(1);

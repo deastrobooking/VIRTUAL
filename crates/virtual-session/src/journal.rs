@@ -519,6 +519,26 @@ pub fn recover_journal(
     if !saw_header {
         return Err(JournalError::MissingHeader);
     }
+    // A self-contained edited journal may carry all checkpoints inline.
+    // Prefer the latest durable baseline even when the sidecar is absent.
+    recovery.checkpoint = recovery
+        .history_checkpoints
+        .iter()
+        .chain(recovery.checkpoint.iter())
+        .max_by_key(|checkpoint| checkpoint.at.monotonic_ns)
+        .cloned();
+    if let Some(checkpoint) = &recovery.checkpoint {
+        recovery.commands = recovery
+            .history_commands
+            .iter()
+            .filter(|command| {
+                checkpoint
+                    .after_sequence
+                    .is_none_or(|sequence| command.sequence > sequence)
+            })
+            .cloned()
+            .collect();
+    }
     Ok(recovery)
 }
 

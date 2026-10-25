@@ -71,6 +71,15 @@ impl State {
                     );
                 }
                 ui::UiAction::MoveClip { from, to } => self.move_clip(from, to, now),
+                ui::UiAction::PasteClip {
+                    to,
+                    source_deck,
+                    clip,
+                } => {
+                    self.paste_clip(to, source_deck, *clip, now);
+                }
+                ui::UiAction::ExportTimelineVideo => self.export_timeline_video(),
+                ui::UiAction::ExportTimelineTake => self.export_timeline_take(),
                 ui::UiAction::ClearSlot(address) => {
                     self.clear_clip(address, now, CommandOrigin::Operator);
                 }

@@ -612,8 +612,8 @@ impl ClipView {
 pub enum ClipSize {
     /// Name-only buttons: Ableton's narrow tracks, for laptop screens.
     Mini,
-    Small,
     #[default]
+    Small,
     Medium,
     Large,
 }

@@ -1,6 +1,8 @@
 //! Event-sourced show commands, checkpoints, takes, and deterministic replay.
 
+mod edit;
 mod journal;
+pub use edit::{EditError, TakeSlice, assemble_takes};
 
 use std::collections::BTreeMap;
 

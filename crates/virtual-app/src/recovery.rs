@@ -34,6 +34,17 @@ impl RecoveryEntry {
         )
     }
 
+    pub(crate) fn start_seconds(&self) -> f64 {
+        self.timeline
+            .history_checkpoints
+            .iter()
+            .chain(self.timeline.checkpoint.iter())
+            .map(|checkpoint| checkpoint.at.monotonic_ns)
+            .min()
+            .unwrap_or(0) as f64
+            / 1e9
+    }
+
     pub(crate) fn markers(&self) -> &[virtual_session::TimelineMarker] {
         &self.timeline.markers
     }

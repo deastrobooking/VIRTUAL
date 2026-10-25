@@ -7,7 +7,7 @@ use super::theme::{ClipSize, ClipView};
 use super::*;
 
 /// Width of the per-deck controls at the left of each Session lane.
-const LANE_HEADER_WIDTH: f32 = 176.0;
+const LANE_HEADER_WIDTH: f32 = 160.0;
 /// Width of the per-deck controls at the left of each row in Layers view.
 const LAYER_HEADER_WIDTH: f32 = 150.0;
 /// Width of the scene launch column in Session view.
@@ -547,14 +547,76 @@ pub(super) fn draw_clip_grid(
         slot: clips.selected(deck),
     };
     let selected_occupied = clips.slot(address).is_some_and(|slot| {
-        slot.movie.is_some() || slot.pending_path.is_some() || slot.error.is_some()
+        slot.movie.is_some()
+            || slot.pending_path.is_some()
+            || slot.error.is_some()
+            || !slot.automation.lanes.is_empty()
     });
-    ui.horizontal(|ui| {
-        ui.strong(format!(
-            "Selected · Deck {} clip {}",
-            deck.label(),
-            address.slot + 1
-        ));
+    if !ui.ctx().text_edit_focused()
+        && ui.ctx().top_layer_id() == Some(ui.layer_id())
+        && !state.show_mode
+        && !context.midi_map.active
+    {
+        let (copy, paste, edit) = ui.input(|input| {
+            (
+                input
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::Copy))
+                    || (input.modifiers.command && input.key_pressed(egui::Key::C)),
+                input
+                    .events
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::Paste(_)))
+                    || (input.modifiers.command && input.key_pressed(egui::Key::V)),
+                input.key_pressed(egui::Key::Enter),
+            )
+        });
+        if copy {
+            copy_clip(state, clips, address);
+        }
+        if paste {
+            paste_clip(state, address, actions);
+        }
+        if edit {
+            state.clip_editor = Some(address);
+        }
+    }
+    ui.horizontal_wrapped(|ui| {
+        ui.strong(format!("{} · {}", deck.label(), address.slot + 1));
+        if ui
+            .small_button("✎")
+            .on_hover_text("Open clip editor · Enter")
+            .clicked()
+        {
+            state.clip_editor = Some(address);
+        }
+        ui.add_enabled_ui(!state.show_mode, |ui| {
+            if ui
+                .small_button("Copy")
+                .on_hover_text("Copy clip, trim, colour and automation · Cmd/Ctrl+C")
+                .clicked()
+            {
+                copy_clip(state, clips, address);
+            }
+            if ui
+                .add_enabled(
+                    state.clip_clipboard.is_some(),
+                    egui::Button::new("Paste").small(),
+                )
+                .on_hover_text("Paste into a free slot in any clip view · Cmd/Ctrl+V")
+                .clicked()
+            {
+                paste_clip(state, address, actions);
+            }
+            if ui
+                .small_button("+ Timeline")
+                .on_hover_text("Append this clip's trimmed source range to the video timeline")
+                .clicked()
+            {
+                add_to_timeline(state, clips, address);
+            }
+        });
         automation_switch(ui, state, deck);
         let delete = buttons::midi_button(
             ui,
@@ -563,8 +625,7 @@ pub(super) fn draw_clip_grid(
             |ui| {
                 ui.add_enabled(
                     selected_occupied && !state.show_mode,
-                    egui::Button::new("Delete selected clip")
-                        .fill(palette.control_tint(palette.danger, 0.28)),
+                    egui::Button::new("✕").fill(palette.control_tint(palette.danger, 0.28)),
                 )
             },
         );
@@ -645,7 +706,9 @@ pub(super) fn draw_clip_grid(
         }
     });
 
-    if let Some(editor_address) = state.clip_editor {
+    if let Some(editor_address) = state.clip_editor
+        && !state.show_mode
+    {
         let transport = transports[editor_address.deck.index()];
         let playhead_phase = clips
             .active_automation(editor_address.deck)
@@ -804,7 +867,10 @@ fn lanes_view(
 ) {
     let palette = state.theme.palette();
     let height = size.lane_height();
-    let block = egui::vec2((height * 16.0 / 9.0 * 1.6).round(), height);
+    let natural = (height * 16.0 / 9.0 * 1.6).round();
+    let fitting =
+        ((ui.available_width() - LANE_HEADER_WIDTH - 16.0) / CLIPS_PER_DECK as f32).max(48.0);
+    let block = egui::vec2(natural.min(fitting), height);
     egui::Grid::new("clip-lanes")
         .num_columns(CLIPS_PER_DECK + 1)
         .spacing([2.0, 3.0])
@@ -1418,6 +1484,26 @@ fn scene_cell(
             ui.weak("Scene assignments are locked in Show Mode");
             return;
         }
+        if ui.button("Copy scene").clicked() {
+            state.scene_clipboard = Some(state.scenes[scene_index]);
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                state.scene_clipboard.is_some(),
+                egui::Button::new("Paste scene"),
+            )
+            .clicked()
+        {
+            if let Some(scene) = state.scene_clipboard {
+                state.scenes[scene_index] = scene;
+            }
+            ui.close();
+        }
+        if ui.button("Clear scene assignments").clicked() {
+            state.scenes[scene_index] = virtual_io::SceneProject::default();
+            ui.close();
+        }
         if ui.button("Capture selected clips from all decks").clicked() {
             for deck in DeckId::ALL {
                 state.scenes[scene_index].clip_slots[deck.index()] =
@@ -1539,10 +1625,14 @@ fn clip_cell(
                 .to_owned(),
             TileState::Loading,
         )
-    } else if automation_playing {
+    } else if !slot_state.automation.lanes.is_empty() {
         (
             format!("{}{} automation", deck.label(), slot + 1),
-            TileState::Playing,
+            if automation_playing {
+                TileState::Playing
+            } else {
+                TileState::Ready
+            },
         )
     } else {
         (format!("{}{}", deck.label(), slot + 1), TileState::Empty)
@@ -1584,7 +1674,8 @@ fn clip_cell(
         && !midi_map.active
         && (slot_state.movie.is_some()
             || slot_state.pending_path.is_some()
-            || slot_state.error.is_some());
+            || slot_state.error.is_some()
+            || !slot_state.automation.lanes.is_empty());
     let (response, play) = fixed_cell(ui, size, |ui| {
         let response = if midi_map.active {
             mappable(
@@ -1734,7 +1825,7 @@ fn clip_cell(
             actions.push(UiAction::Launch(address));
         }
     }
-    if response.double_clicked() {
+    if response.double_clicked() && !state.show_mode {
         clips.select(address);
         mixer.select(deck);
         state.clip_editor = Some(address);
@@ -1792,11 +1883,36 @@ fn clip_cell(
                 ui.weak("Show Mode locks media management");
                 return;
             }
+            if ui.button("✎ Edit clip…").clicked() {
+                state.clip_editor = Some(address);
+                ui.close();
+            }
+            if ui.button("Copy clip   ⌘/Ctrl C").clicked() {
+                copy_clip(state, clips, address);
+                ui.close();
+            }
+            if ui
+                .add_enabled(
+                    state.clip_clipboard.is_some(),
+                    egui::Button::new("Paste clip into free slot   ⌘/Ctrl V"),
+                )
+                .clicked()
+            {
+                paste_clip(state, address, actions);
+                ui.close();
+            }
+            if clips.movie(address).is_some() && ui.button("Append to video timeline").clicked() {
+                add_to_timeline(state, clips, address);
+                ui.close();
+            }
+            ui.separator();
             if clips.path(address).is_some() && ui.button("Relink media…").clicked() {
                 actions.push(UiAction::BrowseRelink(address));
                 ui.close();
             }
-            if clips.path(address).is_some() && ui.button("Delete clip").clicked() {
+            if (clips.path(address).is_some() || !slot_state.automation.lanes.is_empty())
+                && ui.button("Delete clip").clicked()
+            {
                 actions.push(UiAction::ClearSlot(address));
                 ui.close();
             }
@@ -1844,6 +1960,43 @@ fn clip_cell(
         });
 }
 
+fn copy_clip(state: &mut UiState, clips: &ClipBank, address: ClipAddress) {
+    if let Some(clip) = clips.slot(address)
+        && (clip.movie.is_some() || clip.error.is_some() || !clip.automation.lanes.is_empty())
+    {
+        state.clip_clipboard = Some((address.deck, clip.clone()));
+    }
+}
+
+fn paste_clip(state: &UiState, to: ClipAddress, actions: &mut Vec<UiAction>) {
+    if let Some((source_deck, clip)) = &state.clip_clipboard {
+        actions.push(UiAction::PasteClip {
+            to,
+            source_deck: *source_deck,
+            clip: Box::new(clip.clone()),
+        });
+    }
+}
+
+fn add_to_timeline(state: &mut UiState, clips: &ClipBank, address: ClipAddress) {
+    let Some(movie) = clips.movie(address) else {
+        return;
+    };
+    let Some(duration) = movie.duration.map(virtual_core::MediaTime::as_seconds) else {
+        return;
+    };
+    let playback = clips.playback(address).unwrap_or_default();
+    let (start, end) = playback.range(Some(duration), state.bpm);
+    state.timeline.add_video(virtual_io::EditSegmentProject {
+        path: movie.path.clone(),
+        name: movie.display_name.clone(),
+        in_seconds: start,
+        out_seconds: end.unwrap_or(duration),
+        source_start: 0.0,
+        source_duration: duration,
+    });
+}
+
 fn draw_clip_editor(
     ctx: &egui::Context,
     state: &mut UiState,
@@ -1866,6 +2019,7 @@ fn draw_clip_editor(
     let playback = clips.playback(address).unwrap_or_default();
     let mut edited = playback;
     let mut changed = false;
+    let mut copy = false;
     let mut open = true;
     egui::Window::new(title)
         .id(egui::Id::new(("clip-editor", address.deck.index(), address.slot)))
@@ -1873,7 +2027,30 @@ fn draw_clip_editor(
         .collapsible(false)
         .resizable(true)
         .default_width(560.0)
+        .vscroll(true)
+        .max_height(650.0)
         .show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if movie.is_some() {
+                    ui.selectable_value(&mut state.clip_editor_automation, false, "▤ Source / Trim");
+                    ui.selectable_value(&mut state.clip_editor_automation, true, "⌁ Automation");
+                }
+                copy = ui.small_button("Copy clip").clicked();
+                if ui.add_enabled(state.clip_clipboard.is_some(), egui::Button::new("Paste settings").small()).clicked()
+                    && let Some((source, clip)) = &state.clip_clipboard {
+                    let mut clip = clip.clone();
+                    clip.retarget_deck(*source, address.deck);
+                    edited = clip.playback;
+                    clips.set_automation(address, clip.automation);
+                    changed = true;
+                }
+                if movie.is_some() && ui.small_button("+ Timeline").clicked() {
+                    add_to_timeline(state, clips, address);
+                }
+            });
+            if !state.clip_editor_automation && let Some(thumbnail) = state.thumbnail(address, clips.path(address)) {
+                ui.add(egui::Image::new(thumbnail).fit_to_exact_size(egui::vec2(192.0, 108.0)));
+            }
             ui.label(format!("Deck {} · Clip {}", address.deck.label(), address.slot + 1));
             if let Some(movie) = movie.as_ref() {
                 ui.weak(format!("{}×{} · {} · {}", movie.visible_extent[0], movie.visible_extent[1], movie.codec,
@@ -1882,7 +2059,7 @@ fn draw_clip_editor(
                 ui.weak("Automation slot · runs over the active video, camera, or generator on this deck");
             }
             ui.separator();
-            if movie.is_some() {
+            if movie.is_some() && !state.clip_editor_automation {
             ui.horizontal(|ui| {
                 ui.strong("Source range");
                 let maximum = media_duration.unwrap_or(86_400.0).max(0.001);
@@ -1899,7 +2076,7 @@ fn draw_clip_editor(
             let (start, end) = edited.range(media_duration, state.bpm);
             let effective_end = end.unwrap_or_else(|| media_duration.unwrap_or(start + 1.0));
             let span = (effective_end - start).max(0.001);
-            ui.add(egui::Slider::new(&mut edited.in_point, 0.0..=media_duration.unwrap_or(86_400.0).max(0.001)).text("Crop start (In)").suffix(" s"));
+            changed |= ui.add(egui::Slider::new(&mut edited.in_point, 0.0..=media_duration.unwrap_or(86_400.0).max(0.001)).text("Crop start (In)").suffix(" s")).changed();
             if edited.out_point.is_none() && edited.beat_duration.is_none() {
                 ui.weak("Set an Out point or beat length to crop the clip's end. Otherwise it plays to source end.");
             }
@@ -1937,8 +2114,10 @@ fn draw_clip_editor(
             });
             }
             ui.separator();
-            ui.strong("Automation");
-            draw_automation_editor(ui, state, clips, address, playhead_phase);
+            if state.clip_editor_automation || movie.is_none() {
+                ui.strong("Automation");
+                draw_automation_editor(ui, state, clips, address, playhead_phase);
+            }
             ui.horizontal(|ui| {
                 if ui.button("Close").clicked() {
                     state.clip_editor = None;
@@ -1953,6 +2132,9 @@ fn draw_clip_editor(
         });
     if changed {
         clips.set_playback(address, edited);
+    }
+    if copy {
+        copy_clip(state, clips, address);
     }
     if !open {
         state.clip_editor = None;

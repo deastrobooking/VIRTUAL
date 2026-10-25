@@ -4,6 +4,8 @@ mod audio;
 mod midi;
 mod midi_out;
 mod project;
+mod timeline;
+pub use timeline::{EditSegmentProject, MAX_TIMELINE_SEGMENTS, VideoTimelineProject};
 
 pub use audio::{
     AudioInput, AudioInputDevice, AudioInputError, AudioInputSnapshot, discover_audio_inputs,

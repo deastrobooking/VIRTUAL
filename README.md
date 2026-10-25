@@ -325,6 +325,7 @@ for setup and troubleshooting.
 
 - [Release notes](docs/RELEASE_NOTES.md)
 - [Operator guide](docs/OPERATOR_GUIDE.md)
+- [Compact workspace and timeline editing](docs/TIMELINE_EDITING.md)
 - [MIDI beat-clock sync](docs/MIDI_SYNC.md)
 - [Feature status](docs/FEATURES.md)
 - [Application review](docs/REVIEW.md)

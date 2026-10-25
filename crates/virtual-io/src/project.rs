@@ -27,6 +27,8 @@ pub const SCENE_COUNT: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProjectFile {
+    #[serde(default)]
+    pub video_timeline: crate::VideoTimelineProject,
     pub format: String,
     pub version: u32,
     #[serde(default)]
@@ -51,6 +53,7 @@ pub struct ProjectFile {
 impl Default for ProjectFile {
     fn default() -> Self {
         Self {
+            video_timeline: crate::VideoTimelineProject::default(),
             format: PROJECT_FORMAT.to_owned(),
             version: PROJECT_VERSION,
             project_id: new_project_id(),
@@ -77,6 +80,11 @@ impl Default for ProjectFile {
 
 impl ProjectFile {
     pub fn validate(&self) -> Result<(), ProjectError> {
+        if !self.video_timeline.valid() {
+            return Err(ProjectError::InvalidValue(
+                "invalid video timeline segments".to_owned(),
+            ));
+        }
         if self.format != PROJECT_FORMAT {
             return Err(ProjectError::WrongFormat(self.format.clone()));
         }
@@ -926,7 +934,7 @@ impl Default for ThemeProject {
                 ..ThemeAppearanceProject::default()
             },
             clip_view: "session".to_owned(),
-            clip_size: "medium".to_owned(),
+            clip_size: "small".to_owned(),
         }
     }
 }
@@ -2224,6 +2232,20 @@ pub fn relativize_media_paths(project: &mut ProjectFile, base: &Path) {
         .decks
         .iter_mut()
         .flat_map(|deck| deck.clips.iter_mut().flatten())
+        .chain(
+            project
+                .video_timeline
+                .videos
+                .iter_mut()
+                .map(|segment| &mut segment.path),
+        )
+        .chain(
+            project
+                .video_timeline
+                .takes
+                .iter_mut()
+                .map(|segment| &mut segment.path),
+        )
     {
         if path.is_absolute()
             && let Ok(relative) = path.strip_prefix(base)
@@ -2240,6 +2262,20 @@ pub fn resolve_media_paths(project: &mut ProjectFile, base: &Path) {
         .decks
         .iter_mut()
         .flat_map(|deck| deck.clips.iter_mut().flatten())
+        .chain(
+            project
+                .video_timeline
+                .videos
+                .iter_mut()
+                .map(|segment| &mut segment.path),
+        )
+        .chain(
+            project
+                .video_timeline
+                .takes
+                .iter_mut()
+                .map(|segment| &mut segment.path),
+        )
     {
         if path.is_relative() {
             *path = base.join(&*path);

@@ -202,7 +202,10 @@ impl State {
     /// context menus and keyboard shortcuts.
     pub(crate) fn clear_clip(&mut self, address: ClipAddress, now: Instant, origin: CommandOrigin) {
         let occupied = self.clips.slot(address).is_some_and(|slot| {
-            slot.movie.is_some() || slot.pending_path.is_some() || slot.error.is_some()
+            slot.movie.is_some()
+                || slot.pending_path.is_some()
+                || slot.error.is_some()
+                || !slot.automation.lanes.is_empty()
         });
         if !occupied {
             return;
@@ -260,6 +263,34 @@ impl State {
             address.deck.label(),
             address.slot + 1
         );
+    }
+
+    pub(crate) fn paste_clip(
+        &mut self,
+        to: ClipAddress,
+        source_deck: DeckId,
+        clip: virtual_media::ClipSlot,
+        now: Instant,
+    ) {
+        if self.clip_move_blocked(to) || !self.clips.paste_clip(to, source_deck, clip) {
+            self.project_status =
+                "Paste needs a free slot; clear it first or choose another slot".to_owned();
+            return;
+        }
+        self.ui.clear_thumbnail(to);
+        self.thumbnail_requests.remove(&to);
+        if let Some(path) = self.clips.path(to).map(ToOwned::to_owned) {
+            self.record_show_operation(
+                CommandOrigin::Operator,
+                now,
+                CommandOperation::SetParameter {
+                    path: format!("deck.{}.clip.{}.media", to.deck.index(), to.slot),
+                    value: virtual_graph::ParameterValue::Text(path.to_string_lossy().into_owned()),
+                },
+            );
+            self.request_thumbnail(to, path);
+        }
+        self.project_status = format!("Pasted clip into {}{}", to.deck.label(), to.slot + 1);
     }
 
     pub(crate) fn move_clip(&mut self, from: ClipAddress, to: ClipAddress, now: Instant) {

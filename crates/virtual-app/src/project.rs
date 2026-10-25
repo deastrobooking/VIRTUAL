@@ -48,6 +48,7 @@ pub fn snapshot(
     session: ProjectSessionMetadata<'_>,
 ) -> ProjectFile {
     ProjectFile {
+        video_timeline: ui.timeline.project.clone(),
         project_id: session.project_id.to_owned(),
         takes: session.takes,
         graph: Some(session.graph),

@@ -76,6 +76,13 @@ Built so far:
 - **Condensed toolbar**: a one-line logo, status dots and compact A–D mute
   chips.
 
+The workspace now includes a function-key section rail, a movable selected-deck
+UNIT, compact source/automation tabs in the clip editor, cross-view clip and
+scene clipboards, and a saved sequential editor for video cuts and recorded take
+segments. Source cuts render to MP4; trimmed takes assemble into a new recovery
+journal. See [timeline editing](TIMELINE_EDITING.md) for the workflow and current
+rendering boundaries.
+
 Next steps, in order of value:
 
 1. **Browser thumbnails**: decode a poster frame for media files in the

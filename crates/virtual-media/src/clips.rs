@@ -107,6 +107,33 @@ pub struct ClipSlot {
     resume_position: f64,
 }
 
+impl ClipSlot {
+    /// Deck-local envelopes follow a copied or moved clip. Routes deliberately
+    /// aimed at other decks and master parameters keep their destinations.
+    pub fn retarget_deck(&mut self, source_deck: DeckId, destination: DeckId) {
+        let from = source_deck.index() as u8;
+        let target = destination.index() as u8;
+        for lane in &mut self.automation.lanes {
+            use virtual_core::ControlTarget::*;
+            let deck = match &mut lane.target {
+                DeckLevel(deck)
+                | DeckSpeed(deck)
+                | EffectParameter { deck, .. }
+                | LfoParameter { deck, .. }
+                | ModRouteParameter { deck, .. }
+                | GeneratorParameter { deck, .. }
+                | DeckEffectParameter { deck, .. } => Some(deck),
+                _ => None,
+            };
+            if let Some(deck) = deck
+                && *deck == from
+            {
+                *deck = target;
+            }
+        }
+    }
+}
+
 pub struct ClipBank {
     slots: [[ClipSlot; CLIPS_PER_DECK]; 4],
     selected: [usize; 4],
@@ -387,7 +414,10 @@ impl ClipBank {
             return false;
         }
         let source_occupied = self.slot(from).is_some_and(|slot| {
-            slot.movie.is_some() || slot.pending_path.is_some() || slot.error.is_some()
+            slot.movie.is_some()
+                || slot.pending_path.is_some()
+                || slot.error.is_some()
+                || !slot.automation.lanes.is_empty()
         });
         if !source_occupied {
             return false;
@@ -426,6 +456,8 @@ impl ClipBank {
                 (&mut second[0], &mut first[low])
             };
             std::mem::swap(&mut from_row[from.slot], &mut to_row[to.slot]);
+            from_row[from.slot].retarget_deck(to.deck, from.deck);
+            to_row[to.slot].retarget_deck(from.deck, to.deck);
             if self.active[from.deck.index()] == Some(from.slot) {
                 self.active[from.deck.index()] = None;
             }
@@ -442,6 +474,28 @@ impl ClipBank {
         true
     }
 
+    /// Paste an independent snapshot into a free slot. Running sources and queued
+    /// import destinations are never replaced by this operation.
+    pub fn paste_clip(&mut self, to: ClipAddress, source_deck: DeckId, mut clip: ClipSlot) -> bool {
+        let Some(destination) = self.slot(to) else {
+            return false;
+        };
+        if destination.movie.is_some()
+            || destination.pending_path.is_some()
+            || !destination.automation.lanes.is_empty()
+            || self.active(to.deck) == Some(to.slot)
+            || self.automation_active[to.deck.index()] == Some(to.slot)
+            || (clip.pending_path.is_some() && clip.error.is_none() && clip.movie.is_none())
+        {
+            return false;
+        }
+        clip.retarget_deck(source_deck, to.deck);
+        clip.resume_position = 0.0;
+        self.slots[to.deck.index()][to.slot] = clip;
+        self.select(to);
+        true
+    }
+
     pub fn clear(&mut self, address: ClipAddress) -> bool {
         let Some(slot) = self
             .slots
@@ -450,9 +504,10 @@ impl ClipBank {
         else {
             return false;
         };
-        slot.movie = None;
-        slot.pending_path = None;
-        slot.error = None;
+        *slot = ClipSlot::default();
+        if self.automation_active[address.deck.index()] == Some(address.slot) {
+            self.automation_active[address.deck.index()] = None;
+        }
         if self.active[address.deck.index()] == Some(address.slot) {
             self.active[address.deck.index()] = None;
         }
@@ -836,6 +891,81 @@ mod tests {
         assert!(bank.movie(address).is_none());
         assert!(bank.path(address).is_none());
         assert_eq!(bank.active(DeckId::C), None);
+    }
+
+    #[test]
+    fn copied_snapshot_survives_source_clear_and_retargets_only_local_automation() {
+        use virtual_core::{ClipAutomationLane, ControlTarget};
+        let mut bank = ClipBank::default();
+        let from = ClipAddress {
+            deck: DeckId::A,
+            slot: 0,
+        };
+        let to = ClipAddress {
+            deck: DeckId::C,
+            slot: 1,
+        };
+        bank.assign(from, movie("copy.mov"));
+        let playback = ClipPlayback {
+            in_point: 2.0,
+            out_point: Some(4.0),
+            color: Some(3),
+            ..Default::default()
+        };
+        bank.set_playback(from, playback);
+        let automation = bank.automation_mut(from).unwrap();
+        automation
+            .lanes
+            .push(ClipAutomationLane::flat(ControlTarget::DeckLevel(0), 0.5));
+        automation
+            .lanes
+            .push(ClipAutomationLane::flat(ControlTarget::DeckLevel(1), 0.8));
+        automation
+            .lanes
+            .push(ClipAutomationLane::flat(ControlTarget::MasterOpacity, 0.9));
+        let snapshot = bank.slot(from).unwrap().clone();
+        assert!(bank.clear(from));
+        assert!(bank.automation(from).unwrap().lanes.is_empty());
+        assert!(bank.paste_clip(to, from.deck, snapshot.clone()));
+        assert_eq!(bank.path(to), Some(Path::new("copy.mov")));
+        assert_eq!(bank.playback(to), Some(playback));
+        let lanes = &bank.automation(to).unwrap().lanes;
+        assert_eq!(lanes[0].target, ControlTarget::DeckLevel(2));
+        assert_eq!(lanes[1].target, ControlTarget::DeckLevel(1));
+        assert_eq!(lanes[2].target, ControlTarget::MasterOpacity);
+        assert_eq!(
+            snapshot.automation.lanes[0].target,
+            ControlTarget::DeckLevel(0)
+        );
+        assert!(
+            !bank.paste_clip(to, from.deck, snapshot),
+            "occupied targets are preserved"
+        );
+    }
+
+    #[test]
+    fn automation_only_slots_can_be_copied_moved_and_cleared() {
+        use virtual_core::{ClipAutomationLane, ControlTarget};
+        let mut bank = ClipBank::default();
+        let from = ClipAddress {
+            deck: DeckId::A,
+            slot: 0,
+        };
+        let to = ClipAddress {
+            deck: DeckId::B,
+            slot: 1,
+        };
+        bank.automation_mut(from)
+            .unwrap()
+            .lanes
+            .push(ClipAutomationLane::flat(ControlTarget::DeckLevel(0), 0.5));
+        assert!(bank.move_clip(from, to));
+        assert_eq!(
+            bank.automation(to).unwrap().lanes[0].target,
+            ControlTarget::DeckLevel(1)
+        );
+        assert!(bank.clear(to));
+        assert!(bank.automation(to).unwrap().lanes.is_empty());
     }
 
     #[test]

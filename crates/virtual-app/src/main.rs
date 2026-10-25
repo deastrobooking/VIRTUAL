@@ -18,6 +18,7 @@ mod runtime;
 mod shortcuts;
 mod structural;
 mod sync;
+mod timeline_export;
 mod ui;
 
 use std::collections::{BTreeMap, HashMap, HashSet};

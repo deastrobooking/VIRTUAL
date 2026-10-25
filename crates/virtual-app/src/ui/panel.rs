@@ -48,7 +48,7 @@ pub(super) fn section<R>(
         id,
         default_open,
     );
-    egui::Frame::new()
+    let header_response = egui::Frame::new()
         .fill(palette.surface_tint(palette.accent, 0.06))
         .stroke(egui::Stroke::new(
             palette.outline_width.min(1.0),
@@ -79,6 +79,15 @@ pub(super) fn section<R>(
                 header(ui);
             });
         });
+    let requested = ui
+        .ctx()
+        .data(|data| data.get_temp::<String>(egui::Id::new("navigate-section")));
+    if requested.as_deref() == Some(id_salt) {
+        state.set_open(true);
+        ui.scroll_to_rect(header_response.response.rect, Some(egui::Align::Min));
+        ui.ctx()
+            .data_mut(|data| data.remove::<String>(egui::Id::new("navigate-section")));
+    }
     state
         .show_body_unindented(ui, |ui| {
             ui.add_space(2.0);

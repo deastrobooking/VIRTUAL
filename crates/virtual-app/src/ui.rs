@@ -16,9 +16,11 @@ mod generator;
 mod master_fx;
 mod midi;
 mod midi_manager;
+mod navigation;
 mod panel;
 mod setup;
 pub mod theme;
+mod timeline;
 mod toolbar;
 mod video_input;
 
@@ -58,10 +60,16 @@ use virtual_render::{
     SPECTRUM_SOURCE_OFFSET, SourceMode,
 };
 
-/// Everything the overlay owns. All plain data — no GPU handles, no channels.
+/// Overlay state, editor selections and session-only background export handles.
 pub struct UiState {
+    pub navigation: navigation::Navigation,
+    pub deck_window: bool,
+    pub timeline: timeline::TimelineUi,
+    pub clip_clipboard: Option<(DeckId, virtual_media::ClipSlot)>,
+    pub scene_clipboard: Option<virtual_io::SceneProject>,
     /// Clip editor target, opened by double-clicking a populated clip cell.
     pub clip_editor: Option<virtual_media::ClipAddress>,
+    pub clip_editor_automation: bool,
     pub clip_editor_lane: usize,
     pub clip_editor_keyframe: usize,
     pub clip_editor_draw_mode: bool,
@@ -207,7 +215,13 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            navigation: navigation::Navigation::default(),
+            deck_window: false,
+            timeline: timeline::TimelineUi::default(),
+            clip_clipboard: None,
+            scene_clipboard: None,
             clip_editor: None,
+            clip_editor_automation: false,
             clip_editor_lane: 0,
             clip_editor_keyframe: 0,
             clip_editor_draw_mode: false,
@@ -461,6 +475,13 @@ pub enum UiAction {
     LaunchAutomation(ClipAddress),
     LaunchScene(usize),
     ClearSlot(ClipAddress),
+    PasteClip {
+        to: ClipAddress,
+        source_deck: DeckId,
+        clip: Box<virtual_media::ClipSlot>,
+    },
+    ExportTimelineVideo,
+    ExportTimelineTake,
     MoveClip {
         from: ClipAddress,
         to: ClipAddress,
@@ -932,6 +953,7 @@ pub fn draw(
     mut metrics: PerformanceMetrics<'_>,
 ) -> Vec<UiAction> {
     state.theme.ensure_applied(ctx);
+    navigation::shortcuts(ctx, state);
     let palette = state.theme.palette();
     state.fps.push(metrics.frame_time.delta);
     let mut actions = Vec::new();
@@ -959,6 +981,7 @@ pub fn draw(
         },
     );
 
+    let mut floating_browser = false;
     egui::Window::new("VIRTUAL")
         .default_pos([16.0, 16.0])
         .default_size([1440.0, 880.0])
@@ -968,7 +991,9 @@ pub fn draw(
         .show(ctx, |ui| {
             let midi_map = buttons::current_map().expect("buttons::begin_frame runs first");
             draw_toolbar(ui, state, clips, &metrics, palette, &midi_map, &mut actions);
-            if state.browser.open && ui.available_width() >= 900.0 {
+            navigation::draw(ui, state, mixer, clips);
+            floating_browser = state.browser.open && ui.available_width() < 780.0;
+            if state.browser.open && !floating_browser {
                 let selected = ClipAddress {
                     deck: mixer.selected(),
                     slot: clips.selected(mixer.selected()),
@@ -1012,16 +1037,18 @@ pub fn draw(
                             .id_salt("properties-scroll")
                             .auto_shrink([false, false])
                             .show(ui, |ui| {
-                                draw_deck_section(
-                                    ui,
-                                    state,
-                                    mixer,
-                                    transports,
-                                    metrics.generator_stats,
-                                    palette,
-                                    &midi_map,
-                                    &mut actions,
-                                );
+                                if !state.deck_window {
+                                    draw_deck_section(
+                                        ui,
+                                        state,
+                                        mixer,
+                                        transports,
+                                        metrics.generator_stats,
+                                        palette,
+                                        &midi_map,
+                                        &mut actions,
+                                    );
+                                }
                             });
                     });
             }
@@ -1098,16 +1125,18 @@ pub fn draw(
                             palette,
                             &mut actions,
                         );
-                        draw_deck_section(
-                            ui,
-                            state,
-                            mixer,
-                            transports,
-                            metrics.generator_stats,
-                            palette,
-                            &midi_map,
-                            &mut actions,
-                        );
+                        if !state.deck_window {
+                            draw_deck_section(
+                                ui,
+                                state,
+                                mixer,
+                                transports,
+                                metrics.generator_stats,
+                                palette,
+                                &midi_map,
+                                &mut actions,
+                            );
+                        }
                     }
 
                     ui.separator();
@@ -1369,9 +1398,15 @@ pub fn draw(
                             },
                         );
                     } else {
-                        egui::CollapsingHeader::new("LIVE MASTER EFFECTS")
-                            .default_open(true)
-                            .show(ui, |ui| {
+                        panel::section(
+                            ui,
+                            "master-effects",
+                            "✦",
+                            "LIVE MASTER EFFECTS",
+                            palette,
+                            true,
+                            |_| {},
+                            |ui| {
                                 for (index, slot) in
                                     state.master_effects.slots.iter_mut().enumerate()
                                 {
@@ -1405,10 +1440,59 @@ pub fn draw(
                                 ui.weak(
                             "Effect choice, order and advanced parameters are locked in Show Mode.",
                         );
-                            });
+                            },
+                        );
                     }
                 });
         });
+    if floating_browser {
+        let mut open = state.browser.open;
+        egui::Window::new("Browser · Files / Generators / FX")
+            .id(egui::Id::new("floating-browser"))
+            .open(&mut open)
+            .default_size([290.0, 440.0])
+            .show(ctx, |ui| {
+                let selected = ClipAddress {
+                    deck: mixer.selected(),
+                    slot: clips.selected(mixer.selected()),
+                };
+                browser::draw_browser(
+                    ui,
+                    &mut state.browser,
+                    browser::BrowserContext {
+                        palette,
+                        show_mode: state.show_mode,
+                        selected,
+                        effects: &mut state.effects,
+                    },
+                    &mut actions,
+                );
+            });
+        state.browser.open = open;
+    }
+    if state.deck_window {
+        let mut open = true;
+        egui::Window::new("Deck UNIT")
+            .id(egui::Id::new("deck-unit-window"))
+            .open(&mut open)
+            .default_width(440.0)
+            .vscroll(true)
+            .show(ctx, |ui| {
+                let map = buttons::current_map().expect("button frame active");
+                draw_deck_section(
+                    ui,
+                    state,
+                    mixer,
+                    transports,
+                    metrics.generator_stats,
+                    palette,
+                    &map,
+                    &mut actions,
+                );
+            });
+        state.deck_window = open;
+    }
+    timeline::draw(ctx, state, &metrics, &mut actions);
     if !state.show_mode {
         state.theme.editor_ui(ctx);
     }
