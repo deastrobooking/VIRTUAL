@@ -610,6 +610,8 @@ impl ClipView {
 /// Clip tile size in the grid.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ClipSize {
+    /// Name-only buttons: Ableton's narrow tracks, for laptop screens.
+    Mini,
     Small,
     #[default]
     Medium,
@@ -617,10 +619,11 @@ pub enum ClipSize {
 }
 
 impl ClipSize {
-    pub const ALL: [Self; 3] = [Self::Small, Self::Medium, Self::Large];
+    pub const ALL: [Self; 4] = [Self::Mini, Self::Small, Self::Medium, Self::Large];
 
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Mini => "XS",
             Self::Small => "S",
             Self::Medium => "M",
             Self::Large => "L",
@@ -629,6 +632,7 @@ impl ClipSize {
 
     pub const fn name(self) -> &'static str {
         match self {
+            Self::Mini => "mini",
             Self::Small => "small",
             Self::Medium => "medium",
             Self::Large => "large",
@@ -642,6 +646,7 @@ impl ClipSize {
     /// Height of one Session lane.
     pub fn lane_height(self) -> f32 {
         match self {
+            Self::Mini => 26.0,
             Self::Small => 36.0,
             Self::Medium => 52.0,
             Self::Large => 72.0,
@@ -651,6 +656,7 @@ impl ClipSize {
     /// The whole Launcher tile: a 16:9 thumbnail over a name strip.
     pub fn tile(self) -> egui::Vec2 {
         match self {
+            Self::Mini => egui::vec2(84.0, 24.0),
             Self::Small => egui::vec2(88.0, 49.5 + 14.0),
             Self::Medium => egui::vec2(120.0, 67.5 + 16.0),
             Self::Large => egui::vec2(160.0, 90.0 + 18.0),

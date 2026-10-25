@@ -1,13 +1,13 @@
 {
   "format": "virtual-project",
   "version": 10,
-  "project_id": "0000000000004bcb18e1a0bfb55592d1",
+  "project_id": "000000000000607818e1a4dc89652a49",
   "takes": [
     {
-      "take_id": "0000000000004bcb18e1a0bfb55730e2",
+      "take_id": "000000000000607818e1a4dc89670ac2",
       "name": "Live",
-      "journal_file": "session-19403-1792890871911759000.jsonl",
-      "created_unix_ms": 1792890871911
+      "journal_file": "session-24696-1792895393775175000.jsonl",
+      "created_unix_ms": 1792895393775
     }
   ],
   "graph": {
@@ -1156,7 +1156,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 4.986170166000002
+        "position": 4.984946167
       },
       "transform": {
         "position": [
@@ -1482,7 +1482,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 4.986170166000002
+        "position": 4.984946167
       },
       "transform": {
         "position": [
@@ -1808,7 +1808,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 4.986170166000002
+        "position": 4.984946167
       },
       "transform": {
         "position": [
@@ -2134,7 +2134,7 @@
         "frozen": false,
         "end_mode": "loop",
         "speed": 1.0,
-        "position": 4.986170166000002
+        "position": 4.984946167
       },
       "transform": {
         "position": [

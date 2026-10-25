@@ -53,6 +53,13 @@ Built so far:
   monitor (the program texture shown through egui-wgpu) above the selected
   deck's controls.
 - **Compact X/S/B buttons** in deck strips, matching the grid.
+- **Browser panel** on the left (Files, Sources, Effects), with every item
+  draggable onto clip slots.
+- **PREVIEW monitor** beside PROGRAM: the selected clip's first frame, ready
+  to launch.
+- **XS size**: name-only clips, Ableton-style narrow tracks.
+- **Layouts**: Perform, Prepare, Minimal and Full fold the window in one
+  click.
 - **Clip preview on hover**: a 256×144 frame above the clip details.
 - **Templates** as starting points for colour, outlines, rounding, text
   size and spacing:
@@ -71,14 +78,12 @@ Built so far:
 
 Next steps, in order of value:
 
-1. **Browser panel** on the left: media folders with thumbnails, generator
-   sources and effects, dragged onto clips and decks.
-2. **Preview monitor**: decode the selected clip into a second small
-   texture so it can be checked before launch, next to PROGRAM.
-3. **Narrow tracks**: let Launcher columns collapse to launch buttons
-   only, for laptop screens.
-4. **Layout presets**: save which sections are folded, the clip view and
-   the panel width as named layouts alongside appearance presets.
+1. **Browser thumbnails**: decode a poster frame for media files in the
+   Files tab on a background thread.
+2. **Live preview**: play the cued clip in the PREVIEW monitor with a
+   second small decoder, not just its first frame.
+3. **Saved layouts**: let operators save their own layouts (sections, view,
+   panel widths) next to appearance presets.
 
 ## Sources
 

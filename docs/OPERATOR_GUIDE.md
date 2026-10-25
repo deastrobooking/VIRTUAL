@@ -175,7 +175,9 @@ colour replaces the deck colour on the clip's bar, follows the clip when it is
 dragged to another slot, and is saved with the project. **Use deck colour**
 removes it.
 
-**S / M / L** sets the lane height or tile size. A playing clip gets a
+**XS / S / M / L** sets the lane height or tile size. XS shows clips as
+name-only buttons with a colour edge, like Ableton's narrow tracks, so the
+whole grid fits a laptop screen. A playing clip gets a
 play-coloured border, a queued clip pulses, and the selected clip has an
 accent border. **●** marks a preloaded first frame and **○** a clip still
 preloading. Hover a clip for a large preview frame with its details.
@@ -185,12 +187,37 @@ buttons and ■ All can be mapped like any other button. The main window's
 sections (Setup, Clips, Audio, Deck, Mix & Master, Master Effects) fold
 under slim section bars, so the surface shows only what is in use.
 
-### Program monitor and properties panel
+### Browser, monitors and properties panel
 
-When the main window is at least about 1100 points wide, a **properties
-panel** docks on the right. At the top is the live **PROGRAM** monitor: the
-finished composition, the same picture NDI and recording use, with its size
-and any BLACKOUT or FROZEN state. Below it are the selected deck's
+**☰ Browser** in the toolbar opens a panel on the left with three tabs:
+
+- **Files**: browse folders (⬆ up, ⟳ refresh, … choose a folder) with a
+  filter. Drag a movie, image or folder onto any clip slot to load it there,
+  or double-click to load the selected slot. Folders fill the deck from that
+  slot onward, as when dropped from the desktop.
+- **Sources**: generator sources and patterns. Click to load one on the
+  selected deck, or drag onto a clip slot of another deck.
+- **Effects**: quick deck effects (folds, distortion, glitch, light,
+  colour). Click to switch one on or off on the selected deck, or drag it
+  onto a deck's clip slot. ● marks effects that are on; fine-tune amounts
+  in the deck's FX controls.
+
+Loading media is locked in Show Mode; sources and effects still work.
+
+**▣ Layout** in the toolbar folds the window to a working layout:
+
+- **Perform**: clips, selected deck and mix open.
+- **Prepare**: everything open, with the browser.
+- **Minimal**: small clips and the mix.
+- **Full**: everything open, with large clips.
+
+When the main window is wide enough, a **properties panel** docks on the
+right. At the top are two monitors, side by side when there is room:
+
+- **PREVIEW** shows the selected clip's first frame with its name and a
+  **▶ Launch** button, so you can check what is cued before it goes live.
+- **PROGRAM** shows the live finished composition, the same picture NDI and
+  recording use, with its size and any BLACKOUT or FROZEN state. Below it are the selected deck's
 performance controls and FX, scrolling on their own, so the clip grid stays
 in view while you edit a deck. Drag the panel's edge to resize it. In a
 narrower window the monitor and deck controls return to the main column.

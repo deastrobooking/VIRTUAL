@@ -63,6 +63,22 @@ pub(super) fn draw_toolbar(
                 .color(palette.accent),
         )
         .on_hover_text("Live visual performance system");
+        ui.toggle_value(&mut state.browser.open, "☰ Browser")
+            .on_hover_text("Show the media, sources and effects browser");
+        ui.menu_button("▣ Layout", |ui| {
+            for layout in Layout::ALL {
+                if ui
+                    .button(layout.label())
+                    .on_hover_text(layout.description())
+                    .clicked()
+                {
+                    layout.apply(ui.ctx(), state);
+                    ui.close();
+                }
+            }
+        })
+        .response
+        .on_hover_text("Fold the window to a working layout");
         ui.add_space(8.0);
         status_dot(
             ui,
@@ -394,5 +410,58 @@ mod tests {
             blockers[index] = true;
             assert!(!preflight_ready(blockers), "blocker {index}");
         }
+    }
+}
+
+/// Built-in working layouts: which sections are open, the browser, and the
+/// clip size.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Layout {
+    Perform,
+    Prepare,
+    Minimal,
+    Full,
+}
+
+impl Layout {
+    const ALL: [Self; 4] = [Self::Perform, Self::Prepare, Self::Minimal, Self::Full];
+
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Perform => "Perform",
+            Self::Prepare => "Prepare",
+            Self::Minimal => "Minimal",
+            Self::Full => "Full",
+        }
+    }
+
+    const fn description(self) -> &'static str {
+        match self {
+            Self::Perform => "Clips, selected deck and mix open; setup, audio and browser folded",
+            Self::Prepare => "Everything open with the browser, for building a show",
+            Self::Minimal => "Just small clips and the mix",
+            Self::Full => "Everything open with large clips",
+        }
+    }
+
+    /// Open sections, in [`super::panel::SECTIONS`] order.
+    const fn sections(self) -> [bool; 6] {
+        match self {
+            Self::Perform => [false, true, false, true, true, false],
+            Self::Prepare | Self::Full => [true; 6],
+            Self::Minimal => [false, true, false, false, true, false],
+        }
+    }
+
+    fn apply(self, ctx: &egui::Context, state: &mut UiState) {
+        for (id, open) in super::panel::SECTIONS.into_iter().zip(self.sections()) {
+            super::panel::set_open(ctx, id, open);
+        }
+        state.browser.open = matches!(self, Self::Prepare | Self::Full);
+        state.theme.clip_size = match self {
+            Self::Perform | Self::Prepare => super::theme::ClipSize::Medium,
+            Self::Minimal => super::theme::ClipSize::Small,
+            Self::Full => super::theme::ClipSize::Large,
+        };
     }
 }

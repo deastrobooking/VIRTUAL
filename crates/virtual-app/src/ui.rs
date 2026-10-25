@@ -5,6 +5,7 @@
 //! path the parameter/modulation system takes later.
 
 mod audio;
+mod browser;
 pub(crate) mod buttons;
 pub(crate) mod calculator;
 mod clips;
@@ -196,6 +197,9 @@ pub struct UiState {
     pub midi_map_mode: bool,
     pub midi_manager_open: bool,
     thumbnails: HashMap<ClipAddress, CachedThumbnail>,
+    pub browser: browser::BrowserState,
+    /// The selected clip's first frame for the preview monitor.
+    cue_preview: Option<(ClipAddress, PathBuf, egui::TextureHandle)>,
     thumbnail_failures: HashMap<ClipAddress, (PathBuf, String)>,
     fps: FpsMeter,
 }
@@ -303,6 +307,8 @@ impl Default for UiState {
             midi_map_mode: false,
             midi_manager_open: false,
             thumbnails: HashMap::new(),
+            browser: browser::BrowserState::default(),
+            cue_preview: None,
             thumbnail_failures: HashMap::new(),
             fps: FpsMeter::default(),
         }
@@ -460,6 +466,13 @@ pub enum UiAction {
         to: ClipAddress,
     },
     BrowseRelink(ClipAddress),
+    /// Load a file or folder from the browser into a slot.
+    ImportToSlot {
+        address: ClipAddress,
+        path: PathBuf,
+    },
+    /// Choose the browser's folder with a system dialog.
+    BrowseBrowserFolder,
     Eject(DeckId),
     ConnectGenerator {
         deck: DeckId,
@@ -955,14 +968,45 @@ pub fn draw(
         .show(ctx, |ui| {
             let midi_map = buttons::current_map().expect("buttons::begin_frame runs first");
             draw_toolbar(ui, state, clips, &metrics, palette, &midi_map, &mut actions);
-            let docked = ui.available_width() >= 1100.0;
+            if state.browser.open && ui.available_width() >= 900.0 {
+                let selected = ClipAddress {
+                    deck: mixer.selected(),
+                    slot: clips.selected(mixer.selected()),
+                };
+                egui::Panel::left("browser-panel")
+                    .resizable(true)
+                    .default_size(250.0)
+                    .min_size(180.0)
+                    .show(ui, |ui| {
+                        browser::draw_browser(
+                            ui,
+                            &mut state.browser,
+                            browser::BrowserContext {
+                                palette,
+                                show_mode: state.show_mode,
+                                selected,
+                                effects: &mut state.effects,
+                            },
+                            &mut actions,
+                        );
+                    });
+            }
+            let docked = ui.available_width() >= 1000.0;
             if docked {
                 egui::Panel::right("properties-panel")
                     .resizable(true)
                     .default_size(460.0)
                     .min_size(340.0)
                     .show(ui, |ui| {
-                        program_monitor(ui, metrics.program_monitor, state, palette);
+                        draw_monitors(
+                            ui,
+                            state,
+                            mixer,
+                            clips,
+                            metrics.program_monitor,
+                            palette,
+                            &mut actions,
+                        );
                         ui.add_space(4.0);
                         egui::ScrollArea::vertical()
                             .id_salt("properties-scroll")
@@ -1045,7 +1089,15 @@ pub fn draw(
 
                     ui.separator();
                     if !docked {
-                        program_monitor(ui, metrics.program_monitor, state, palette);
+                        draw_monitors(
+                            ui,
+                            state,
+                            mixer,
+                            clips,
+                            metrics.program_monitor,
+                            palette,
+                            &mut actions,
+                        );
                         draw_deck_section(
                             ui,
                             state,
@@ -1574,49 +1626,193 @@ fn draw_deck_section(
     );
 }
 
-/// The live program picture, as on a media server's composition monitor.
-fn program_monitor(
+/// A monitor's title row: a coloured dot, the name and a detail.
+fn monitor_title(
     ui: &mut egui::Ui,
-    monitor: (egui::TextureId, [u32; 2]),
-    state: &UiState,
+    dot: egui::Color32,
+    title: &str,
+    detail: &str,
     palette: ThemePalette,
 ) {
-    let (texture, [width, height]) = monitor;
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("◉").color(palette.danger));
+        ui.label(egui::RichText::new("●").color(dot));
         ui.label(
-            egui::RichText::new("PROGRAM")
+            egui::RichText::new(title)
                 .small()
                 .strong()
                 .color(palette.strong_text),
         );
-        ui.weak(format!("{width}×{height}"));
-        if state.blackout {
-            ui.colored_label(palette.danger, "BLACKOUT");
-        }
-        if state.master_freeze {
-            ui.colored_label(palette.warning, "FROZEN");
-        }
+        ui.add(
+            egui::Label::new(
+                egui::RichText::new(detail)
+                    .small()
+                    .color(palette.muted_text),
+            )
+            .truncate(),
+        );
     });
-    let aspect = width.max(1) as f32 / height.max(1) as f32;
+}
+
+/// Paints `texture` letterboxed into the available width, on black.
+fn monitor_image(
+    ui: &mut egui::Ui,
+    texture: Option<(egui::TextureId, [u32; 2])>,
+    max_height: f32,
+    palette: ThemePalette,
+) {
     let available = ui.available_width();
-    let size = egui::vec2(available, (available / aspect).min(300.0));
-    let size = egui::vec2(size.y * aspect, size.y);
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(available, size.y), egui::Sense::hover());
-    let image = egui::Rect::from_center_size(rect.center(), size);
+    let box_size = egui::vec2(available, (available * 9.0 / 16.0).min(max_height));
+    let (rect, _) = ui.allocate_exact_size(box_size, egui::Sense::hover());
     ui.painter().rect_filled(rect, 2.0, egui::Color32::BLACK);
-    ui.painter().image(
-        texture,
-        image,
-        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-        egui::Color32::WHITE,
-    );
+    if let Some((texture, [width, height])) = texture {
+        let aspect = width.max(1) as f32 / height.max(1) as f32;
+        let size = if rect.width() / rect.height() > aspect {
+            egui::vec2(rect.height() * aspect, rect.height())
+        } else {
+            egui::vec2(rect.width(), rect.width() / aspect)
+        };
+        ui.painter().image(
+            texture,
+            egui::Rect::from_center_size(rect.center(), size),
+            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+    } else {
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "no clip",
+            egui::FontId::proportional(12.0),
+            palette.muted_text,
+        );
+    }
     ui.painter().rect_stroke(
         rect,
         2.0,
         egui::Stroke::new(palette.outline_width.min(1.0), palette.stroke),
         egui::StrokeKind::Inside,
     );
+}
+
+/// The selected clip's first frame, downscaled for the preview monitor.
+fn preview_image(frame: &virtual_media::RgbaFrame) -> egui::ColorImage {
+    let [width, height] = frame.extent.map(|v| v.max(1) as usize);
+    let scale = (480.0 / width as f32).min(1.0);
+    let (out_width, out_height) = (
+        ((width as f32 * scale) as usize).max(1),
+        ((height as f32 * scale) as usize).max(1),
+    );
+    let data = frame.data.as_slice();
+    let mut pixels = Vec::with_capacity(out_width * out_height * 4);
+    for y in 0..out_height {
+        let source_y = (y * height / out_height).min(height - 1);
+        for x in 0..out_width {
+            let source_x = (x * width / out_width).min(width - 1);
+            let at = (source_y * width + source_x) * 4;
+            pixels.extend_from_slice(data.get(at..at + 4).unwrap_or(&[0, 0, 0, 255]));
+        }
+    }
+    egui::ColorImage::from_rgba_unmultiplied([out_width, out_height], &pixels)
+}
+
+/// Preview (the selected clip, ready to launch) beside Program (the live
+/// output), as on a media server.
+#[allow(clippy::too_many_arguments)]
+fn draw_monitors(
+    ui: &mut egui::Ui,
+    state: &mut UiState,
+    mixer: &FourDeckMixer,
+    clips: &ClipBank,
+    program: (egui::TextureId, [u32; 2]),
+    palette: ThemePalette,
+    actions: &mut Vec<UiAction>,
+) {
+    let deck = mixer.selected();
+    let address = ClipAddress {
+        deck,
+        slot: clips.selected(deck),
+    };
+    let path = clips.path(address).map(Path::to_path_buf);
+    let fresh = matches!(
+        (&state.cue_preview, &path),
+        (Some((cued, cued_path, _)), Some(path)) if *cued == address && cued_path == path
+    );
+    if !fresh {
+        state.cue_preview = path.as_ref().and_then(|path| {
+            let frame = state.preloaded_frame(address, Some(path))?;
+            let texture = ui.ctx().load_texture(
+                "cue-preview",
+                preview_image(frame),
+                egui::TextureOptions::LINEAR,
+            );
+            Some((address, path.clone(), texture))
+        });
+    }
+    let name = clips
+        .movie(address)
+        .map_or_else(String::new, |movie| movie.display_name.clone());
+    let preview = |ui: &mut egui::Ui, state: &UiState, actions: &mut Vec<UiAction>, height: f32| {
+        monitor_title(
+            ui,
+            palette.warning,
+            "PREVIEW",
+            &format!("{}{} {name}", deck.label(), address.slot + 1),
+            palette,
+        );
+        let texture = state
+            .cue_preview
+            .as_ref()
+            .map(|(_, _, texture)| {
+                let [width, height] = texture.size();
+                (texture.id(), [width as u32, height as u32])
+            })
+            .or_else(|| {
+                state.thumbnail(address, path.as_deref()).map(|texture| {
+                    let [width, height] = texture.size();
+                    (texture.id(), [width as u32, height as u32])
+                })
+            });
+        monitor_image(ui, texture, height, palette);
+        if ui
+            .add_enabled(
+                clips.movie(address).is_some(),
+                egui::Button::new(egui::RichText::new("▶ Launch").small()),
+            )
+            .on_hover_text("Launch the previewed clip")
+            .clicked()
+        {
+            actions.push(UiAction::Launch(address));
+        }
+    };
+    let (texture, extent) = program;
+    let program_detail = format!(
+        "{}×{}{}{}",
+        extent[0],
+        extent[1],
+        if state.blackout { " · BLACKOUT" } else { "" },
+        if state.master_freeze {
+            " · FROZEN"
+        } else {
+            ""
+        }
+    );
+    if ui.available_width() >= 420.0 {
+        ui.columns(2, |columns| {
+            preview(&mut columns[0], state, actions, 200.0);
+            monitor_title(
+                &mut columns[1],
+                palette.danger,
+                "PROGRAM",
+                &program_detail,
+                palette,
+            );
+            monitor_image(&mut columns[1], Some((texture, extent)), 200.0, palette);
+        });
+    } else {
+        monitor_title(ui, palette.danger, "PROGRAM", &program_detail, palette);
+        monitor_image(ui, Some((texture, extent)), 260.0, palette);
+        preview(ui, state, actions, 160.0);
+    }
 }
 
 #[cfg(test)]

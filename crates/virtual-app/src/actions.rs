@@ -75,6 +75,23 @@ impl State {
                     self.clear_clip(address, now, CommandOrigin::Operator);
                 }
                 ui::UiAction::BrowseRelink(address) => self.browse_relink(address),
+                ui::UiAction::ImportToSlot { address, path } => {
+                    self.mixer.select(address.deck);
+                    self.clips.select(address);
+                    if path.is_dir() {
+                        self.import_folder(path);
+                    } else {
+                        self.import_movie(path, false);
+                    }
+                }
+                ui::UiAction::BrowseBrowserFolder => {
+                    if let Some(folder) = rfd::FileDialog::new()
+                        .set_directory(&self.ui.browser.folder)
+                        .pick_folder()
+                    {
+                        self.ui.browser.set_folder(folder);
+                    }
+                }
                 ui::UiAction::Eject(deck) => {
                     self.stop_camera_recording(deck);
                     self.record_show_operation(

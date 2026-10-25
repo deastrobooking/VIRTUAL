@@ -324,6 +324,47 @@ fn tile_widget(
     }
     let hovered = response.hovered();
     let radius = ui.visuals().widgets.inactive.corner_radius;
+    if size.y < 32.0 {
+        // Narrow: a name button with a colour edge, no thumbnail.
+        let painter = ui.painter();
+        let fill = match tile.state {
+            TileState::Playing => palette.control_tint(palette.success, 0.55),
+            TileState::Queued => palette.control_tint(palette.warning, 0.4),
+            TileState::Missing => palette.control_tint(palette.danger, 0.3),
+            TileState::Empty => palette.faint,
+            _ if tile.selected => palette.control_tint(palette.accent, 0.3),
+            _ => palette.control,
+        };
+        painter.rect_filled(rect, radius, fill);
+        if tile.state != TileState::Empty {
+            painter.rect_filled(
+                egui::Rect::from_min_size(rect.min, egui::vec2(3.0, rect.height())),
+                1.0,
+                tile.deck_color,
+            );
+        }
+        let text = rect
+            .with_min_x(rect.min.x + 20.0)
+            .shrink2(egui::vec2(2.0, 0.0));
+        painter.with_clip_rect(text).text(
+            text.left_center(),
+            egui::Align2::LEFT_CENTER,
+            &tile.name,
+            egui::FontId::proportional(11.5),
+            if tile.state == TileState::Empty {
+                palette.muted_text
+            } else {
+                palette.grid_text
+            },
+        );
+        painter.rect_stroke(
+            rect,
+            radius,
+            tile_stroke(ui, tile, hovered, palette),
+            egui::StrokeKind::Inside,
+        );
+        return response;
+    }
     let strip_height = (size.y - size.x * 9.0 / 16.0).max(12.0);
     let image =
         egui::Rect::from_min_max(rect.min, egui::pos2(rect.max.x, rect.max.y - strip_height));
@@ -1571,10 +1612,10 @@ fn clip_cell(
         };
         let play_rect = egui::Rect::from_min_size(
             response.rect.left_top()
-                + if style == TileStyle::Card {
+                + if style == TileStyle::Card && size.y >= 32.0 {
                     egui::vec2(4.0, 6.0)
                 } else {
-                    egui::vec2(3.0, 3.0)
+                    egui::vec2(3.0, (size.y - 16.0).clamp(0.0, 6.0) / 2.0)
                 },
             egui::vec2(16.0, 16.0),
         );
@@ -1632,6 +1673,42 @@ fn clip_cell(
     } else {
         response
     };
+    let browser_hover = response
+        .dnd_hover_payload::<super::browser::BrowserMedia>()
+        .is_some()
+        || response
+            .dnd_hover_payload::<super::browser::BrowserGenerator>()
+            .is_some()
+        || response
+            .dnd_hover_payload::<super::browser::BrowserEffect>()
+            .is_some();
+    if browser_hover {
+        ui.painter().rect_stroke(
+            response.rect.expand(2.0),
+            4.0,
+            egui::Stroke::new(2.0, palette.accent),
+            egui::StrokeKind::Outside,
+        );
+    }
+    if let Some(media) = response.dnd_release_payload::<super::browser::BrowserMedia>() {
+        actions.push(UiAction::ImportToSlot {
+            address,
+            path: media.0.clone(),
+        });
+    }
+    if let Some(generator) = response.dnd_release_payload::<super::browser::BrowserGenerator>() {
+        mixer.select(deck);
+        actions.push(UiAction::ConnectGenerator {
+            deck,
+            settings: Box::new(virtual_generate::GeneratorSettings {
+                pattern: generator.0,
+                ..virtual_generate::GeneratorSettings::default()
+            }),
+        });
+    }
+    if let Some(effect) = response.dnd_release_payload::<super::browser::BrowserEffect>() {
+        super::browser::toggle_effect(&mut state.effects[deck.index()], effect.0);
+    }
     if let Some(source) = response.dnd_hover_payload::<ClipAddress>()
         && *source != address
     {

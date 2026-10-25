@@ -4,6 +4,31 @@
 
 use super::theme::ThemePalette;
 
+/// Every section, for layouts that fold several at once.
+pub(super) const SECTIONS: [&str; 6] = [
+    "setup",
+    "clips",
+    "audio-spectrum",
+    "selected-deck",
+    "mix-master",
+    "master-effects",
+];
+
+fn section_id(id_salt: &str) -> egui::Id {
+    egui::Id::new(("section", id_salt))
+}
+
+/// Opens or folds a section from outside it.
+pub(super) fn set_open(ctx: &egui::Context, id_salt: &str, open: bool) {
+    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
+        ctx,
+        section_id(id_salt),
+        open,
+    );
+    state.set_open(open);
+    state.store(ctx);
+}
+
 /// Draws a foldable section. `header` adds compact status widgets to the
 /// right of the title; `body` is only built while the section is open.
 #[allow(clippy::too_many_arguments)]
@@ -17,7 +42,7 @@ pub(super) fn section<R>(
     header: impl FnOnce(&mut egui::Ui),
     body: impl FnOnce(&mut egui::Ui) -> R,
 ) -> Option<R> {
-    let id = ui.make_persistent_id(("section", id_salt));
+    let id = section_id(id_salt);
     let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(
         ui.ctx(),
         id,
