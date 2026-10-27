@@ -140,18 +140,19 @@ impl ProgramReadback {
             }
         }
         let _ = device.poll(wgpu::PollType::Poll);
-        let mut ready: Vec<usize> = (0..self.slots.len())
-            .filter(|&index| {
-                matches!(
-                    self.slots[index].state.load(Ordering::Acquire),
-                    MAPPED | FAILED
-                )
-            })
+        let mut pending: Vec<usize> = (0..self.slots.len())
+            .filter(|&index| self.slots[index].state.load(Ordering::Acquire) != FREE)
             .collect();
-        ready.sort_by_key(|&index| self.slots[index].sequence);
-        for index in ready {
+        pending.sort_by_key(|&index| self.slots[index].sequence);
+        for index in pending {
             let slot = &self.slots[index];
-            if slot.state.load(Ordering::Acquire) == MAPPED {
+            let state = slot.state.load(Ordering::Acquire);
+            // Mapping callbacks can complete out of order. Retain newer
+            // frames until the oldest pending copy finishes, across polls.
+            if !matches!(state, MAPPED | FAILED) {
+                break;
+            }
+            if state == MAPPED {
                 {
                     let view = slot.buffer.slice(..).get_mapped_range();
                     deliver(ReadbackFrame {
@@ -181,5 +182,62 @@ impl ProgramReadback {
                 timeout: None,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delayed_mapping_preserves_capture_order_across_polls_and_retires_failures() {
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+        else {
+            eprintln!("no GPU adapter; skipping readback ordering test");
+            return;
+        };
+        let (device, _) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+        let mut readback = ProgramReadback::new(&device, [1, 1]);
+        // Simulate a reused ring: the newest capture occupies the first slot.
+        // Buffers start mapped so callback completion order is under test control.
+        for (slot, (sequence, state)) in
+            readback
+                .slots
+                .iter_mut()
+                .zip([(2, MAPPED), (0, MAPPING), (1, FAILED)])
+        {
+            slot.sequence = sequence;
+            slot.state.store(state, Ordering::Release);
+            if state != FAILED {
+                slot.buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                    label: Some("controlled-readback-completion"),
+                    size: 256,
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: true,
+                });
+            }
+        }
+        let mut sequences = Vec::new();
+        readback.poll(&device, |frame| sequences.push(frame.sequence));
+        assert!(sequences.is_empty(), "newer frames must wait for capture 0");
+        readback.slots[1].state.store(MAPPED, Ordering::Release);
+        readback.poll(&device, |frame| sequences.push(frame.sequence));
+        assert_eq!(
+            sequences,
+            [0, 2],
+            "failed capture 1 must not block capture 2"
+        );
+        readback.poll(&device, |frame| sequences.push(frame.sequence));
+        assert_eq!(sequences, [0, 2], "each frame is delivered only once");
+        assert!(
+            readback
+                .slots
+                .iter()
+                .all(|slot| slot.state.load(Ordering::Acquire) == FREE)
+        );
     }
 }

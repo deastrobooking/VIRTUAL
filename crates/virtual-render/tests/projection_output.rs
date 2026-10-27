@@ -95,18 +95,9 @@ fn projection_crops_warps_masks_and_preserves_the_unmapped_program() {
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
-    let draw = |projection| {
+    let draw = |options| {
         let mut encoder = device.create_command_encoder(&Default::default());
-        presenter.draw(
-            &queue,
-            &mut encoder,
-            &view,
-            [64, 64],
-            PresentationOptions {
-                projection,
-                ..Default::default()
-            },
-        );
+        presenter.draw(&queue, &mut encoder, &view, [64, 64], options);
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &output,
@@ -148,7 +139,10 @@ fn projection_crops_warps_masks_and_preserves_the_unmapped_program() {
         source: [0.5, 0.0, 1.0, 1.0],
         masks: [[0.45, 0.45, 0.55, 0.55], [0.0; 4], [0.0; 4], [0.0; 4]],
     };
-    let pixels = draw(mapping);
+    let pixels = draw(PresentationOptions {
+        projection: mapping,
+        ..Default::default()
+    });
     let pixel = |x: usize, y: usize| &pixels[(y * 64 + x) * 4..(y * 64 + x) * 4 + 4];
     assert_eq!(pixel(2, 2), [0, 0, 0, 255], "outside quad");
     assert_eq!(pixel(32, 32), [0, 0, 0, 255], "blackout mask");
@@ -162,9 +156,12 @@ fn projection_crops_warps_masks_and_preserves_the_unmapped_program() {
         [0, 255, 0, 255],
         "perspective-mapped lower corner"
     );
-    let normal = draw(ProjectionMapping {
-        enabled: false,
-        ..mapping
+    let normal = draw(PresentationOptions {
+        projection: ProjectionMapping {
+            enabled: false,
+            ..mapping
+        },
+        ..Default::default()
     });
     assert_eq!(
         &normal[20 * 256 + 10 * 4..20 * 256 + 10 * 4 + 4],
@@ -174,12 +171,39 @@ fn projection_crops_warps_masks_and_preserves_the_unmapped_program() {
         &normal[20 * 256 + 50 * 4..20 * 256 + 50 * 4 + 4],
         [0, 255, 0, 255]
     );
-    let invalid = draw(ProjectionMapping {
-        corners: [[0.0; 2]; 4],
-        ..mapping
+    let invalid = draw(PresentationOptions {
+        projection: ProjectionMapping {
+            corners: [[0.0; 2]; 4],
+            ..mapping
+        },
+        ..Default::default()
     });
     assert!(
         invalid.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 255]),
         "invalid calibration must fail black"
     );
+    for enabled in [false, true] {
+        let calibration = PresentationOptions {
+            test_card: true,
+            identify: true,
+            projection: ProjectionMapping { enabled, ..mapping },
+            ..Default::default()
+        };
+        let visible = draw(calibration);
+        assert!(visible.chunks_exact(4).any(|pixel| pixel != [0, 0, 0, 255]));
+        let black = draw(PresentationOptions {
+            blackout: true,
+            ..calibration
+        });
+        assert!(
+            black.chunks_exact(4).all(|pixel| pixel == [0, 0, 0, 255]),
+            "blackout must override both calibration overlays (mapping enabled: {enabled})"
+        );
+        assert_eq!(
+            draw(calibration),
+            visible,
+            "releasing blackout restores calibration"
+        );
+    }
+    assert_eq!(draw(PresentationOptions::default()), normal);
 }
