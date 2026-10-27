@@ -8,7 +8,9 @@ struct PresentGlobals {
     mapping_rows: array<vec4<f32>, 3>,
     source_rect: vec4<f32>,
     masks: array<vec4<f32>, 4>,
-    mapping_enabled: vec4<u32>,
+    mapping_enabled: u32,
+    blackout: u32,
+    _padding: vec2<u32>,
 }
 
 @group(0) @binding(2) var<uniform> globals: PresentGlobals;
@@ -38,8 +40,11 @@ fn vs_main(@builtin(vertex_index) index: u32) -> VertexOutput {
 
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
+    if globals.blackout != 0u {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
     var source_uv = (input.uv - vec2(0.5)) / globals.content_scale + vec2(0.5);
-    if globals.mapping_enabled.x != 0u {
+    if globals.mapping_enabled != 0u {
         let p = vec3(input.uv, 1.0);
         let w = dot(globals.mapping_rows[2].xyz, p);
         if abs(w) < 0.00001 { return vec4(0.0, 0.0, 0.0, 1.0); }
@@ -55,7 +60,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         return vec4(0.0, 0.0, 0.0, 1.0);
     }
     var sample_uv = source_uv;
-    if globals.mapping_enabled.x != 0u {
+    if globals.mapping_enabled != 0u {
         sample_uv = mix(globals.source_rect.xy, globals.source_rect.zw, source_uv);
     }
     var color = textureSampleLevel(program_texture, program_sampler, sample_uv, 0.0).rgb;

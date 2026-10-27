@@ -32,11 +32,15 @@ struct PresentGlobals {
     mapping_rows: [[f32; 4]; 3],
     source_rect: [f32; 4],
     masks: [[f32; 4]; 4],
-    mapping_enabled: [u32; 4],
+    mapping_enabled: u32,
+    blackout: u32,
+    _padding: [u32; 2],
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct PresentationOptions {
+    /// Emergency blackout overrides the program, test card and identification overlay.
+    pub blackout: bool,
     pub test_card: bool,
     pub identify: bool,
     pub projection: virtual_core::ProjectionMapping,
@@ -1566,7 +1570,9 @@ impl ProgramPresenter {
                     .unwrap_or([[0.0; 4]; 3]),
                 source_rect: options.projection.source,
                 masks: options.projection.masks,
-                mapping_enabled: [u32::from(options.projection.enabled), 0, 0, 0],
+                mapping_enabled: u32::from(options.projection.enabled),
+                blackout: u32::from(options.blackout),
+                _padding: [0; 2],
             }),
         );
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

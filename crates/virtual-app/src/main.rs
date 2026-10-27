@@ -1184,6 +1184,7 @@ impl State {
 
         let operator_frame = self.gpu.acquire();
         let presentation = PresentationOptions {
+            blackout: self.ui.blackout,
             test_card: self.ui.output_test_card,
             identify: self.ui.output_identify,
             ..Default::default()
