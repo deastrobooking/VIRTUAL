@@ -319,6 +319,11 @@ Terminal during development). Use **Manual input / custom size** for a device
 name/index or a non-preset resolution. See [video inputs](docs/VIDEO_INPUTS.md)
 for setup and troubleshooting.
 
+To receive an AudVis Blender viewport, choose **AudVis stream** in the same
+video input controls, click **Listen** on port `9010`, then start **VIRTUAL
+Viewport Stream** from Blender's target 3D Viewport. See [video inputs](docs/VIDEO_INPUTS.md)
+for the provisional localhost protocol and limits.
+
 ## Documentation
 
 - [Release notes](docs/RELEASE_NOTES.md)
@@ -373,3 +378,10 @@ clips run at 24/25/30fps.
 
 See [AudVis bridge and operator workspaces](docs/AUDVIS_BRIDGE.md) for the
 local Blender control bridge and Performance, Audio and Setup views.
+
+## Session editor
+
+[Session editing and workflow research](docs/EDITOR_RESEARCH.md) describes the
+four-track planned-show workspace, A/B source preparation, live Program monitor
+and OpenTimelineIO source-edit export. Version 7 saves the arrangement; rendered
+movie export and audio timeline editing are not yet implemented.

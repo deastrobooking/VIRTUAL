@@ -63,6 +63,14 @@ pub struct ProgramTarget {
 }
 
 impl ProgramTarget {
+    /// egui samples gamma-encoded values; reinterpret the sRGB storage without decoding.
+    pub fn ui_view(&self) -> wgpu::TextureView {
+        self._texture.create_view(&wgpu::TextureViewDescriptor {
+            format: Some(wgpu::TextureFormat::Rgba8Unorm),
+            ..Default::default()
+        })
+    }
+
     pub fn new(device: &wgpu::Device, extent: [u32; 2]) -> Self {
         let extent = [extent[0].max(1), extent[1].max(1)];
         let make_texture = |label| {
@@ -81,7 +89,7 @@ impl ProgramTarget {
                     | wgpu::TextureUsages::TEXTURE_BINDING
                     | wgpu::TextureUsages::COPY_SRC
                     | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
+                view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
             })
         };
         let composition_texture = make_texture("virtual-program-composition");

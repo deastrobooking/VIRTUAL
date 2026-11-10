@@ -1,7 +1,7 @@
 //! Bounded decoder actor used by each active mixer deck.
 
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
 use std::thread::{self, JoinHandle};
@@ -14,8 +14,8 @@ use virtual_hap::Decoder as HapDecoder;
 use crate::capture_interrupt::CaptureCancellation;
 
 use crate::{
-    CameraConfig, DecodePath, FfmpegVideoDecoder, FrameBufferPool, FramePoolStats, HapDemuxer,
-    RgbaFrame, ScheduledFrame, VideoFramePayload,
+    AudvisStreamReceiver, AudvisStreamStats, CameraConfig, DecodePath, FfmpegVideoDecoder,
+    FrameBufferPool, FramePoolStats, HapDemuxer, RgbaFrame, ScheduledFrame, VideoFramePayload,
 };
 
 #[derive(Debug)]
@@ -32,6 +32,7 @@ enum DecoderCommand {
         config: CameraConfig,
         generation: u64,
     },
+    AudvisStream { port: u16, generation: u64, stats: Arc<Mutex<AudvisStreamStats>> },
     Generator {
         settings: GeneratorSettings,
         generation: u64,
@@ -167,6 +168,7 @@ pub struct DeckDecoder {
     frames: Receiver<ScheduledFrame<VideoFramePayload>>,
     events: Receiver<DecoderEvent>,
     frame_pool: FrameBufferPool,
+    audvis_stream_stats: Arc<Mutex<AudvisStreamStats>>,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -209,6 +211,7 @@ impl DeckDecoder {
             frames: frames_rx,
             events: events_rx,
             frame_pool,
+            audvis_stream_stats: Arc::new(Mutex::new(AudvisStreamStats::default())),
             worker: Some(worker),
         }
     }
@@ -262,6 +265,22 @@ impl DeckDecoder {
             generation,
             cancellation,
         });
+    }
+
+    pub fn connect_audvis_stream(&self, port: u16, generation: u64) {
+        let _ = self.capture_cancellation.next();
+        if let Ok(mut stats) = self.audvis_stream_stats.lock() {
+            *stats = AudvisStreamStats::default();
+        }
+        let _ = self.commands.send(DecoderCommand::AudvisStream {
+            port,
+            generation,
+            stats: self.audvis_stream_stats.clone(),
+        });
+    }
+
+    pub fn audvis_stream_stats(&self) -> AudvisStreamStats {
+        self.audvis_stream_stats.lock().map_or_else(|_| AudvisStreamStats::default(), |stats| *stats)
     }
 
     /// Starts a procedural source. Frames are rendered on this deck's worker
@@ -352,6 +371,12 @@ enum Session {
         pool: FrameBufferPool,
         link: Arc<GeneratorLink>,
     },
+    AudvisStream {
+        receiver: AudvisStreamReceiver,
+        generation: u64,
+        pool: FrameBufferPool,
+        stats: Arc<Mutex<AudvisStreamStats>>,
+    },
 }
 
 impl Session {
@@ -359,7 +384,8 @@ impl Session {
         match self {
             Self::Hap { generation, .. }
             | Self::Ffmpeg { generation, .. }
-            | Self::Generator { generation, .. } => *generation,
+            | Self::Generator { generation, .. }
+            | Self::AudvisStream { generation, .. } => *generation,
         }
     }
 
@@ -446,14 +472,33 @@ impl Session {
                 *next_due += Duration::from_secs_f64(interval);
                 Ok(Some(frame))
             }
+            Self::AudvisStream { receiver, generation, pool, .. } => {
+                let frame = receiver.poll(pool).map_err(|error| error.to_string())?;
+                let Some(frame) = frame else { return Ok(None); };
+                Ok(Some(ScheduledFrame {
+                    pts: frame.pts,
+                    duration: None,
+                    generation: *generation,
+                    sequence: frame.sequence,
+                    payload: VideoFramePayload::Rgba8(frame.pixels),
+                }))
+            }
         }
     }
 
     fn is_live(&self) -> bool {
         match self {
             Self::Ffmpeg { decoder, .. } => decoder.is_live(),
-            Self::Generator { .. } => true,
+            Self::Generator { .. } | Self::AudvisStream { .. } => true,
             Self::Hap { .. } => false,
+        }
+    }
+
+    fn note_drop(&self) {
+        if let Self::AudvisStream { stats, .. } = self
+            && let Ok(mut stats) = stats.lock()
+        {
+            stats.dropped_frames = stats.dropped_frames.saturating_add(1);
         }
     }
 
@@ -464,7 +509,7 @@ impl Session {
                 let wait = next_due.saturating_duration_since(Instant::now());
                 (!wait.is_zero()).then_some(wait)
             }
-            Self::Hap { .. } | Self::Ffmpeg { .. } => None,
+            Self::Hap { .. } | Self::Ffmpeg { .. } | Self::AudvisStream { .. } => None,
         }
     }
 }
@@ -544,6 +589,12 @@ fn decoder_loop(
                     pending = Some(frame);
                 }
                 Ok(None) => {
+                    if active.is_live() {
+                        // Network and capture sources may not have a frame on
+                        // every poll; keep the session alive while reconnecting.
+                        thread::sleep(Duration::from_millis(2));
+                        continue;
+                    }
                     let generation = active.generation();
                     let _ = events.send(DecoderEvent::Ended { generation });
                     session = None;
@@ -564,6 +615,7 @@ fn decoder_loop(
                 Ok(()) => {}
                 Err(TrySendError::Full(frame)) => {
                     if session.as_ref().is_some_and(Session::is_live) {
+                        if let Some(active) = session.as_ref() { active.note_drop(); }
                         // Never let a stalled render loop create seconds of
                         // camera latency. Drop capture frames until the
                         // bounded render queue has room again.
@@ -694,6 +746,28 @@ fn handle_command(
                     let _ = events.send(DecoderEvent::Error {
                         generation,
                         message: error.to_string(),
+                    });
+                }
+            }
+            false
+        }
+        DecoderCommand::AudvisStream { port, generation, stats } => {
+            *pending = None;
+            *session = None;
+            match AudvisStreamReceiver::bind(port, stats.clone()) {
+                Ok(receiver) => {
+                    *session = Some(Session::AudvisStream {
+                        receiver,
+                        generation,
+                        pool: frame_pool.clone(),
+                        stats,
+                    });
+                    let _ = events.send(DecoderEvent::Loaded { generation });
+                }
+                Err(error) => {
+                    let _ = events.send(DecoderEvent::Error {
+                        generation,
+                        message: format!("Could not listen for AudVis stream on 127.0.0.1:{port}: {error}"),
                     });
                 }
             }

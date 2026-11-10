@@ -37,3 +37,8 @@ This milestone does not transport Blender video. VIRTUAL's NDI implementation
 sends the finished program; receiving Blender frames requires a separate source
 adapter. A future milestone should prototype frame transport, then add execution-
 time cue messages and shared macro identities before coordinated show saving.
+
+For the direct video-source proposal and AudVis fork study, see
+[AudVis video input for VIRTUAL](AUDVIS_VIDEO_INPUT.md). The proposed route
+captures the Blender viewport in AudVis and feeds it to a VIRTUAL deck over a
+localhost-only stream, without OBS.

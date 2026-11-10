@@ -6,6 +6,7 @@
 //! timestamped scheduling will be assembled here.
 
 mod capture;
+mod audvis_stream;
 mod capture_interrupt;
 mod clips;
 mod decode_ffmpeg;
@@ -25,6 +26,7 @@ pub use capture::{
     CAMERA_SCHEME, CameraConfig, CameraDevice, CameraDiscoveryError, CapturePixelFormat,
     camera_pts, default_camera_id, discover_cameras, native_camera_backend,
 };
+pub use audvis_stream::{AudvisFrame, AudvisStreamReceiver, AudvisStreamStats};
 pub use clips::{
     CLIPS_PER_DECK, ClipAddress, ClipBank, ClipLaunchMode, ClipPlayback, ClipRestoreRequest,
     ClipRestoreResult, ClipRestorer, ClipSlot, LaunchQueue,

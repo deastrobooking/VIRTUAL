@@ -13,6 +13,27 @@ pub(super) fn draw_video_input(
     actions: &mut Vec<UiAction>,
 ) {
     ui.push_id(("video-input", deck.index()), |ui| {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut state.audvis_stream_selected, false, "Camera / capture card");
+            ui.selectable_value(&mut state.audvis_stream_selected, true, "AudVis stream");
+        });
+        if state.audvis_stream_selected {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("AudVis viewport stream");
+                ui.add(egui::DragValue::new(&mut state.audvis_stream_port)
+                    .range(1024..=65535).prefix("Port "));
+                if buttons::midi_button(ui, &format!("video_input.audvis.{}", deck.index()),
+                    &format!("Deck {} · Listen for AudVis stream", deck.label()),
+                    |ui| ui.button(format!("Listen on 127.0.0.1:{}", state.audvis_stream_port)))
+                    .clicked()
+                {
+                    actions.push(UiAction::ConnectAudvisStream { deck, port: state.audvis_stream_port });
+                }
+            });
+            ui.weak("Start the AudVis Viewport Stream sender on this computer. The listener starts only when you click Listen.");
+            if !status.is_empty() { ui.weak(status); }
+            return;
+        }
         ui.horizontal_wrapped(|ui| {
             ui.strong("Video input · camera / capture card");
             let selected = devices.iter().find(|device| device.id == state.camera_device_id);

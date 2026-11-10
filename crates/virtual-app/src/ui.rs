@@ -14,6 +14,8 @@ mod generator;
 mod master_fx;
 mod midi;
 mod midi_manager;
+mod monitors;
+pub(crate) mod session;
 mod setup;
 pub mod theme;
 mod toolbar;
@@ -60,6 +62,7 @@ use virtual_render::{
 enum Workspace {
     #[default]
     Performance,
+    Session,
     Audio,
     Setup,
 }
@@ -67,6 +70,9 @@ enum Workspace {
 /// Everything the overlay owns. All plain data — no GPU handles, no channels.
 pub struct UiState {
     workspace: Workspace,
+    pub(crate) sequence: virtual_core::sequence::ShowSequence,
+    pub(crate) session_editor: session::SessionEditor,
+    pub(crate) program_texture: Option<egui::TextureId>,
     pub master_opacity: f32,
     pub blackout: bool,
     pub master_freeze: bool,
@@ -118,6 +124,8 @@ pub struct UiState {
     pub project_path: String,
     pub(crate) save_status: crate::project_save::SaveStatus,
     pub camera_device_id: String,
+    pub audvis_stream_selected: bool,
+    pub audvis_stream_port: u16,
     pub camera_width: u32,
     pub camera_height: u32,
     pub camera_fps: u32,
@@ -179,6 +187,9 @@ impl Default for UiState {
     fn default() -> Self {
         Self {
             workspace: Workspace::default(),
+            sequence: Default::default(),
+            session_editor: Default::default(),
+            program_texture: None,
             master_opacity: 1.0,
             blackout: false,
             master_freeze: false,
@@ -223,6 +234,8 @@ impl Default for UiState {
             project_path: "show.virtual".to_owned(),
             save_status: crate::project_save::SaveStatus::default(),
             camera_device_id: virtual_media::default_camera_id().to_owned(),
+            audvis_stream_selected: false,
+            audvis_stream_port: 9010,
             camera_width: 1280,
             camera_height: 720,
             camera_fps: 30,
@@ -423,6 +436,7 @@ pub enum UiAction {
         settings: virtual_generate::GeneratorSettings,
     },
     SaveProject,
+    ExportSequence,
     SaveProjectAs,
     OpenProject,
     BrowseOpenProject,
@@ -479,6 +493,7 @@ pub enum UiAction {
         deck: DeckId,
         config: virtual_media::CameraConfig,
     },
+    ConnectAudvisStream { deck: DeckId, port: u16 },
     StartCameraRecording(ClipAddress),
     StopCameraRecording(DeckId),
 }
@@ -864,7 +879,7 @@ pub(super) fn mappable(
 }
 
 pub fn draw(
-    ctx: &egui::Context,
+    root_ui: &mut egui::Ui,
     state: &mut UiState,
     mixer: &mut FourDeckMixer,
     clips: &mut ClipBank,
@@ -872,6 +887,7 @@ pub fn draw(
     transports: &mut [DeckTransport; 4],
     mut metrics: PerformanceMetrics<'_>,
 ) -> Vec<UiAction> {
+    let ctx = &root_ui.ctx().clone();
     state.theme.ensure_applied(ctx);
     let palette = state.theme.palette();
     state.fps.push(metrics.frame_time.delta);
@@ -900,13 +916,7 @@ pub fn draw(
         },
     );
 
-    egui::Window::new("VIRTUAL")
-        .default_pos([16.0, 16.0])
-        .default_size([1180.0, 760.0])
-        .min_size([560.0, 420.0])
-        .resizable(true)
-        .scroll([false, false])
-        .show(ctx, |ui| {
+    egui::CentralPanel::default().show(root_ui, |ui| {
     let midi_map = buttons::current_map().expect("buttons::begin_frame runs first");
             draw_toolbar(ui, state, clips, &metrics, palette, &midi_map, &mut actions);
             if state.show_mode {
@@ -915,10 +925,20 @@ pub fn draw(
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut state.workspace, Workspace::Performance, "Performance");
                 if !state.show_mode {
+                    ui.selectable_value(&mut state.workspace, Workspace::Session, "Session / Edit");
                     ui.selectable_value(&mut state.workspace, Workspace::Audio, "Audio");
                     ui.selectable_value(&mut state.workspace, Workspace::Setup, "Setup / Connections");
                 }
             });
+            if state.session_editor.armed {
+                ui.horizontal(|ui| {
+                    ui.colored_label(palette.warning, "SESSION CONTROLS PROGRAM");
+                    if ui.button("Release timeline").clicked() {
+                        state.session_editor.armed = false;
+                        state.session_editor.playing = false;
+                    }
+                });
+            }
             ui.horizontal(|ui| {
                 ui.label("A");
                 mappable(ui, &midi_map, ControlTarget::Crossfader, &mut actions, |ui| {
@@ -996,6 +1016,12 @@ pub fn draw(
                     },
                     &mut actions,
                 );
+                return;
+            }
+            monitors::draw(ui, state, mixer, clips, transports, &mut actions);
+            if state.workspace == Workspace::Session {
+                session::draw(ui, state, mixer, clips, &mut actions);
+                session::draw_bin(ui, mixer, clips);
                 return;
             }
             draw_clip_grid(

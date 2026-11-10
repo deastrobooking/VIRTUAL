@@ -6,6 +6,27 @@ The input can use deck effects, blending, freeze and camera-to-clip recording.
 Video inputs are live and cannot seek. Embedded capture-card audio is not
 decoded by this path; select an audio-analysis input separately.
 
+## AudVis viewport stream
+
+Choose **AudVis stream** in the deck's video input controls, keep port `9010`,
+and click **Listen**. In Blender, start **VIRTUAL Viewport Stream** from the
+target 3D Viewport. The listener is loopback-only and starts only when selected;
+the port and active source are not saved in the project. VIRTUAL displays
+connection state, current frame dimensions, received frames and sequence gaps.
+
+The provisional v1 TCP stream has a 36-byte network-order header (`VFRM`,
+version 1, RGBA8, width, height, sequence, sender monotonic timestamp and byte
+length) followed by packed top-to-bottom RGBA8 pixels. The receiver validates
+the header before allocating and accepts images up to 3840 × 2160. It uses the
+same live deck scheduler, effects, mixer, freeze, recording and output path as
+camera input. A disconnect clears the live signal; a returning sender may
+reconnect to the active listener.
+
+This stream is a local video prototype. It carries no audio and does not use
+NDI, OSC, a virtual camera or a project-persistent source assignment. Verify
+frame age, sequence gaps and responsiveness at the chosen viewport size before
+using it for a show.
+
 1. Connect the capture card and its HDMI/SDI source. Install the manufacturer's
    macOS driver if required, and select the connector in its control utility.
 2. Select a deck and open **Video input · camera / capture card**.

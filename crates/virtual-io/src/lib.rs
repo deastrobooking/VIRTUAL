@@ -32,3 +32,6 @@ pub use project::{
     TransportProject, autosave_path, load_project, new_project_id, recovery_is_newer,
     relativize_media_paths, resolve_media_paths, save_project_atomic, save_project_portable,
 };
+
+mod sequence_export;
+pub use sequence_export::{export_sequence_otio, sequence_otio};

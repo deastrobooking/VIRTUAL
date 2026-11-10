@@ -41,3 +41,5 @@ pub use midi_clock::{
     PULSES_PER_QUARTER_NOTE,
 };
 pub use tempo::{Quantization, TapTempo, TempoClock};
+
+pub mod sequence;

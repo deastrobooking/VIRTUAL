@@ -15,6 +15,7 @@ mod project_io;
 mod project_save;
 mod recovery;
 mod runtime;
+mod sequence;
 mod shortcuts;
 mod structural;
 mod ui;
@@ -97,6 +98,7 @@ struct State {
     compositor: FourDeckCompositor,
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
+    sequence_export: Option<std::sync::mpsc::Receiver<Result<PathBuf, String>>>,
     clock: Clock,
     ui: ui::UiState,
     gpu_info: String,
@@ -359,6 +361,9 @@ impl State {
         if !shortcuts::allowed(code, self.modifiers, false) {
             return;
         }
+        if self.ui.session_key(code, self.modifiers) {
+            return;
+        }
         let now = Instant::now();
         match code {
             KeyCode::KeyB => self.dispatch_control_update(
@@ -595,12 +600,17 @@ impl State {
             window.theme(),
             Some(gpu.device.limits().max_texture_dimension_2d as usize),
         );
-        let egui_renderer = egui_wgpu::Renderer::new(
+        let mut egui_renderer = egui_wgpu::Renderer::new(
             &gpu.device,
             gpu.surface_format(),
             egui_wgpu::RendererOptions::default(),
         );
 
+        ui.program_texture = Some(egui_renderer.register_native_texture(
+            &gpu.device,
+            &program.ui_view(),
+            wgpu::FilterMode::Linear,
+        ));
         window.request_redraw();
         let recovery_path = paths::untitled_recovery(&workspace);
         let (cameras, camera_status) = match discover_cameras() {
@@ -681,6 +691,7 @@ impl State {
             compositor,
             egui_state,
             egui_renderer,
+            sequence_export: None,
             clock: Clock::new(Instant::now()),
             ui,
             gpu_info,
@@ -788,6 +799,7 @@ impl State {
         }
         self.ui.effect_reload_failed = self.master_effect_processor.has_reload_errors();
         self.ui.deck_effect_reload_failed = self.compositor.has_deck_effect_reload_errors();
+        self.poll_sequence_export();
         self.poll_project_saves();
         self.poll_imports();
         self.poll_folder_scans();
@@ -805,6 +817,7 @@ impl State {
         self.maybe_autosave(now);
         self.process_launches(now);
         self.update_playback(now);
+        self.process_sequence(now);
         if let Some(input) = &self.audio_input {
             input.set_settings(self.ui.audio_analysis);
             self.audio_snapshot = input.snapshot();
@@ -835,10 +848,30 @@ impl State {
         let structure_before = StructuralSnapshot::capture(&self.ui, &self.mixer);
         let bpm_before = self.ui.bpm;
         let quantization_before = self.ui.quantization;
+        let stream_status = (0..4).filter_map(|index| {
+            let stats = self.decoders[index].audvis_stream_stats();
+            let active = matches!(self.mixer.deck(DeckId::ALL[index]).state,
+                DeckState::Live(ref config) if config.device.backend == "audvis-stream");
+            active.then(|| if stats.connected {
+                let age = stats.last_frame.map_or_else(|| "no frames".to_owned(), |frame|
+                    format!("{:.0} ms age", frame.elapsed().as_secs_f64() * 1000.0));
+                format!("AudVis Deck {} connected · {} × {} · {} received · {} dropped · {} sequence gaps · {}",
+                    DeckId::ALL[index].label(), stats.width, stats.height, stats.received,
+                    stats.dropped_frames, stats.sequence_gaps, age)
+            } else {
+                format!("AudVis Deck {} waiting for sender · {} frames dropped · {} sequence gaps",
+                    DeckId::ALL[index].label(), stats.dropped_frames, stats.sequence_gaps)
+            })
+        }).collect::<Vec<_>>();
+        let camera_status = if stream_status.is_empty() {
+            self.camera_status.clone()
+        } else {
+            format!("{} · {}", self.camera_status, stream_status.join(" · "))
+        };
         let mut actions = Vec::new();
         let output = ctx.run_ui(raw_input, |ui| {
             actions = ui::draw(
-                ui.ctx(),
+                ui,
                 &mut self.ui,
                 &mut self.mixer,
                 &mut self.clips,
@@ -866,7 +899,7 @@ impl State {
                     session_recovery_status: &self.session_recovery_status,
                     project_takes: &self.project_takes,
                     cameras: &self.cameras,
-                    camera_status: &self.camera_status,
+                    camera_status: &camera_status,
                     camera_recordings: std::array::from_fn(|index| {
                         self.camera_recordings[index].as_ref().map_or(
                             ui::CameraRecordingStatus::default(),

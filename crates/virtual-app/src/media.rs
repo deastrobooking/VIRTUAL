@@ -6,7 +6,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use virtual_core::MediaTime;
 use virtual_generate::GeneratorSettings;
 use virtual_media::{
-    CLIPS_PER_DECK, CameraConfig, CameraRecorder, ClipAddress, ClipRestoreRequest, DeckId,
+    CLIPS_PER_DECK, CameraConfig, CameraDevice, CameraRecorder, ClipAddress, ClipRestoreRequest, DeckId,
     DeckState, FolderScanRequest, SubmitError, ThumbnailRequest, VideoFramePayload,
     discover_cameras,
 };
@@ -575,6 +575,31 @@ impl State {
         self.transports[deck.index()].end_mode = virtual_media::EndMode::OneShot;
         self.decoders[deck.index()].connect_camera(config, generation);
         self.camera_status = format!("Connecting Deck {}…", deck.label());
+    }
+
+    pub(crate) fn connect_audvis_stream(&mut self, deck: DeckId, port: u16) {
+        self.stop_camera_recording(deck);
+        self.master_effect_processor.reset_history();
+        self.clips.remember_position(deck, self.transports[deck.index()].position);
+        self.launches.cancel(deck);
+        self.clips.deactivate(deck);
+        let config = CameraConfig {
+            device: CameraDevice {
+                id: format!("audvis-stream:{port}"),
+                label: "AudVis viewport stream".to_owned(),
+                backend: "audvis-stream".to_owned(),
+            },
+            requested_extent: None,
+            requested_fps: None,
+            fps_denominator: 1,
+            pixel_format: virtual_media::CapturePixelFormat::Auto,
+        };
+        let generation = self.mixer.connect_camera(deck, config.clone());
+        self.live_configs[deck.index()] = Some(config);
+        self.reset_playback(deck, generation);
+        self.transports[deck.index()].end_mode = virtual_media::EndMode::OneShot;
+        self.decoders[deck.index()].connect_audvis_stream(port, generation);
+        self.camera_status = format!("Listening for AudVis on 127.0.0.1:{port} (Deck {})", deck.label());
     }
 
     /// Puts a procedural source on `deck`. Like a camera, it replaces the

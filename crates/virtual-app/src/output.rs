@@ -189,6 +189,14 @@ impl State {
                 return false;
             }
             self.program = ProgramTarget::new(&self.gpu.device, self.ui.composition_extent);
+            if let Some(id) = self.ui.program_texture {
+                self.egui_renderer.update_egui_texture_from_wgpu_texture(
+                    &self.gpu.device,
+                    &self.program.ui_view(),
+                    wgpu::FilterMode::Linear,
+                    id,
+                );
+            }
             self.compositor
                 .set_output_extent(&self.gpu.device, self.ui.composition_extent);
             self.master_effect_processor =

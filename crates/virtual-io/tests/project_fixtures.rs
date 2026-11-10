@@ -324,3 +324,20 @@ fn v6_golden_project_preserves_packages_modulation_and_clock_rig() {
     assert_eq!(load_project(&path).unwrap(), project);
     fs::remove_file(path).unwrap();
 }
+
+#[test]
+fn v7_sequence_round_trips_and_v6_defaults_to_empty_arrangement() {
+    let legacy = load_project(fixture_path("tests/fixtures/project-v6.virtual")).unwrap();
+    assert!(legacy.sequence.clips.is_empty());
+    let project = load_project(fixture_path("tests/fixtures/project-v7.virtual")).unwrap();
+    assert_eq!(project.version, PROJECT_VERSION);
+    assert_eq!(project.sequence.clips[0].source_in, 15);
+    assert_eq!(project.sequence.markers[0].name, "Opening cue");
+    let path = std::env::temp_dir().join(format!(
+        "virtual-v7-{}.virtual",
+        virtual_io::new_project_id()
+    ));
+    save_project_atomic(&path, &project).unwrap();
+    assert_eq!(load_project(&path).unwrap(), project);
+    fs::remove_file(path).unwrap();
+}

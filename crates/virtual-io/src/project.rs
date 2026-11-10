@@ -14,7 +14,7 @@ use virtual_graph::ProjectGraph;
 pub const PROJECT_FORMAT: &str = "virtual-project";
 /// Pre-rename identity. Still read; never written.
 pub const LEGACY_PROJECT_FORMAT: &str = "oneiroi-project";
-pub const PROJECT_VERSION: u32 = 6;
+pub const PROJECT_VERSION: u32 = 7;
 /// Three LFOs, five audio sources, beat, bar, then eight spectrum bands.
 pub const MODULATION_SOURCES: usize = 10 + SPECTRUM_BANDS;
 /// Enabled, rate, depth, phase and offset.
@@ -37,6 +37,8 @@ pub struct ProjectFile {
     pub graph: Option<ProjectGraph>,
     #[serde(default)]
     pub random_seeds: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    pub sequence: virtual_core::sequence::ShowSequence,
     pub settings: ProjectSettings,
     pub decks: Vec<DeckProject>,
     #[serde(default)]
@@ -54,6 +56,7 @@ impl Default for ProjectFile {
             takes: Vec::new(),
             graph: None,
             random_seeds: std::collections::BTreeMap::new(),
+            sequence: Default::default(),
             settings: ProjectSettings::default(),
             decks: (0..DECK_COUNT)
                 .map(|index| DeckProject {
@@ -73,6 +76,9 @@ impl Default for ProjectFile {
 
 impl ProjectFile {
     pub fn validate(&self) -> Result<(), ProjectError> {
+        self.sequence
+            .validate()
+            .map_err(|e| ProjectError::InvalidValue(e.into()))?;
         if self.format != PROJECT_FORMAT && self.format != LEGACY_PROJECT_FORMAT {
             return Err(ProjectError::WrongFormat(self.format.clone()));
         }

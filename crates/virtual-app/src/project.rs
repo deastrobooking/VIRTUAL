@@ -45,6 +45,7 @@ pub fn snapshot(
     session: ProjectSessionMetadata<'_>,
 ) -> ProjectFile {
     ProjectFile {
+        sequence: ui.sequence.clone(),
         project_id: session.project_id.to_owned(),
         takes: session.takes,
         graph: Some(session.graph),
@@ -353,6 +354,8 @@ fn semantic(mut project: ProjectFile) -> ProjectFile {
 }
 
 pub fn apply_master(project: &ProjectFile, ui: &mut UiState) {
+    ui.sequence = project.sequence.clone();
+    ui.session_editor = Default::default();
     ui.bpm = project.settings.bpm;
     ui.quantization = quantization_from_project(project.settings.quantization);
     ui.crossfader = project.settings.crossfader;

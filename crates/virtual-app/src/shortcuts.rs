@@ -5,7 +5,9 @@ use winit::keyboard::{KeyCode, ModifiersState};
 pub(crate) fn allowed(code: KeyCode, modifiers: ModifiersState, editing: bool) -> bool {
     let command = modifiers.control_key() || modifiers.super_key();
     if command && !modifiers.alt_key() {
-        return matches!(code, KeyCode::KeyS) || (code == KeyCode::KeyO && !modifiers.shift_key());
+        return code == KeyCode::KeyS
+            || (code == KeyCode::KeyZ && !editing)
+            || (code == KeyCode::KeyO && !modifiers.shift_key());
     }
     !editing && modifiers.is_empty()
 }
@@ -42,6 +44,12 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn timeline_undo_leaves_text_editing_alone() {
+        assert!(!allowed(KeyCode::KeyZ, ModifiersState::SUPER, true));
+        assert!(allowed(KeyCode::KeyZ, ModifiersState::SUPER, false));
     }
 
     #[test]

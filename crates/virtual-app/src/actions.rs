@@ -87,6 +87,7 @@ impl State {
                     let generation = self.mixer.deck(deck).generation;
                     self.reset_playback(deck, generation);
                 }
+                ui::UiAction::ExportSequence => self.export_sequence(),
                 ui::UiAction::SaveProject => self.save_project_from_ui(),
                 ui::UiAction::SaveProjectAs => self.save_project_as_dialog(),
                 ui::UiAction::OpenProject => self.open_project_from_ui(),
@@ -261,6 +262,9 @@ impl State {
                     );
                     self.connect_camera(deck, config);
                 }
+                ui::UiAction::ConnectAudvisStream { deck, port } => {
+                    self.connect_audvis_stream(deck, port);
+                }
                 ui::UiAction::ConnectGenerator { deck, settings } => {
                     self.record_show_operation(
                         CommandOrigin::Operator,
@@ -294,7 +298,7 @@ impl ui::UiAction {
             | Self::MidiCancelLearn | Self::MidiClockContinue
             | Self::SetOutputEnabled(true)
             // Live video switching and recording are intentional performance controls.
-            | Self::RefreshCameras | Self::ConnectCamera { .. } | Self::ConnectGenerator { .. }
+            | Self::RefreshCameras | Self::ConnectCamera { .. } | Self::ConnectAudvisStream { .. } | Self::ConnectGenerator { .. }
             | Self::StartCameraRecording(_) | Self::StopCameraRecording(_)
         )
     }
