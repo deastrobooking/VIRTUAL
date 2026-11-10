@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use virtual_core::MediaTime;
 
-use crate::{FrameBufferPool, RgbaFrame};
+use crate::{FrameBufferPool, FrameData, RgbaFrame};
 
 const HEADER_BYTES: usize = 36;
 const MAX_WIDTH: u32 = 3840;
@@ -35,7 +35,7 @@ pub struct AudvisStreamReceiver {
     stream: Option<TcpStream>,
     header: [u8; HEADER_BYTES],
     header_read: usize,
-    payload: Vec<u8>,
+    payload: Option<FrameData>,
     payload_read: usize,
     frame: Option<(u32, u32, u64, u64, usize)>,
     first_timestamp: Option<u64>,
@@ -52,7 +52,7 @@ impl AudvisStreamReceiver {
             stream: None,
             header: [0; HEADER_BYTES],
             header_read: 0,
-            payload: Vec::new(),
+            payload: None,
             payload_read: 0,
             frame: None,
             first_timestamp: None,
@@ -93,7 +93,7 @@ impl AudvisStreamReceiver {
                     Ok(true) => self.frame = Some(validate_header(&self.header)?),
                 }
                 let (_, _, _, _, length) = self.frame.expect("validated frame header");
-                self.payload = vec![0; length];
+                self.payload = Some(pool.acquire(length));
                 self.payload_read = 0;
             }
             match self.read_payload() {
@@ -125,12 +125,12 @@ impl AudvisStreamReceiver {
                         stats.height = height;
                         stats.last_frame = Some(Instant::now());
                     }
-                    let mut data = pool.acquire(self.payload.len());
-                    data.copy_from_slice(&self.payload);
-                    self.payload.clear();
                     self.payload_read = 0;
                     return Ok(Some(AudvisFrame {
-                        pixels: RgbaFrame { extent: [width, height], data },
+                        pixels: RgbaFrame {
+                            extent: [width, height],
+                            data: self.payload.take().expect("completed frame buffer"),
+                        },
                         pts,
                         sequence,
                     }));
@@ -146,14 +146,15 @@ impl AudvisStreamReceiver {
 
     fn read_payload(&mut self) -> io::Result<bool> {
         let Some(stream) = self.stream.as_mut() else { return Ok(false); };
-        read_part(stream, &mut self.payload, &mut self.payload_read)
+        let Some(payload) = self.payload.as_mut() else { return Ok(false); };
+        read_part(stream, payload, &mut self.payload_read)
     }
 
     fn disconnected(&mut self) {
         self.stream = None;
         if let Ok(mut stats) = self.stats.lock() { stats.connected = false; }
         self.header_read = 0;
-        self.payload.clear();
+        self.payload = None;
         self.payload_read = 0;
         self.frame = None;
         self.first_timestamp = None;

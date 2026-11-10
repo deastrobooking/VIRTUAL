@@ -33,12 +33,13 @@ feedback is best-effort, with no exactly-once guarantee or heartbeat.
 The bridge is localhost-only and session-only. Port settings and snapshot
 assignments persist in the `.blend`; loading a file requires reconnecting.
 
-This milestone does not transport Blender video. VIRTUAL's NDI implementation
-sends the finished program; receiving Blender frames requires a separate source
-adapter. A future milestone should prototype frame transport, then add execution-
-time cue messages and shared macro identities before coordinated show saving.
+The OSC bridge carries control messages only. VIRTUAL's NDI implementation
+sends the finished program and is separate from Blender video input. The direct
+video-source prototype and its AudVis Output Image integration plan are covered
+in [AudVis video input for VIRTUAL](AUDVIS_VIDEO_INPUT.md). Execution-time cue
+messages and shared macro identities remain later coordination work.
 
 For the direct video-source proposal and AudVis fork study, see
 [AudVis video input for VIRTUAL](AUDVIS_VIDEO_INPUT.md). The proposed route
-captures the Blender viewport in AudVis and feeds it to a VIRTUAL deck over a
-localhost-only stream, without OBS.
+streams the image selected by AudVis's existing **Output Image** selector to a
+VIRTUAL deck over a localhost-only connection, without OBS.
