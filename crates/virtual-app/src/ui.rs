@@ -55,8 +55,18 @@ use virtual_render::{
     SPECTRUM_SOURCE_OFFSET, SourceMode,
 };
 
+/// Session-only operator workspace; Show Mode always uses Performance.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum Workspace {
+    #[default]
+    Performance,
+    Audio,
+    Setup,
+}
+
 /// Everything the overlay owns. All plain data — no GPU handles, no channels.
 pub struct UiState {
+    workspace: Workspace,
     pub master_opacity: f32,
     pub blackout: bool,
     pub master_freeze: bool,
@@ -168,6 +178,7 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            workspace: Workspace::default(),
             master_opacity: 1.0,
             blackout: false,
             master_freeze: false,
@@ -898,18 +909,95 @@ pub fn draw(
         .show(ctx, |ui| {
     let midi_map = buttons::current_map().expect("buttons::begin_frame runs first");
             draw_toolbar(ui, state, clips, &metrics, palette, &midi_map, &mut actions);
+            if state.show_mode {
+                state.workspace = Workspace::Performance;
+            }
+            ui.horizontal(|ui| {
+                ui.selectable_value(&mut state.workspace, Workspace::Performance, "Performance");
+                if !state.show_mode {
+                    ui.selectable_value(&mut state.workspace, Workspace::Audio, "Audio");
+                    ui.selectable_value(&mut state.workspace, Workspace::Setup, "Setup / Connections");
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("A");
+                mappable(ui, &midi_map, ControlTarget::Crossfader, &mut actions, |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut state.crossfader, 0.0..=1.0)
+                            .text("crossfader")
+                            .clamping(egui::SliderClamping::Always),
+                    )
+                });
+                ui.label("B");
+                buttons::midi_toggle(
+                    ui,
+                    "mixer.equal_power",
+                    "Mixer · Equal power",
+                    &mut state.equal_power,
+                    |ui, value| ui.checkbox(value, "equal power"),
+                );
+                if buttons::midi_button(ui, "mixer.center", "Mixer · Center crossfader", |ui| {
+                    ui.button("Center")
+                })
+                .clicked()
+                {
+                    state.crossfader = 0.5;
+                }
+            });
+            draw_layer_order(ui, state, &palette, &midi_map, &mut actions, false);
+            ui.horizontal(|ui| {
+                mappable(ui, &midi_map, ControlTarget::MasterOpacity, &mut actions, |ui| {
+                    ui.add(
+                        egui::Slider::new(&mut state.master_opacity, 0.0..=1.0)
+                            .text("master")
+                            .clamping(egui::SliderClamping::Always),
+                    )
+                });
+                let blackout = mappable(
+                    ui,
+                    &midi_map,
+                    ControlTarget::MasterBlackout,
+                    &mut actions,
+                    |ui| ui.selectable_label(state.blackout, "BLACKOUT"),
+                );
+                if blackout.clicked() {
+                    state.blackout = !state.blackout;
+                }
+                mappable(
+                    ui,
+                    &midi_map,
+                    ControlTarget::MasterFreeze,
+                    &mut actions,
+                    |ui| ui.checkbox(&mut state.master_freeze, "master freeze"),
+                );
+            });
             egui::ScrollArea::both()
                 .id_salt("performance-editor")
                 .auto_shrink([false, false])
                 .max_height(ui.available_height())
                 .show(ui, |ui| {
             ui.separator();
-            // Everything an operator sets up before the show - output,
-            // project, devices, diagnostics - lives in one collapsible
-            // region with its own scrollbar, so on a small screen it can
-            // be scrolled through or folded away entirely while the
-            // performance surface below keeps the space.
-            draw_setup(ui, state, mixer, &midi_map, &mut actions, &mut metrics);
+            if state.workspace == Workspace::Setup {
+                ui.heading("Setup / Connections");
+                ui.weak("AudVis bridge: OSC input 127.0.0.1:9000; feedback target 127.0.0.1:9001.");
+                draw_setup(ui, state, mixer, &midi_map, &mut actions, &mut metrics);
+                return;
+            }
+            if state.workspace == Workspace::Audio {
+                audio::draw_audio_panel(
+                    ui, state,
+                    audio::AudioPanelContext {
+                        inputs: metrics.audio_inputs,
+                        status: metrics.audio_status,
+                        connected: metrics.audio_connected,
+                        snapshot: metrics.audio_snapshot,
+                        visual: metrics.audio_visual,
+                        palette,
+                    },
+                    &mut actions,
+                );
+                return;
+            }
             draw_clip_grid(
                 ui,
                 state,
@@ -921,21 +1009,6 @@ pub fn draw(
                     cameras: metrics.cameras,
                     camera_status: metrics.camera_status,
                     camera_recordings: metrics.camera_recordings,
-                },
-                &mut actions,
-            );
-
-            ui.separator();
-            audio::draw_audio_panel(
-                ui,
-                state,
-                audio::AudioPanelContext {
-                    inputs: metrics.audio_inputs,
-                    status: metrics.audio_status,
-                    connected: metrics.audio_connected,
-                    snapshot: metrics.audio_snapshot,
-                    visual: metrics.audio_visual,
-                    palette,
                 },
                 &mut actions,
             );
@@ -1048,58 +1121,6 @@ pub fn draw(
             }
 
             ui.separator();
-            ui.horizontal(|ui| {
-                ui.label("A");
-                mappable(ui, &midi_map, ControlTarget::Crossfader, &mut actions, |ui| {
-                    ui.add(
-                        egui::Slider::new(&mut state.crossfader, 0.0..=1.0)
-                            .text("crossfader")
-                            .clamping(egui::SliderClamping::Always),
-                    )
-                });
-                ui.label("B");
-                buttons::midi_toggle(
-                    ui,
-                    "mixer.equal_power",
-                    "Mixer · Equal power",
-                    &mut state.equal_power,
-                    |ui, value| ui.checkbox(value, "equal power"),
-                );
-                if buttons::midi_button(ui, "mixer.center", "Mixer · Center crossfader", |ui| {
-                    ui.button("Center")
-                })
-                .clicked()
-                {
-                    state.crossfader = 0.5;
-                }
-            });
-            draw_layer_order(ui, state, &palette, &midi_map, &mut actions, false);
-            ui.horizontal(|ui| {
-                mappable(ui, &midi_map, ControlTarget::MasterOpacity, &mut actions, |ui| {
-                    ui.add(
-                        egui::Slider::new(&mut state.master_opacity, 0.0..=1.0)
-                            .text("master")
-                            .clamping(egui::SliderClamping::Always),
-                    )
-                });
-                let blackout = mappable(
-                    ui,
-                    &midi_map,
-                    ControlTarget::MasterBlackout,
-                    &mut actions,
-                    |ui| ui.selectable_label(state.blackout, "BLACKOUT"),
-                );
-                if blackout.clicked() {
-                    state.blackout = !state.blackout;
-                }
-                mappable(
-                    ui,
-                    &midi_map,
-                    ControlTarget::MasterFreeze,
-                    &mut actions,
-                    |ui| ui.checkbox(&mut state.master_freeze, "master freeze"),
-                );
-            });
             if !state.show_mode {
                 egui::CollapsingHeader::new("Master effects")
                 .default_open(false)

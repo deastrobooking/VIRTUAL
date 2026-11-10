@@ -368,3 +368,8 @@ clips run at 24/25/30fps.
 
 - Whether ffmpeg is vendored and statically linked, and the LGPL consequences
   for distribution.
+
+## AudVis integration
+
+See [AudVis bridge and operator workspaces](docs/AUDVIS_BRIDGE.md) for the
+local Blender control bridge and Performance, Audio and Setup views.

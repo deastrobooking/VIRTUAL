@@ -1,5 +1,12 @@
 # VIRTUAL operator guide
 
+The editor opens in **Performance**. Use **Audio** for audio analysis and
+mapping, or **Setup / Connections** for project, device, output and OSC setup.
+These views are session-only. Show Mode returns to Performance. Master opacity,
+blackout, freeze and the A/B crossfader remain above the scrolling editor in
+every view. See [AudVis bridge and operator workspaces](AUDVIS_BRIDGE.md) for
+connecting Blender's VIRTUAL Bridge panel.
+
 ## Session journal
 
 Every app run records its supported performance commands under
@@ -455,7 +462,7 @@ The matrix has eight routes per deck:
 
 ## Audio-reactive modulation
 
-Open the **AUDIO SPECTRUM** strip below the clip grid. Choose an input (the
+In **Audio**, expand **AUDIO SPECTRUM**. Choose an input (the
 built-in microphone or any audio interface) and click **Connect**. On macOS,
 grant microphone/audio-input permission if prompted. For a multi-channel
 interface, pick one channel or **All channels (mono mix)**; changing the

@@ -341,7 +341,7 @@ pub(super) fn draw_setup(
                     );
                 });
             super::video_input::draw_video_input(ui, state, mixer.selected(), metrics.cameras, metrics.camera_status, actions);
-            ui.weak("Audio input, the 8-band spectrum and band mappings are in the AUDIO SPECTRUM strip below the clip grid.");
+            ui.weak("Audio input, the 8-band spectrum and band mappings are in the Audio view.");
             draw_midi(ui, state, &mut metrics.midi, actions);
             egui::CollapsingHeader::new("OSC input")
                 .default_open(false)
