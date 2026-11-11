@@ -11,11 +11,11 @@ the hardware rehearsal behind a release, see the
 |---|---|
 | Rust 1.95 or newer (`rust-version` in `Cargo.toml`) | Edition 2024 workspace |
 | Xcode Command Line Tools | `clang` for the vendored HAP decoder; `otool`, `install_name_tool`, `codesign` and `plutil` for packaging |
-| Homebrew `ffmpeg` (8.x) | `ffmpeg-next` links libavformat/libavcodec/libswscale/libavdevice dynamically |
+| Homebrew `ffmpeg@8` | `ffmpeg-next` links libavformat/libavcodec/libswscale/libavdevice dynamically |
 
 ```sh
 xcode-select --install
-brew install ffmpeg
+brew install ffmpeg@8
 ```
 
 VIRTUAL targets macOS. The core, graph, HAP, I/O and render crates build

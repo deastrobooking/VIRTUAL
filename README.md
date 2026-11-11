@@ -13,7 +13,7 @@ See [Link setup and validation](docs/ABLETON_LINK.md).
 For the local macOS event build, run `sh scripts/build-macos.sh` and open
 `target/release/VIRTUAL.app`. See [event setup](docs/EVENT_SETUP.md) for projector,
 sound-reactive modulation, tap tempo and HDMI capture. This bundle uses the
-FFmpeg libraries installed on the build Mac. `sh scripts/build-macos.sh --portable`
+Homebrew FFmpeg 8 libraries installed on the build Mac. `sh scripts/build-macos.sh --portable`
 instead copies FFmpeg and its dependencies into the bundle so it runs on Macs
 without Homebrew (macOS 26 or later, matching the Homebrew libraries). Both are
 ad-hoc signed, not notarized.

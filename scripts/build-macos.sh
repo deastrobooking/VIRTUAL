@@ -15,6 +15,36 @@ if [ "$(uname -s)" != Darwin ]; then
     echo "This packaging command requires macOS." >&2
     exit 1
 fi
+
+# ffmpeg-next 8.1 is built against FFmpeg 8 headers. Prefer the keg-only
+# Homebrew formula when it is installed, even if Homebrew's unversioned ffmpeg
+# now points at a newer major version.
+if command -v brew >/dev/null 2>&1; then
+    brew_ffmpeg8_prefix=$(brew --prefix ffmpeg@8 2>/dev/null || true)
+    if [ -d "$brew_ffmpeg8_prefix/lib/pkgconfig" ]; then
+        PKG_CONFIG_PATH="$brew_ffmpeg8_prefix/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+        export PKG_CONFIG_PATH
+    fi
+
+    # Some Command Line Tools installations omit the C++ standard-library
+    # headers expected by rusty_link. Use Homebrew Clang when it is present;
+    # respect explicit compiler choices from the caller.
+    brew_llvm_prefix=$(brew --prefix llvm 2>/dev/null || true)
+    if [ -x "$brew_llvm_prefix/bin/clang" ] && [ -z "${CC:-}" ]; then
+        CC="$brew_llvm_prefix/bin/clang"
+        export CC
+    fi
+    if [ -x "$brew_llvm_prefix/bin/clang++" ] && [ -z "${CXX:-}" ]; then
+        CXX="$brew_llvm_prefix/bin/clang++"
+        export CXX
+    fi
+fi
+
+if [ -z "${SDKROOT:-}" ] && command -v xcrun >/dev/null 2>&1; then
+    SDKROOT=$(xcrun --show-sdk-path)
+    export SDKROOT
+fi
+
 portable=false
 for argument in "$@"; do
     case "$argument" in
