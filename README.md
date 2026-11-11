@@ -319,10 +319,10 @@ Terminal during development). Use **Manual input / custom size** for a device
 name/index or a non-preset resolution. See [video inputs](docs/VIDEO_INPUTS.md)
 for setup and troubleshooting.
 
-To receive an AudVis Blender viewport, choose **AudVis stream** in the same
-video input controls, click **Listen** on port `9010`, then start **VIRTUAL
-Viewport Stream** from Blender's target 3D Viewport. See [video inputs](docs/VIDEO_INPUTS.md)
-for the provisional localhost protocol and limits.
+To receive AudVis's selected **Output Image**, choose **AudVis stream** in the
+same video input controls, click **Listen** on port `9010`, then start **Send
+Output Image** in Blender's VIRTUAL Video Stream panel. See
+[video inputs](docs/VIDEO_INPUTS.md) for the provisional localhost protocol and limits.
 
 ## Documentation
 

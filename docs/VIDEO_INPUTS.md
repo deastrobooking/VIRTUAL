@@ -6,11 +6,12 @@ The input can use deck effects, blending, freeze and camera-to-clip recording.
 Video inputs are live and cannot seek. Embedded capture-card audio is not
 decoded by this path; select an audio-analysis input separately.
 
-## AudVis viewport stream
+## AudVis Output Image stream
 
 Choose **AudVis stream** in the deck's video input controls, keep port `9010`,
-and click **Listen**. In Blender, start **VIRTUAL Viewport Stream** from the
-target 3D Viewport. The listener is loopback-only and starts only when selected;
+and click **Listen**. In Blender, select an image in Video Capture's **Output
+Image** field and start **Send Output Image** from the VIRTUAL Video Stream
+panel. The listener is loopback-only and starts only when selected;
 the port and active source are not saved in the project. VIRTUAL displays
 connection state, current frame dimensions, received frames and sequence gaps.
 

@@ -99,15 +99,15 @@ active for every scene by default.
 
 ## Prototype implementation status
 
-The current AudVis prototype has a session-only viewport sender, while VIRTUAL
-has a loopback TCP listener connected to the deck live-frame path. Both use the
-provisional v1 header above. The sender moves blocking socket writes to a worker
-but reads the active framebuffer in a `POST_PIXEL` draw callback. That does not
-follow the selected **Output Image** path and should be replaced with a sender
-fed by `scene.audvis.video_image`. VIRTUAL validates the header and dimensions
-before allocation, reads on its deck worker, uses the shared frame pool, and
-reports received dimensions/count, sender sequence gaps, local scheduler drops
-and time since the last complete frame arrived.
+AudVis now offers an Output Image sender hooked to its normal video-image
+refresh and a no-network image-copy measurement mode; the earlier viewport
+sender remains an explicit alternate. VIRTUAL has a loopback TCP listener
+connected to the deck live-frame path. Both use the provisional v1 header. The
+sender copies the selected `scene.audvis.video_image` pixels on Blender's main
+thread and moves socket writes to a worker. VIRTUAL validates the header and
+dimensions before allocation, reads on its deck worker, uses the shared frame
+pool, and reports received dimensions/count, sender sequence gaps, local
+scheduler drops and time since the last complete frame arrived.
 
 The protocol is still provisional. Selected-image freshness, channel order,
 color handling and 720p/1080p sustained copy cost have not been verified in an
@@ -117,8 +117,8 @@ latency and stability checks.
 
 ## Delivery order
 
-1. Replace the viewport framebuffer callback with a sender fed by the existing
-   AudVis Output Image selector; measure image-copy cost without networking.
+1. Measure AudVis Output Image pixel freshness and image-copy cost without
+   networking at 720p/30 and 1080p/30.
 2. Keep the VIRTUAL loopback listener and bounded frame source; first use a
    tiny standalone sender to validate framing, reconnect, resolution changes,
    malformed lengths, and backpressure.
